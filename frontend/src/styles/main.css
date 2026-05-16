@@ -29,8 +29,11 @@
   /* Accent — golden yellow #FFBC42 */
   --accent:        #ffbc42;
   --accent-strong: #ffc958;
+  --accent-press:  #e6a830;             /* :active state of accent buttons */
+  --accent-edge:   #8a6720;             /* dim amber hairline */
   --accent-soft:   rgba(255, 188, 66, 0.12);
   --accent-line:   rgba(255, 188, 66, 0.30);
+  --on-accent:     #0b0d16;             /* text colour on amber buttons */
 
   /* Section accents — used by the panel-header icon chip to give each
      domain (spectrum, pointing, etc.) a visual signature so the eye can
@@ -167,6 +170,7 @@ input:focus-visible {
 }
 
 .topbar-lease {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -178,6 +182,15 @@ input:focus-visible {
   font-size: 12px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  appearance: none;
+}
+
+.topbar-lease:hover,
+.topbar-lease:focus-visible,
+.topbar-lease-open {
+  border-color: var(--hairline-strong);
+  color: var(--fg);
 }
 
 .topbar-lease-label {
@@ -194,6 +207,40 @@ input:focus-visible {
 
 .topbar-lease-idle {
   color: #c97a00;
+}
+
+.topbar-lease-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(280px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  color: var(--fg-muted);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  font-variant-numeric: normal;
+  line-height: 1.45;
+  text-align: left;
+  z-index: 120;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.topbar-lease-popover strong {
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.topbar-lease:hover .topbar-lease-popover,
+.topbar-lease:focus-visible .topbar-lease-popover,
+.topbar-lease-open .topbar-lease-popover {
+  display: flex;
 }
 
 .brand-text {
@@ -309,7 +356,7 @@ input:focus-visible {
 .rt-tour-popover .driver-popover-footer button.driver-popover-next-btn {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b0d16;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .rt-tour-popover .driver-popover-footer button.driver-popover-prev-btn:hover {
@@ -346,7 +393,7 @@ input:focus-visible {
 .rt-tour-popover .driver-popover-footer button.rt-tour-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b0d16;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .rt-tour-popover .driver-popover-footer button.rt-tour-btn-primary:hover {
@@ -843,7 +890,7 @@ input:focus-visible {
 .spectrum-guided-cta:hover:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b0d16;
+  color: var(--on-accent);
 }
 .spectrum-guided-cta:disabled {
   opacity: 0.5;
@@ -1392,7 +1439,7 @@ h2.panel-header {
   margin-left: -9px;
   border-radius: 2px;
   background: var(--accent);
-  border: 1px solid #8a6720;
+  border: 1px solid var(--accent-edge);
   cursor: pointer;
 }
 .speed-fader input[type="range"]::-moz-range-track {
@@ -1405,7 +1452,7 @@ h2.panel-header {
   height: 10px;
   border-radius: 2px;
   background: var(--accent);
-  border: 1px solid #8a6720;
+  border: 1px solid var(--accent-edge);
   cursor: pointer;
 }
 
@@ -1559,11 +1606,11 @@ h2.panel-header {
   padding: 0 18px;
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b0d16;
+  color: var(--on-accent);
   font-weight: 600;
 }
-.action-button:hover  { background: var(--accent-strong); border-color: var(--accent-strong); color: #0b0d16; }
-.action-button:active { background: #e6a830; border-color: #e6a830; }
+.action-button:hover  { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--on-accent); }
+.action-button:active { background: var(--accent-press); border-color: var(--accent-press); }
 
 /* Homing bar */
 .homing-active {
@@ -2033,6 +2080,53 @@ h2.panel-header {
   flex: 0 0 auto;
 }
 
+/* ─── Mobile fullscreen button (bottom-left of Aladin) ───────────────────── */
+
+.skymap-mobile-fullscreen-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  background: rgba(11, 13, 22, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--fg-muted);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  pointer-events: auto;
+  transition: color 0.15s, border-color 0.15s;
+}
+.skymap-mobile-fullscreen-btn:hover {
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Fullscreen styles for the sky map panel */
+.skymap-panel:fullscreen {
+  display: flex;
+  flex-direction: column;
+  background: #020306;
+  border-radius: 0;
+  border: none;
+  padding: 0;
+  height: 100dvh;
+  width: 100vw;
+}
+.skymap-panel:fullscreen .skymap-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+.skymap-panel:fullscreen .skymap-aladin {
+  border-radius: 0;
+}
+.skymap-panel:fullscreen .skymap-mobile-fullscreen-btn {
+  display: inline-flex;
+}
+
 /* ─── Sky map loading ─────────────────────────────────────────────────────── */
 
 .skymap-loading {
@@ -2206,6 +2300,38 @@ h2.panel-header {
 .val-warn { color: var(--warn) !important; }
 .val-crit { color: var(--crit) !important; }
 
+.lna-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.lna-status-on {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+.lna-status-off,
+.lna-status-unknown {
+  color: var(--fg-muted);
+}
+.lna-status-fault {
+  border-color: color-mix(in srgb, var(--crit) 45%, transparent);
+  background: color-mix(in srgb, var(--crit) 14%, transparent);
+  color: var(--crit);
+}
+
 /* =========================================================================
    Queue / spectator landing page
    ========================================================================= */
@@ -2242,7 +2368,8 @@ h2.panel-header {
 
 .cf-turnstile { min-height: 65px; }
 
-/* Captcha popup */
+/* Captcha modal — overlaid on the in-queue waiting page so the blurred
+   background is the real queue UI, not an empty landing card. */
 
 .captcha-modal-overlay {
   position: fixed;
@@ -2276,19 +2403,6 @@ h2.panel-header {
 }
 
 .captcha-modal-header h2 { margin: 0; font-size: 18px; }
-
-.captcha-modal-close {
-  background: none;
-  border: none;
-  color: var(--fg-muted);
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-  border-radius: var(--r-sm);
-}
-
-.captcha-modal-close:hover { color: var(--text-1); }
 
 .captcha-modal-body { margin: 0; font-size: 14px; color: var(--text-2); }
 
@@ -2382,17 +2496,195 @@ h2.panel-header {
 }
 
 /* =========================================================================
+   Hydrogen-line queue content
+   ========================================================================= */
+
+.h1-page { flex: 1; }
+
+/* Hero */
+.h1-hero {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--hairline);
+  padding: 52px 24px 44px;
+}
+
+.h1-hero-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.h1-eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+
+.h1-hero-title {
+  margin: 0 0 14px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--fg);
+}
+
+.h1-hero-sub {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--fg-muted);
+}
+
+.h1-hero-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Spin-flip section */
+.h1-spinflip {
+  border-bottom: 1px solid var(--hairline);
+  padding: 52px 24px;
+}
+
+.h1-spinflip-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 52px;
+  align-items: center;
+}
+
+.h1-spinflip-visual {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r-lg);
+  border: 1px dashed var(--hairline-strong);
+  background: var(--surface-1);
+}
+
+/* Doppler section */
+.h1-doppler {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--hairline);
+  padding: 52px 24px;
+}
+
+.h1-doppler-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1.25fr;
+  gap: 52px;
+  align-items: start;
+}
+
+.h1-doppler-text { padding-top: 4px; }
+
+/* Observation section */
+.h1-observe {
+  padding: 52px 24px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.h1-observe-inner {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.h1-observe-visual {
+  margin-top: 28px;
+  overflow-x: auto;
+}
+
+/* Shared typography */
+.h1-section-heading {
+  margin: 0 0 18px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+}
+
+.h1-section-body {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--fg-muted);
+}
+
+.h1-section-body:last-of-type { margin-bottom: 0; }
+
+/* SVG containers */
+.h1-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+}
+
+.h1-svg-wide { min-width: 500px; }
+
+.h1-visual-caption {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-subtle);
+  text-align: center;
+}
+
+/* Continue prompt */
+.h1-continue {
+  background: var(--surface-1);
+  border-top: 1px solid var(--hairline);
+  padding: 44px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.h1-continue-message {
+  margin: 0;
+  font-size: 15px;
+  color: var(--fg-muted);
+}
+
+/* Responsive */
+@media (max-width: 760px) {
+  .h1-hero-inner,
+  .h1-spinflip-inner,
+  .h1-doppler-inner { grid-template-columns: 1fr; }
+
+  .h1-hero-title { font-size: 26px; }
+
+  .h1-hero,
+  .h1-spinflip,
+  .h1-doppler,
+  .h1-observe { padding-left: 16px; padding-right: 16px; }
+}
+
+/* =========================================================================
    Responsive
    ========================================================================= */
 
 @media (max-width: 980px) {
   .topbar {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px 18px;
+    gap: 12px;
+    padding: 10px 16px;
   }
-  .topbar-status { flex-wrap: wrap; gap: 10px; }
+  .topbar-status { gap: 8px; }
 
   .dashboard {
     grid-template-columns: 1fr;
@@ -2403,13 +2695,21 @@ h2.panel-header {
     padding: 14px;
     gap: 0;
   }
-  .controls-panel, .skymap-panel { min-height: 500px; }
-  .dashboard-rightcol { height: auto; }
+  .controls-panel { min-height: 500px; }
+  /* Aladin gets a shorter fixed height on mobile; the spectrum below it sizes
+     naturally to its content and the page scrolls for the rest. */
   .skymap-panel {
+    min-height: 0;
+    height: 46svh;
     border-top-right-radius: var(--r-lg);
     border-right: 1px solid var(--hairline);
     border-bottom: 0;
   }
+  /* Restore auto-height right column — spectrum renders at its natural size. */
+  .dashboard-rightcol { height: auto; min-height: 0; }
+  .dashboard-rightcol .spectrum-panel-host { min-height: 380px; overflow: visible; }
+  .dashboard-rightcol .spectrum-panel-host .spectrum-chart-wrap { height: 340px; }
+  .skymap-mobile-fullscreen-btn { display: inline-flex; }
   .dashboard-rightcol > .panel:first-child {
     border-top-right-radius: 0;
   }
@@ -2427,7 +2727,10 @@ h2.panel-header {
 @media (max-width: 640px) {
   body { font-size: 15px; }
   .dashboard { padding: 10px; gap: 0; }
-  .topbar    { padding: 12px 14px; }
+  .topbar    { padding: 8px 12px; gap: 8px; }
+  .topbar .brand-logo { height: 28px; }
+  .topbar-lease-label { display: none; }
+  .topbar-time { display: none; }
   .panel     { padding: 14px 14px; }
   .skymap-toolbar {
     right: 10px;
@@ -2461,14 +2764,13 @@ h2.panel-header {
 
   .banner, .error-log summary, .error-log-body { padding-left: 14px; padding-right: 14px; }
 
-  /* Hide GoTo mode — mobile users jog or tap on Aladin */
-  .motion-mode { display: none; }
-  .target-form-overlay { display: none; }
+  /* Hide manual slew controls on mobile — tapping on Aladin is the
+     intended interaction. The "Slew" confirm button after a map tap
+     stays visible (it lives outside .skymap-overlay-controls). */
+  .skymap-overlay-controls { display: none; }
 
-  /* Survey switcher: only Hydrogen Line and optical (DSS2) on mobile */
-  .skymap-surveys-mobile .skymap-survey-btn:not(.hydrogen):not(.optical) {
-    display: none;
-  }
+  /* Slightly smaller aladin on narrow phones to leave more room for the spectrum. */
+  .skymap-panel { height: 40svh; }
 }
 
 /* ── Feedback dialog (@radix-ui/react-dialog) ────────────────────────── */
@@ -2525,7 +2827,7 @@ h2.panel-header {
 .feedback-btn-secondary:hover { color:var(--fg); border-color:var(--fg-subtle); }
 .feedback-btn-primary {
   display:inline-flex; align-items:center; gap:6px;
-  background:var(--accent); border:1px solid var(--accent); color:#0b0d16; font-weight:600;
+  background:var(--accent); border:1px solid var(--accent); color:var(--on-accent); font-weight:600;
 }
 .feedback-btn-primary:hover:not(:disabled) {
   background:var(--accent-strong); border-color:var(--accent-strong);
@@ -2611,7 +2913,7 @@ body.rt-baseline-pick .skymap-panel {
 .baseline-pick-popover .rt-tour-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b0d16;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .baseline-pick-popover .rt-tour-btn-primary:hover {
@@ -2667,7 +2969,7 @@ body.rt-baseline-pick .skymap-panel {
 .baseline-btn-primary {
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
   padding:8px 14px;
-  background:var(--accent); border:1px solid var(--accent); color:#0b0d16; font-weight:600;
+  background:var(--accent); border:1px solid var(--accent); color:var(--on-accent); font-weight:600;
   border-radius:var(--r-sm); cursor:pointer;
   transition:background var(--t-fast),border-color var(--t-fast);
 }
@@ -2815,7 +3117,7 @@ body.rt-baseline-pick .skymap-panel {
   background: var(--accent);
   border: 1px solid var(--accent);
   border-radius: var(--r-md);
-  color: #0b0d16;
+  color: var(--on-accent);
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;

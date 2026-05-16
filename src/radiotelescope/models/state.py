@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 ConnectionMode = Literal["serial", "simulated", "error"]
+LnaState = Literal["on", "off", "unknown", "fault"]
 ArgType = Literal["u8", "u16", "s16", "u32", "s32", "bool"]
 
 
@@ -50,6 +51,12 @@ class PollStats(BaseModel):
     target_hz: float
     actual_hz: float | None = None
     last_tick_age_s: float | None = None
+
+
+class LnaStatus(BaseModel):
+    state: LnaState = "unknown"
+    label: str = "Unknown"
+    detail: str | None = None
 
 
 class RoboClawTelemetry(BaseModel):
@@ -98,12 +105,24 @@ class CommandRequest(BaseModel):
     args: dict[str, int | bool] = Field(default_factory=dict)
 
 
-class AltAzRequest(BaseModel):
+class AltAzPoint(BaseModel):
     altitude_deg: float = Field(ge=0, le=90)
     azimuth_deg: float = Field(ge=0, le=360)
+
+
+class _MotionParams(BaseModel):
+    """Common optional motion overrides for goto requests.
+
+    Each field is optional so callers can rely on per-axis defaults resolved
+    from the controller's stored velocity-PID QPPS plus the mount config.
+    """
     speed_qpps: int | None = Field(default=None, ge=0)
     accel_qpps2: int | None = Field(default=None, ge=0)
     decel_qpps2: int | None = Field(default=None, ge=0)
+
+
+class AltAzRequest(AltAzPoint, _MotionParams):
+    pass
 
 
 class CommandResult(BaseModel):
@@ -111,11 +130,6 @@ class CommandResult(BaseModel):
     ok: bool
     response: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
-
-
-class AltAzPoint(BaseModel):
-    altitude_deg: float = Field(ge=0, le=90)
-    azimuth_deg: float = Field(ge=0, le=360)
 
 
 class TelescopeConfig(BaseModel):
@@ -128,12 +142,9 @@ class TelescopeConfig(BaseModel):
     pointing_limit_altaz: list[AltAzPoint] = Field(default_factory=list)
 
 
-class RaDecRequest(BaseModel):
+class RaDecRequest(_MotionParams):
     ra_deg: float = Field(ge=0, lt=360)
     dec_deg: float = Field(ge=-90, le=90)
-    speed_qpps: int | None = Field(default=None, ge=0)
-    accel_qpps2: int | None = Field(default=None, ge=0)
-    decel_qpps2: int | None = Field(default=None, ge=0)
 
 
 class SkyOverlay(BaseModel):

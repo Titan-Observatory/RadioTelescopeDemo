@@ -3,7 +3,6 @@
 
 export const BRAND = {
   name: 'Titan Observatory',
-  tagline: 'Demo',
   homepage: 'https://titanobservatory.org',
   logoUrl: 'https://titanobservatory.org/_next/image?url=%2Fimages%2F2.webp&w=828&q=75',
   faviconUrl: 'https://titanobservatory.org/icon.png',

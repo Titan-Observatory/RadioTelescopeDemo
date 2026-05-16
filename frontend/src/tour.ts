@@ -86,9 +86,18 @@ export function maybePromptFirstVisit(onStartGuided: () => void) {
   prompt.drive();
 }
 
+// Matches the breakpoint in main.css where .skymap-overlay-controls is hidden
+// and the user is steered toward tapping in Aladin instead of jogging/typing
+// a target. Re-evaluated on each tour start so a window resize between tours
+// picks the right step list.
+function isMobileLayout(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+}
+
 export function startTour(source: 'first_visit' | 'button' = 'button') {
   markTourSeen();
-  track('tour_started', { source });
+  const mobile = isMobileLayout();
+  track('tour_started', { source, layout: mobile ? 'mobile' : 'desktop' });
   let lastStepIndex = 0;
   let completed = false;
   const tour = driver({
@@ -139,34 +148,39 @@ export function startTour(source: 'first_visit' | 'button' = 'button') {
           title: 'Spectrum',
           description:
             'Live FFT from the SDR. The rolling average is configured on the server; watch for the hydrogen line near 1420 MHz.',
-          side: 'right',
+          side: mobile ? 'top' : 'right',
         },
       },
-      {
-        element: '.motion-card',
-        popover: {
-          title: 'Manual jog',
-          description:
-            'Press and hold a direction to nudge the dish. The center button is an emergency stop for all motion. The fader sets jog speed.',
-          side: 'right',
+      // The jog pad and numeric GoTo form are hidden on mobile in favour of
+      // tap-to-target on the sky map, so skip those steps entirely there.
+      ...(mobile ? [] : [
+        {
+          element: '.motion-card',
+          popover: {
+            title: 'Manual jog',
+            description:
+              'Press and hold a direction to nudge the dish. The center button is an emergency stop for all motion. The fader sets jog speed.',
+            side: 'right' as const,
+          },
         },
-      },
-      {
-        element: '.target-form',
-        popover: {
-          title: 'Go to a target',
-          description:
-            'Type an azimuth and altitude in degrees, then hit Slew to drive the dish there automatically.',
-          side: 'right',
+        {
+          element: '.target-form',
+          popover: {
+            title: 'Go to a target',
+            description:
+              'Type an azimuth and altitude in degrees, then hit Slew to drive the dish there automatically.',
+            side: 'right' as const,
+          },
         },
-      },
+      ]),
       {
         element: '.skymap-panel',
         popover: {
           title: 'Sky map',
-          description:
-            'Live view of the sky from the telescope\'s location. Click a target on the map to load its alt/az into the Slew form.',
-          side: 'left',
+          description: mobile
+            ? "Live view of the sky from the telescope's location. Tap a target on the map, then hit Slew to point the dish there."
+            : "Live view of the sky from the telescope's location. Click a target on the map to load its alt/az into the Slew form.",
+          side: mobile ? 'top' : 'left',
         },
       },
       {
@@ -175,7 +189,7 @@ export function startTour(source: 'first_visit' | 'button' = 'button') {
           title: 'Telemetry',
           description:
             'Encoder positions, motor currents, voltages, and safety state. Watch here if a move feels wrong — overcurrent trips show up immediately.',
-          side: 'left',
+          side: mobile ? 'top' : 'left',
         },
       },
       {

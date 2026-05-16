@@ -43,6 +43,16 @@ def test_api_status_contains_telemetry(simulated_config_path):
     assert response.status_code == 200
     assert body["firmware"]
     assert "m1" in body["motors"]
+    assert "lna" not in body
+
+
+def test_spectrum_status_contains_lna(simulated_config_path):
+    with TestClient(create_app(simulated_config_path)) as client:
+        response = client.get("/api/spectrum/status")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["lna"]["state"] in {"on", "off", "unknown", "fault"}
 
 
 def test_api_accepts_alt_az_goto(simulated_config_path):

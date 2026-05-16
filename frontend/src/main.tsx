@@ -2,7 +2,7 @@ import './styles/main.css';
 
 import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
-  HelpCircle, MessageSquare, Monitor, Navigation, X, Zap,
+  HelpCircle, Maximize2, MessageSquare, Minimize2, Monitor, Navigation, X, Zap,
 } from 'lucide-react';
 import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -16,14 +16,16 @@ import { startTour, maybePromptFirstVisit } from './tour';
 import { startGuidedObservation } from './guidedObservation';
 import { FeedbackDialog } from './components/FeedbackDialog';
 import { setAnalyticsContext, track } from './analytics';
-import {
-  fetchQueueConfig, fetchQueueStatus, joinQueue,
-  type QueueConfig, type QueueStatus,
-} from './queue';
-import type { CommandInfo, RoboClawTelemetry, TelescopeConfig } from './types';
+import { useJsonSocket } from './lib/useJsonSocket';
+import type { QueueConfig, QueueStatus } from './queue';
+import type { CommandInfo, LnaStatus, RoboClawTelemetry, TelescopeConfig } from './types';
+
+interface RfStatus {
+  lna?: LnaStatus;
+}
 
 // Apply branding to the document head so favicon + title share the same source as the TopBar.
-document.title = `${BRAND.name} · ${BRAND.tagline}`;
+document.title = BRAND.name;
 const favicon = document.getElementById('favicon') as HTMLLinkElement | null;
 if (favicon) favicon.href = BRAND.faviconUrl;
 
@@ -31,6 +33,7 @@ if (favicon) favicon.href = BRAND.faviconUrl;
 
 function App() {
   const [telemetry, setTelemetry] = useState<RoboClawTelemetry | null>(null);
+  const [lnaStatus, setLnaStatus] = useState<LnaStatus | null>(null);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [telescopeConfig, setTelescopeConfig] = useState<TelescopeConfig | null>(null);
   const [targetAz, setTargetAz] = useState(0);
@@ -42,6 +45,8 @@ function App() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const prevIsActiveRef = useRef<boolean | null>(null);
   const lastLeaseRemainingRef = useRef<number | null>(null);
+  const skymapPanelRef = useRef<HTMLElement>(null);
+  const [isSkymapFullscreen, setIsSkymapFullscreen] = useState(false);
 
   // Errors are tracked for analytics but never surfaced to the demo user —
   // public visitors see a quiet UI even when the controller is misbehaving.
@@ -57,8 +62,8 @@ function App() {
   // Bootstrap queue state and telemetry. Telemetry is read-only and visible
   // to spectators as well as the active controller.
   useEffect(() => {
-    void fetchQueueConfig().then(setQueueConfig).catch(() => {/* queue may be disabled */});
-    void fetchQueueStatus().then(setQueueStatus).catch(() => {/* not joined yet */});
+    void api.queueConfig().then(setQueueConfig).catch(() => {/* queue may be disabled */});
+    void api.queueStatus().then(setQueueStatus).catch(() => {/* not joined yet */});
 
     void api.status().then((next) => {
       setTelemetry(next);
@@ -66,40 +71,58 @@ function App() {
     }).catch((err) => trackErrorOnce('API', errorMessage(err)));
     void api.commands().then(setCommands).catch((err) => trackErrorOnce('API', errorMessage(err)));
     void api.telescopeConfig().then(setTelescopeConfig).catch(() => {/* non-critical */});
+  }, []);
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/roboclaw`);
-    ws.onmessage = (event) => {
-      const next = JSON.parse(event.data) as RoboClawTelemetry;
+  // Telemetry websocket. The hook handles protocol selection, JSON parsing,
+  // and teardown — we only own the "what to do with each frame" callback.
+  useJsonSocket<RoboClawTelemetry>('/ws/roboclaw', {
+    onMessage: (next) => {
       setTelemetry(next);
       if (next.last_error) trackErrorOnce('RoboClaw', next.last_error);
+    },
+    onError: () => trackErrorOnce('WebSocket', 'RoboClaw telemetry websocket disconnected.'),
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const resp = await fetch('/api/spectrum/status');
+        if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+        const next = await resp.json() as RfStatus;
+        if (!cancelled) setLnaStatus(next.lna ?? null);
+      } catch {
+        if (!cancelled) setLnaStatus({ state: 'unknown', label: 'Unknown', detail: 'RF status unavailable' });
+      }
     };
-    ws.onerror = () => trackErrorOnce('WebSocket', 'RoboClaw telemetry websocket disconnected.');
-    return () => ws.close();
+    void refresh();
+    const id = window.setInterval(refresh, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   // Subscribe to queue status updates as long as we have a session cookie.
-  useEffect(() => {
-    if (queueStatus == null || queueStatus.position < 0) return;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const next = JSON.parse(event.data) as QueueStatus;
-        if (typeof next.position === 'number') setQueueStatus(next);
-      } catch { /* ignore */ }
-    };
+  const queueWsEnabled = queueStatus != null && queueStatus.position >= 0;
+  const { send: sendQueueActivity } = useJsonSocket<QueueStatus>('/ws/queue', {
+    enabled: queueWsEnabled,
+    onMessage: (next) => {
+      if (typeof next.position === 'number') setQueueStatus(next);
+    },
+  });
 
-    // Treat any UI activity (click, scroll, keypress, pointer) as a heartbeat
-    // that resets the server-side idle countdown. Throttled so we send at
-    // most once every few seconds while the user is interacting.
+  // Treat any UI activity (click, scroll, keypress, pointer) as a heartbeat
+  // that resets the server-side idle countdown. Throttled so we send at
+  // most once every few seconds while the user is interacting.
+  useEffect(() => {
+    if (!queueWsEnabled) return;
     let lastSent = 0;
     const sendActivity = () => {
-      if (ws.readyState !== WebSocket.OPEN) return;
       const now = Date.now();
       if (now - lastSent < 5000) return;
       lastSent = now;
-      try { ws.send('a'); } catch { /* ignore */ }
+      sendQueueActivity('a');
     };
     const events: (keyof DocumentEventMap)[] = ['click', 'scroll', 'keydown', 'pointerdown', 'wheel', 'touchstart'];
     for (const e of events) {
@@ -109,9 +132,8 @@ function App() {
       for (const e of events) {
         document.removeEventListener(e, sendActivity, { capture: true });
       }
-      ws.close();
     };
-  }, [queueStatus?.position === -1, queueStatus == null]);
+  }, [queueWsEnabled, sendQueueActivity]);
 
   // Track the last known lease time so we can distinguish lease expiry from
   // idle timeout when the session drops.
@@ -138,12 +160,26 @@ function App() {
     }
   }, [queueStatus?.is_active, queueStatus?.queue_length]);
 
+  useEffect(() => {
+    const handler = () => setIsSkymapFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  const toggleSkymapFullscreen = () => {
+    if (!document.fullscreenElement) {
+      skymapPanelRef.current?.requestFullscreen();
+    } else {
+      void document.exitFullscreen();
+    }
+  };
+
   const handleJoin = async (turnstileToken: string | null) => {
     setJoining(true);
     setJoinError(null);
     track('queue_join_attempt', { turnstile: turnstileToken != null });
     try {
-      const next = await joinQueue(turnstileToken);
+      const next = await api.joinQueue(turnstileToken);
       setQueueStatus(next);
       track('queue_joined', { position: next.position, queue_length: next.queue_length });
     } catch (err) {
@@ -208,7 +244,9 @@ function App() {
   // controller, render the spectator/queue page instead of the control UI.
   // Position 0 = active controller; -1 = not in queue; >0 = waiting.
   const queueEnabled = queueConfig?.enabled ?? false;
-  const isActiveController = !queueEnabled || queueStatus?.is_active === true;
+  const hasControl = !queueEnabled || queueStatus?.is_active === true;
+  const [continueAcked, setContinueAcked] = useState(false);
+  const isActiveController = hasControl && (!queueEnabled || continueAcked);
 
   // Keep analytics context current so every tracked event is tagged with
   // queue position and controller status without per-call boilerplate.
@@ -249,6 +287,8 @@ function App() {
         siteKey={queueConfig?.turnstile_site_key ?? null}
         turnstileEnabled={queueConfig?.turnstile_enabled ?? false}
         onJoin={handleJoin}
+        hasControl={hasControl}
+        onContinue={() => setContinueAcked(true)}
       />
     );
   }
@@ -261,7 +301,7 @@ function App() {
       />
 
       <main className="dashboard">
-        <section className="panel skymap-panel">
+        <section className="panel skymap-panel" ref={skymapPanelRef}>
           <SkyMap
             telemetry={telemetry}
             config={telescopeConfig}
@@ -270,6 +310,15 @@ function App() {
             tooltipsEnabled={true}
           />
           <div className="skymap-bottom-dock">
+            <button
+              type="button"
+              className="skymap-mobile-fullscreen-btn"
+              onClick={toggleSkymapFullscreen}
+              aria-label={isSkymapFullscreen ? 'Exit full screen' : 'Full screen'}
+              title={isSkymapFullscreen ? 'Exit full screen' : 'Full screen'}
+            >
+              {isSkymapFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
             <div className="skymap-overlay-controls">
               <MotionControls
                 runCommand={runCommand}
@@ -298,7 +347,7 @@ function App() {
             <SpectrumPanel onStartGuided={startObservationGuide} />
           </section>
           <section className="panel status-side-panel">
-            <TelemetryDashboard telemetry={telemetry} />
+            <TelemetryDashboard telemetry={telemetry} lnaStatus={lnaStatus} />
           </section>
         </div>
       </main>
@@ -341,17 +390,33 @@ function MobileHint() {
 }
 
 function LeaseChip({ status }: { status: QueueStatus }) {
+  const [detailOpen, setDetailOpen] = useState(false);
   const remaining = Math.max(0, Math.round(status.lease_remaining_s ?? 0));
   const idle = status.idle_remaining_s == null ? null : Math.max(0, Math.round(status.idle_remaining_s));
   return (
-    <span className="topbar-lease" title="You are in control of the telescope.">
+    <button
+      type="button"
+      className={`topbar-lease${detailOpen ? ' topbar-lease-open' : ''}`}
+      aria-label="Session time limit explanation"
+      aria-expanded={detailOpen}
+      aria-describedby="session-limit-popover"
+      onClick={() => setDetailOpen((open) => !open)}
+      onBlur={() => setDetailOpen(false)}
+    >
       <Activity size={12} />
       <span className="topbar-lease-label">Session</span>
       <strong>{formatSeconds(remaining)}</strong>
       {idle != null && idle < 30 && (
         <span className="topbar-lease-idle">· idle {idle}s</span>
       )}
-    </span>
+      <span id="session-limit-popover" className="topbar-lease-popover" role="tooltip">
+        <strong>Why sessions are timed</strong>
+        <span>
+          This demo is limited to give everyone an opportunity to use it.
+          When your timer ends, control passes to the next visitor.
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -376,9 +441,6 @@ function TopBar({
       <header className="topbar">
         <a className="topbar-brand" href={BRAND.homepage} target="_blank" rel="noreferrer">
           <img src={BRAND.logoUrl} alt={BRAND.name} className="brand-logo" />
-          <div className="brand-text">
-            <p className="topbar-sub">{BRAND.tagline}</p>
-          </div>
         </a>
         <div className="topbar-status">
           {leaseStatus && <LeaseChip status={leaseStatus} />}
@@ -631,7 +693,13 @@ function useJog(start: () => Promise<void>, stop: () => Promise<void>, onPress?:
 
 // ─── Telemetry dashboard ─────────────────────────────────────────────────────
 
-function TelemetryDashboard({ telemetry }: { telemetry: RoboClawTelemetry | null }) {
+function TelemetryDashboard({
+  telemetry,
+  lnaStatus,
+}: {
+  telemetry: RoboClawTelemetry | null;
+  lnaStatus: LnaStatus | null;
+}) {
   const systemPower = minReading(telemetry?.main_battery_v, telemetry?.logic_battery_v);
   const roboclawTemp = maxReading(telemetry?.temperature_c, telemetry?.temperature_2_c);
   const motorOutput = maxAbsReading(telemetry?.motors.m1?.pwm, telemetry?.motors.m2?.pwm);
@@ -642,6 +710,7 @@ function TelemetryDashboard({ telemetry }: { telemetry: RoboClawTelemetry | null
       <div className="telemetry-dense">
         <DenseReadout title="System" icon={<Activity size={11} />} rows={[
           ['Connection', telemetry?.connection?.connected === false ? 'Issue' : 'Stable', telemetry?.connection?.connected === false ? 'val-crit' : 'val-ok'],
+          ['LNA', <LnaPill status={lnaStatus} />],
           ['Power', volts(systemPower), voltClass(systemPower)],
           ['RoboClaw temp', celsius(roboclawTemp), tempClass(roboclawTemp)],
           ['Pi temp', celsius(telemetry?.host.cpu_temp_c), tempClass(telemetry?.host.cpu_temp_c)],
@@ -664,7 +733,7 @@ function TelemetryDashboard({ telemetry }: { telemetry: RoboClawTelemetry | null
 
 // ─── Dense readout ────────────────────────────────────────────────────────────
 
-type ReadoutRow = [label: string, value: string, valueClass?: string];
+type ReadoutRow = [label: string, value: React.ReactNode, valueClass?: string];
 
 function DenseReadout({ title, icon, rows }: { title?: string; icon?: React.ReactNode; rows: ReadoutRow[] }) {
   return (
@@ -684,6 +753,16 @@ function DenseReadout({ title, icon, rows }: { title?: string; icon?: React.Reac
         ))}
       </dl>
     </div>
+  );
+}
+
+function LnaPill({ status }: { status: LnaStatus | null | undefined }) {
+  const state = status?.state ?? 'unknown';
+  const label = status?.label ?? 'Unknown';
+  return (
+    <span className={`lna-status-pill lna-status-${state}`} title={status?.detail ?? 'LNA status'}>
+      {label}
+    </span>
   );
 }
 

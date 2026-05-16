@@ -15,6 +15,8 @@ import type { EChartsOption } from 'echarts';
 import { Sliders, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { HYDROGEN_LINE_MHZ } from '../lib/astro';
+import { useJsonSocket } from '../lib/useJsonSocket';
 import { BaselineWizard } from './BaselineWizard';
 
 echarts.use([
@@ -78,7 +80,7 @@ function buildColormapLUT(
 }
 
 // 21 cm neutral-hydrogen line — the rolling integration is centred here.
-const H1_REST_MHZ = 1420.4058;
+const H1_REST_MHZ = HYDROGEN_LINE_MHZ;
 const H1_SEARCH_HALF_WIDTH_MHZ = 0.18;
 
 // Default locked y-range, chosen so the median-subtracted trace fits a
@@ -143,7 +145,6 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
   const lastWaterfallFrameRef = useRef<SpectrumFrame | null>(null);
   const [status, setStatus] = useState<SpectrumStatus | null>(null);
   const [frame, setFrame] = useState<SpectrumFrame | null>(null);
-  const [connected, setConnected] = useState(false);
   const [yRange] = useState<[number, number]>(DEFAULT_Y_RANGE);
   const [baseline, setBaseline] = useState<Baseline | null>(null);
   const [dopplerOpen, setDopplerOpen] = useState(false);
@@ -205,23 +206,40 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
     return () => { cancelled = true; window.clearInterval(id); };
   }, []);
 
+  // Auto-recover the SDR when frames stop flowing. We avoid hammering the
+  // reconnect endpoint unconditionally — tearing down and re-opening the
+  // dongle while it's healthy would actually *interrupt* the stream. Only
+  // fire when the receiver is in a non-streaming state or no frame has
+  // arrived in the last ~6 s, and throttle to one attempt every 5 s.
+  // The endpoint requires control; for spectators the 403 is harmless.
+  useEffect(() => {
+    if (!status || !status.enabled) return;
+    const SDR_HEALTHY_MODES = new Set(['airspy', 'remote']);
+    const ageStale = status.latest_frame_age_s != null && status.latest_frame_age_s > 6;
+    const modeStale = !SDR_HEALTHY_MODES.has(status.mode);
+    if (!ageStale && !modeStale) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    const attempt = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        await fetch('/api/spectrum/reconnect', { method: 'POST' });
+      } catch { /* network blip — next tick retries */ }
+      finally { inFlight = false; }
+    };
+    void attempt();
+    const id = window.setInterval(attempt, 5000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [status?.enabled, status?.mode, (status?.latest_frame_age_s ?? 0) > 6]);
+
   // WebSocket subscription. Each frame is a fully-integrated spectrum from
   // the backend — we swap the series wholesale rather than appending.
-  useEffect(() => {
-    if (status && status.enabled === false) return;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/spectrum`);
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => setConnected(false);
-    ws.onmessage = (event) => {
-      try {
-        const next = JSON.parse(event.data) as SpectrumFrame;
-        setFrame(next);
-      } catch { /* ignore malformed frames */ }
-    };
-    return () => ws.close();
-  }, [status?.enabled]);
+  const { connected } = useJsonSocket<SpectrumFrame>('/ws/spectrum', {
+    enabled: status == null || status.enabled !== false,
+    onMessage: setFrame,
+  });
 
   // Update the spectrum line chart on each new frame / range change.
   useEffect(() => {

@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
+from radiotelescope.services._pubsub import Broadcaster
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +59,8 @@ class QueueService:
         self._active_last_command_at: float | None = None
 
         self._lock = asyncio.Lock()
-        self._listeners: set[asyncio.Queue[QueueStatus]] = set()
+        self._broadcaster: Broadcaster[QueueStatus] = Broadcaster()
+        self._broadcaster.default_maxsize = 8
         self._task: asyncio.Task[None] | None = None
         self._stopped = False
 
@@ -164,12 +167,10 @@ class QueueService:
     # ─── pub/sub for /ws/queue ───────────────────────────────────────────────
 
     def subscribe(self) -> asyncio.Queue[QueueStatus]:
-        q: asyncio.Queue[QueueStatus] = asyncio.Queue(maxsize=8)
-        self._listeners.add(q)
-        return q
+        return self._broadcaster.subscribe()
 
     def unsubscribe(self, q: asyncio.Queue[QueueStatus]) -> None:
-        self._listeners.discard(q)
+        self._broadcaster.unsubscribe(q)
 
     async def _broadcast(self) -> None:
         # Each listener gets a status snapshot relevant to its own token via
@@ -185,16 +186,7 @@ class QueueService:
             idle_remaining_s=None,
             has_active_user=self._active is not None,
         )
-        for q in list(self._listeners):
-            if q.full():
-                try:
-                    q.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
-            try:
-                q.put_nowait(sentinel)
-            except asyncio.QueueFull:
-                pass
+        self._broadcaster.publish(sentinel)
 
     # ─── background expiry loop ──────────────────────────────────────────────
 
@@ -222,6 +214,21 @@ class QueueService:
                     logger.info(
                         "Releasing lease for %s (expired=%s idle=%s)",
                         self._active[:8], expired, idle,
+                    )
+                    self._drop_locked(self._active)
+                    changed = True
+
+            # Drop the active controller if their WS has been gone past the
+            # reconnect grace window (covers tab-close / hard-refresh).
+            if self._active is not None:
+                session = self._sessions.get(self._active)
+                if (
+                    session is not None
+                    and not session.ws_connected
+                    and (now - session.last_seen_at) > 10.0
+                ):
+                    logger.info(
+                        "Releasing lease for %s (ws disconnected)", self._active[:8],
                     )
                     self._drop_locked(self._active)
                     changed = True

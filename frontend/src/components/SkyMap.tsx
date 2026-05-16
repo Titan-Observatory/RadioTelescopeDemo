@@ -7,6 +7,17 @@ import type { EChartsOption } from 'echarts';
 import { Layers, Maximize2, Telescope } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import {
+  altAzToRaDec,
+  HYDROGEN_LINE_MHZ,
+  isInsideTriangle,
+  moonIllumination,
+  moonRaDec,
+  normalizeDeg,
+  positionAngleDeg,
+  raDecToAltAz,
+  sunRaDec,
+} from '../lib/astro';
 import type { AltAzPoint, RaDecTarget, RoboClawTelemetry, SkyOverlay, TelescopeConfig } from '../types';
 
 echarts.use([LineChart, GridComponent, CanvasRenderer]);
@@ -62,83 +73,11 @@ function CameraPip({ swapped, onToggleSwap }: { swapped: boolean; onToggleSwap: 
   );
 }
 
-// ─── Astronomy math ───────────────────────────────────────────────────────────
-const D = Math.PI / 180;
-const R = 180 / Math.PI;
+// ─── Component-local helpers ─────────────────────────────────────────────────
+// Math primitives (degrees / coordinate transforms / solar + lunar position)
+// live in `../lib/astro.ts`; only the SkyMap-specific helpers stay here.
+
 const TARGET_CLICK_DRAG_TOLERANCE_PX = 6;
-
-function normalizeDeg(deg: number): number {
-  return ((deg % 360) + 360) % 360;
-}
-
-function unwrapDeg(deg: number, reference: number): number {
-  let value = deg;
-  while (value - reference > 180) value -= 360;
-  while (value - reference < -180) value += 360;
-  return value;
-}
-
-function gmstDeg(date: Date): number {
-  const jd = date.getTime() / 86_400_000 + 2_440_587.5;
-  const d = jd - 2_451_545.0;
-  return normalizeDeg(280.46061837 + 360.98564736629 * d);
-}
-
-function localSiderealDeg(config: TelescopeConfig, date: Date): number {
-  return normalizeDeg(gmstDeg(date) + config.observer_longitude_deg);
-}
-
-function raDecToAltAz(
-  ra_deg: number,
-  dec_deg: number,
-  config: TelescopeConfig,
-  date: Date,
-): AltAzPoint {
-  const lat = config.observer_latitude_deg * D;
-  const dec = dec_deg * D;
-  const hourAngle = normalizeDeg(localSiderealDeg(config, date) - ra_deg) * D;
-
-  const sinAlt = Math.sin(dec) * Math.sin(lat) + Math.cos(dec) * Math.cos(lat) * Math.cos(hourAngle);
-  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
-  const az = Math.atan2(
-    -Math.sin(hourAngle),
-    Math.tan(dec) * Math.cos(lat) - Math.sin(lat) * Math.cos(hourAngle),
-  );
-
-  return {
-    altitude_deg: alt * R,
-    azimuth_deg: normalizeDeg(az * R),
-  };
-}
-
-function altAzToRaDec(point: AltAzPoint, config: TelescopeConfig, date: Date): RaDecTarget {
-  const lat = config.observer_latitude_deg * D;
-  const alt = point.altitude_deg * D;
-  const az = point.azimuth_deg * D;
-
-  const sinDec = Math.sin(alt) * Math.sin(lat) + Math.cos(alt) * Math.cos(lat) * Math.cos(az);
-  const dec = Math.asin(Math.max(-1, Math.min(1, sinDec)));
-  const hourAngle = Math.atan2(
-    -Math.sin(az) * Math.cos(alt),
-    Math.sin(alt) * Math.cos(lat) - Math.cos(alt) * Math.sin(lat) * Math.cos(az),
-  );
-
-  return {
-    ra_deg: normalizeDeg(localSiderealDeg(config, date) - hourAngle * R),
-    dec_deg: dec * R,
-  };
-}
-
-function positionAngleDeg(from: RaDecTarget, to: RaDecTarget): number {
-  const ra1 = from.ra_deg * D;
-  const dec1 = from.dec_deg * D;
-  const ra2 = to.ra_deg * D;
-  const dec2 = to.dec_deg * D;
-  const deltaRa = ra2 - ra1;
-  const y = Math.sin(deltaRa);
-  const x = Math.cos(dec1) * Math.tan(dec2) - Math.sin(dec1) * Math.cos(deltaRa);
-  return normalizeDeg(Math.atan2(y, x) * R);
-}
 
 function localUpOrientationDeg(center: RaDecTarget, config: TelescopeConfig, date: Date): number {
   const centerAltAz = raDecToAltAz(center.ra_deg, center.dec_deg, config, date);
@@ -154,61 +93,6 @@ function localUpOrientationDeg(center: RaDecTarget, config: TelescopeConfig, dat
 function initialHorizonRotationDeg(center: RaDecTarget, config: TelescopeConfig, date: Date): number {
   const rotation = normalizeDeg(360 - localUpOrientationDeg(center, config, date));
   return rotation === 0 ? 0.001 : rotation;
-}
-
-// ─── Solar / lunar position (low-precision, ~1° accuracy) ────────────────────
-
-function julianDay(date: Date): number {
-  return date.getTime() / 86_400_000 + 2_440_587.5;
-}
-
-function sunRaDec(date: Date): RaDecTarget {
-  const d  = julianDay(date) - 2_451_545.0;
-  const L  = normalizeDeg(280.460 + 0.9856474 * d);
-  const g  = normalizeDeg(357.528 + 0.9856003 * d) * D;
-  const λ  = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * D;
-  const ε  = (23.439 - 0.0000004 * d) * D;
-  return {
-    ra_deg:  normalizeDeg(Math.atan2(Math.cos(ε) * Math.sin(λ), Math.cos(λ)) * R),
-    dec_deg: Math.asin(Math.sin(ε) * Math.sin(λ)) * R,
-  };
-}
-
-function moonRaDec(date: Date): RaDecTarget {
-  const d   = julianDay(date) - 2_451_545.0;
-  const L   = normalizeDeg(218.316 + 13.176396 * d);
-  const M   = normalizeDeg(134.963 + 13.064993 * d) * D;
-  const F   = normalizeDeg(93.272  + 13.229350 * d) * D;
-  const lon = (L + 6.289 * Math.sin(M)) * D;
-  const lat = 5.128 * Math.sin(F) * D;
-  const ε   = (23.439 - 0.0000004 * d) * D;
-  return {
-    ra_deg: normalizeDeg(
-      Math.atan2(Math.cos(ε) * Math.sin(lon) - Math.tan(lat) * Math.sin(ε), Math.cos(lon)) * R,
-    ),
-    dec_deg: Math.asin(
-      Math.sin(lat) * Math.cos(ε) + Math.cos(lat) * Math.sin(ε) * Math.sin(lon),
-    ) * R,
-  };
-}
-
-/** Illuminated fraction (0 = new, 1 = full) and whether the moon is waxing. */
-function moonIllumination(
-  sun: RaDecTarget,
-  moon: RaDecTarget,
-): { fraction: number; waxing: boolean } {
-  const sRa = sun.ra_deg * D, sDec = sun.dec_deg * D;
-  const mRa = moon.ra_deg * D, mDec = moon.dec_deg * D;
-  const elongation = Math.acos(
-    Math.max(-1, Math.min(1,
-      Math.sin(sDec) * Math.sin(mDec) + Math.cos(sDec) * Math.cos(mDec) * Math.cos(sRa - mRa),
-    )),
-  );
-  return {
-    fraction: (1 + Math.cos(elongation)) / 2,
-    // Moon is waxing when it is 0–180° east of the sun
-    waxing: normalizeDeg(moon.ra_deg - sun.ra_deg) < 180,
-  };
 }
 
 // ─── Canvas body-icon helpers ─────────────────────────────────────────────────
@@ -309,36 +193,7 @@ function pointInPolygon(x: number, y: number, polygon: [number, number][]): bool
   return inside;
 }
 
-function isInsideTriangle(point: AltAzPoint, triangle: AltAzPoint[]): boolean {
-  if (triangle.length !== 3) return true;
-
-  const reference = triangle[0].azimuth_deg;
-  const px = unwrapDeg(point.azimuth_deg, reference);
-  const py = point.altitude_deg;
-  const vertices = triangle.map((vertex) => ({
-    x: unwrapDeg(vertex.azimuth_deg, reference),
-    y: vertex.altitude_deg,
-  }));
-  const [a, b, c] = vertices;
-
-  const sign = (
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number,
-    x3: number,
-    y3: number,
-  ) => (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3);
-
-  const d1 = sign(px, py, a.x, a.y, b.x, b.y);
-  const d2 = sign(px, py, b.x, b.y, c.x, c.y);
-  const d3 = sign(px, py, c.x, c.y, a.x, a.y);
-  const hasNegative = d1 < -1e-9 || d2 < -1e-9 || d3 < -1e-9;
-  const hasPositive = d1 > 1e-9 || d2 > 1e-9 || d3 > 1e-9;
-  return !(hasNegative && hasPositive);
-}
-
-// â”€â”€â”€ Survey definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Survey definitions ──────────────────────────────────────────────────────
 const SURVEYS = [
   {
     id: 'CDS/P/HI4PI/NHI',
@@ -346,7 +201,7 @@ const SURVEYS = [
     shortLabel: 'H I 1420',
     title: 'HI4PI 21cm neutral hydrogen column density',
     description: 'Neutral hydrogen column density at 1420 MHz — the telescope\'s primary science target.',
-    spectrumMhz: 1420.4058,
+    spectrumMhz: HYDROGEN_LINE_MHZ,
     markerLeft: 42,
   },
   {
@@ -419,7 +274,6 @@ type SurveyId = (typeof SURVEYS)[number]['id'];
 const SPECTRUM_POINTS = 320;
 const MIN_FREQ_MHZ = 50;
 const MAX_FREQ_MHZ = 3_000_000_000;
-const HYDROGEN_LINE_MHZ = 1420.4058;
 const VISIBLE_LOW_MHZ = 400_000_000;
 const VISIBLE_HIGH_MHZ = 790_000_000;
 const LOG_MIN_FREQ = Math.log10(MIN_FREQ_MHZ);
@@ -1589,20 +1443,22 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
           {viewSelectorOpen && (
             <LightSpectrumSurveySelector activeSurvey={survey} onSelectSurvey={setSurvey} disabled={!ready} />
           )}
-          <div className="skymap-surveys skymap-surveys-mobile" role="group" aria-label="Sky survey">
-            {SURVEYS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`skymap-survey-btn${surveyToneClass(s)}${survey === s.id ? ' active' : ''}`}
-                onClick={() => setSurvey(s.id)}
-                title={s.title}
-                disabled={!ready}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
+          {viewSelectorOpen && (
+            <div className="skymap-surveys skymap-surveys-mobile" role="group" aria-label="Sky survey">
+              {SURVEYS.filter((s) => s.id === 'CDS/P/HI4PI/NHI' || s.id === 'CDS/P/DSS2/color').map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`skymap-survey-btn${surveyToneClass(s)}${survey === s.id ? ' active' : ''}`}
+                  onClick={() => setSurvey(s.id)}
+                  title={s.title}
+                  disabled={!ready}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

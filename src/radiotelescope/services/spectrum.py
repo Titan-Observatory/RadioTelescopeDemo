@@ -17,6 +17,7 @@ import numpy as np
 
 from radiotelescope.config import SDRConfig
 from radiotelescope.hardware.sdr import SDRReceiver
+from radiotelescope.services._sdr_task import SDRDriverTask
 
 # Baseline cache lives next to where the server was launched so it survives
 # restarts. Small JSON file — a couple thousand floats.
@@ -29,12 +30,12 @@ class SpectrumFrame(dict):
     """Plain dict so FastAPI's WebSocket can JSON-encode it cheaply."""
 
 
-class SpectrumService:
+class SpectrumService(SDRDriverTask[SpectrumFrame]):
+    name = "spectrum-service"
+
     def __init__(self, receiver: SDRReceiver, cfg: SDRConfig) -> None:
-        self._rx = receiver
+        super().__init__(receiver)
         self._cfg = cfg
-        self._task: asyncio.Task | None = None
-        self._subscribers: list[asyncio.Queue[SpectrumFrame]] = []
         self._latest: SpectrumFrame | None = None
         self._integrated: np.ndarray | None = None
         self._frames_seen: int = 0
@@ -52,10 +53,6 @@ class SpectrumService:
         return ((self._cfg.center_freq_hz + k * bin_hz) / 1e6).astype(np.float32)
 
     @property
-    def mode(self) -> str:
-        return self._rx.mode
-
-    @property
     def latest(self) -> SpectrumFrame | None:
         return self._latest
 
@@ -63,57 +60,13 @@ class SpectrumService:
     def frames_seen(self) -> int:
         return self._frames_seen
 
-    @property
-    def subscriber_count(self) -> int:
-        return len(self._subscribers)
-
-    async def start(self) -> None:
-        await self._rx.open()
-        self._task = asyncio.create_task(self._run())
-        logger.info("Spectrum service started (mode=%s)", self._rx.mode)
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-        await self._rx.close()
-        logger.info("Spectrum service stopped")
-
-    async def reconnect(self) -> str:
-        """Tear down and re-open the SDR without restarting the server.
-
-        Lets the operator power-cycle the dongle or fix udev permissions and
-        recover without bouncing uvicorn. Returns the receiver's new mode so
-        the caller can tell whether the retry worked.
-        """
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
-        await self._rx.close()
-        await self._rx.open()
-        self._task = asyncio.create_task(self._run())
-        logger.info("Spectrum service reconnected (mode=%s)", self._rx.mode)
-        return self._rx.mode
-
-    def subscribe(self, maxsize: int = 4) -> asyncio.Queue[SpectrumFrame]:
-        q: asyncio.Queue[SpectrumFrame] = asyncio.Queue(maxsize=maxsize)
+    def subscribe(self, maxsize: int | None = None) -> asyncio.Queue[SpectrumFrame]:
+        # Replay the latest frame so a new subscriber doesn't have to wait up
+        # to one publish interval to see anything.
+        q = super().subscribe(maxsize)
         if self._latest is not None:
             q.put_nowait(self._latest)
-        self._subscribers.append(q)
         return q
-
-    def unsubscribe(self, q: asyncio.Queue[SpectrumFrame]) -> None:
-        try:
-            self._subscribers.remove(q)
-        except ValueError:
-            pass
 
     # ── Baseline capture / load / clear ──────────────────────────────────
     #
@@ -170,32 +123,27 @@ class SpectrumService:
         cfg = self._cfg
         publish_interval = 1.0 / cfg.publish_rate_hz
         last_publish = 0.0
-        try:
-            async for iq in self._rx.stream():
-                if iq.size < cfg.fft_size:
-                    continue
-                samples = iq[: cfg.fft_size]
-                spectrum = np.fft.fftshift(np.fft.fft(samples * self._window))
-                power = (spectrum.real ** 2 + spectrum.imag ** 2).astype(np.float32)
-                # Avoid log(0); the FFT magnitudes never quite hit zero in practice
-                # but a floor keeps the y-axis tidy when the gain is low.
-                power = np.maximum(power, 1e-12)
-                alpha = 1.0 / max(cfg.integration_frames, 1)
-                if self._integrated is None:
-                    self._integrated = power
-                else:
-                    self._integrated = (1.0 - alpha) * self._integrated + alpha * power
-                self._frames_seen += 1
+        async for iq in self._rx.stream():
+            if iq.size < cfg.fft_size:
+                continue
+            samples = iq[: cfg.fft_size]
+            spectrum = np.fft.fftshift(np.fft.fft(samples * self._window))
+            power = (spectrum.real ** 2 + spectrum.imag ** 2).astype(np.float32)
+            # Avoid log(0); the FFT magnitudes never quite hit zero in practice
+            # but a floor keeps the y-axis tidy when the gain is low.
+            power = np.maximum(power, 1e-12)
+            alpha = 1.0 / max(cfg.integration_frames, 1)
+            if self._integrated is None:
+                self._integrated = power
+            else:
+                self._integrated = (1.0 - alpha) * self._integrated + alpha * power
+            self._frames_seen += 1
 
-                now = time.monotonic()
-                if now - last_publish < publish_interval:
-                    continue
-                last_publish = now
-                self._publish(self._integrated)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Spectrum loop crashed")
+            now = time.monotonic()
+            if now - last_publish < publish_interval:
+                continue
+            last_publish = now
+            self._publish(self._integrated)
 
     def _publish(self, integrated: np.ndarray) -> None:
         # Convert to dB; subtract median so the trace floats around 0 dB and the
@@ -215,19 +163,7 @@ class SpectrumService:
             power_db=power_db.astype(np.float32).round(3).tolist(),
         )
         self._latest = frame
-        for q in list(self._subscribers):
-            _put_latest(q, frame)
-
-
-def _put_latest(q: asyncio.Queue[SpectrumFrame], frame: SpectrumFrame) -> None:
-    try:
-        q.put_nowait(frame)
-    except asyncio.QueueFull:
-        try:
-            q.get_nowait()
-        except asyncio.QueueEmpty:
-            pass
-        q.put_nowait(frame)
+        self.publish(frame)
 
 
 __all__: Iterable[str] = ("SpectrumService", "SpectrumFrame")

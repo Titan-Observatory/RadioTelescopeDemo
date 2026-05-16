@@ -13,84 +13,26 @@ eat samples.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from radiotelescope.hardware.sdr import SDRReceiver
+from radiotelescope.services._sdr_task import SDRDriverTask
 
 logger = logging.getLogger(__name__)
 
 
-class IQPublisher:
+class IQPublisher(SDRDriverTask[bytes]):
+    name = "iq-publisher"
+    default_maxsize = 32
+
     def __init__(self, receiver: SDRReceiver) -> None:
-        self._rx = receiver
-        self._task: asyncio.Task | None = None
-        self._subscribers: list[asyncio.Queue[bytes]] = []
-
-    @property
-    def mode(self) -> str:
-        return self._rx.mode
-
-    async def start(self) -> None:
-        await self._rx.open()
-        self._task = asyncio.create_task(self._run())
-        logger.info("IQ publisher started (mode=%s)", self._rx.mode)
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-        await self._rx.close()
-        logger.info("IQ publisher stopped")
-
-    async def reconnect(self) -> str:
-        """Tear down and re-open the SDR without restarting the server."""
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
-        await self._rx.close()
-        await self._rx.open()
-        self._task = asyncio.create_task(self._run())
-        logger.info("IQ publisher reconnected (mode=%s)", self._rx.mode)
-        return self._rx.mode
-
-    def subscribe(self, maxsize: int = 32) -> asyncio.Queue[bytes]:
-        q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=maxsize)
-        self._subscribers.append(q)
-        return q
-
-    def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
-        try:
-            self._subscribers.remove(q)
-        except ValueError:
-            pass
+        super().__init__(receiver)
 
     async def _run(self) -> None:
-        try:
-            async for payload in self._rx.stream_bytes():
-                if not self._subscribers:
-                    continue
-                for q in list(self._subscribers):
-                    _put_latest(q, payload)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("IQ publisher loop crashed")
+        async for payload in self._rx.stream_bytes():
+            if self.subscriber_count == 0:
+                continue
+            self.publish(payload)
 
 
-def _put_latest(q: asyncio.Queue[bytes], payload: bytes) -> None:
-    try:
-        q.put_nowait(payload)
-    except asyncio.QueueFull:
-        try:
-            q.get_nowait()
-        except asyncio.QueueEmpty:
-            pass
-        q.put_nowait(payload)
+__all__ = ("IQPublisher",)

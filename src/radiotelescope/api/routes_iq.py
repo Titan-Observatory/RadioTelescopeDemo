@@ -23,8 +23,8 @@ async def reconnect_iq(request: Request):
 async def iq_status(request: Request):
     publisher = getattr(request.app.state, "iq_publisher", None)
     if publisher is None:
-        return {"enabled": False, "mode": "disabled"}
-    return {"enabled": True, "mode": publisher.mode}
+        return {"enabled": False, "mode": "disabled", "lna": {"state": "off", "label": "Off", "detail": "IQ publisher disabled"}}
+    return {"enabled": True, "mode": publisher.mode, "lna": publisher.lna_status.model_dump()}
 
 
 @router.websocket("/ws/iq")

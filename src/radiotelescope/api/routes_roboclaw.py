@@ -1,51 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from radiotelescope.api.dependencies import require_control, require_lan_admin
+from radiotelescope.geometry import normalise_azimuth, point_in_triangle, unwrap_azimuth
 from radiotelescope.hardware.roboclaw import COMMANDS, OPERATOR_COMMAND_IDS, command_registry
 from radiotelescope.models.state import AltAzRequest, CommandInfo, CommandRequest, CommandResult, HealthStatus, RaDecRequest, RoboClawTelemetry, TelescopeConfig
 from radiotelescope.pointing import radec_to_altaz
 from radiotelescope.services.geometry import altitude_to_encoder_counts
 
 router = APIRouter(tags=["roboclaw"])
-
-
-def _normalise_azimuth(azimuth_deg: float) -> float:
-    azimuth = azimuth_deg % 360.0
-    return 0.0 if math.isclose(azimuth, 360.0) else azimuth
-
-
-def _unwrap_azimuth(azimuth_deg: float, reference_deg: float) -> float:
-    azimuth = azimuth_deg
-    while azimuth - reference_deg > 180.0:
-        azimuth -= 360.0
-    while azimuth - reference_deg < -180.0:
-        azimuth += 360.0
-    return azimuth
-
-
-def _point_in_triangle(
-    point: tuple[float, float],
-    triangle: list[tuple[float, float]],
-    epsilon: float = 1e-9,
-) -> bool:
-    px, py = point
-    (ax, ay), (bx, by), (cx, cy) = triangle
-
-    def sign(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> float:
-        return (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3)
-
-    d1 = sign(px, py, ax, ay, bx, by)
-    d2 = sign(px, py, bx, by, cx, cy)
-    d3 = sign(px, py, cx, cy, ax, ay)
-    has_negative = d1 < -epsilon or d2 < -epsilon or d3 < -epsilon
-    has_positive = d1 > epsilon or d2 > epsilon or d3 > epsilon
-    return not (has_negative and has_positive)
 
 
 def _inside_pointing_limits(altitude_deg: float, azimuth_deg: float, request: Request) -> bool:
@@ -55,11 +22,28 @@ def _inside_pointing_limits(altitude_deg: float, azimuth_deg: float, request: Re
 
     reference = limits[0].azimuth_deg
     triangle = [
-        (_unwrap_azimuth(p.azimuth_deg, reference), p.altitude_deg)
+        (unwrap_azimuth(p.azimuth_deg, reference), p.altitude_deg)
         for p in limits
     ]
-    point = (_unwrap_azimuth(_normalise_azimuth(azimuth_deg), reference), altitude_deg)
-    return _point_in_triangle(point, triangle)
+    point = (unwrap_azimuth(normalise_azimuth(azimuth_deg), reference), altitude_deg)
+    return point_in_triangle(point, triangle)
+
+
+def _resolve(override: int | None, stored: int | None, default: int) -> int:
+    """User override → stored controller value → config default."""
+    if override is not None:
+        return override
+    if stored is not None:
+        return stored
+    return default
+
+
+def _ramps(speed: int, accel: int | None, decel: int | None) -> tuple[int, int]:
+    """Resolve accel/decel for one axis, defaulting both to the axis speed."""
+    return (
+        accel if accel is not None else speed,
+        decel if decel is not None else speed,
+    )
 
 
 def _is_simulated(request: Request) -> bool:
@@ -161,12 +145,10 @@ async def _execute_goto_altaz(
     m1_position = round(cfg.az_zero_count + azimuth * cfg.az_counts_per_degree)
     m2_position = altitude_to_encoder_counts(altitude_deg, cfg)
     stored_m1, stored_m2 = _service(request).stored_qpps
-    az_speed  = speed_qpps if speed_qpps is not None else (stored_m1 if stored_m1 is not None else cfg.goto_speed_qpps)
-    alt_speed = speed_qpps if speed_qpps is not None else (stored_m2 if stored_m2 is not None else cfg.goto_speed_qpps)
-    az_accel  = accel_qpps2 if accel_qpps2 is not None else az_speed
-    az_decel  = decel_qpps2 if decel_qpps2 is not None else az_speed
-    alt_accel = accel_qpps2 if accel_qpps2 is not None else alt_speed
-    alt_decel = decel_qpps2 if decel_qpps2 is not None else alt_speed
+    az_speed  = _resolve(speed_qpps, stored_m1, cfg.goto_speed_qpps)
+    alt_speed = _resolve(speed_qpps, stored_m2, cfg.goto_speed_qpps)
+    az_accel,  az_decel  = _ramps(az_speed,  accel_qpps2, decel_qpps2)
+    alt_accel, alt_decel = _ramps(alt_speed, accel_qpps2, decel_qpps2)
 
     result = await asyncio.to_thread(
         _service(request).client.execute,
@@ -230,7 +212,7 @@ async def sync_alt_az(body: AltAzRequest, request: Request):
     if current_m1 is None or current_m2 is None:
         raise HTTPException(400, detail="Encoder read returned no value")
 
-    azimuth = _normalise_azimuth(body.azimuth_deg)
+    azimuth = normalise_azimuth(body.azimuth_deg)
     cfg.az_zero_count = int(round(current_m1 - azimuth * cfg.az_counts_per_degree))
     cfg.alt_zero_count = 0
     cfg.alt_zero_count = int(current_m2 - altitude_to_encoder_counts(body.altitude_deg, cfg))

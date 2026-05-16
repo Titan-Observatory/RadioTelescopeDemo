@@ -71,6 +71,9 @@ center_freq_hz = 1.4204e9
 sample_rate_hz = 3.0e6        # Airspy Mini supports 3e6 or 6e6 only
 fft_size = 2048
 # gain_db = 14       # Airspy "linearity" gain index 0-21; default = AGC
+# Powers an inline LNA from the Airspy's 4.5 V bias tee. Leave false unless
+# everything connected to the antenna port is safe to DC-bias.
+lna_bias_tee_enabled = false
 integration_frames = 64    # rolling EMA window; bigger = smoother trace
 publish_rate_hz = 5
 

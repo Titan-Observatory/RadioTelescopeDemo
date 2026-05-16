@@ -6,6 +6,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+# The pointing-limit triangle uses the same alt/az shape as `AltAzPoint` from
+# the response models. Re-export under the historical name to preserve config
+# imports while keeping a single source of truth for the field validators.
+from radiotelescope.models.state import AltAzPoint as AltAzLimitPoint
+
 
 class RoboClawConfig(BaseModel):
     port: str = "/dev/ttyACM0"
@@ -29,11 +34,6 @@ class ObserverConfig(BaseModel):
     dish_diameter_m: float = Field(default=2.286, gt=0)
     observing_freq_hz: float = Field(default=1.42e9, gt=0)
     beam_fwhm_deg: float | None = None
-
-
-class AltAzLimitPoint(BaseModel):
-    altitude_deg: float = Field(ge=0, le=90)
-    azimuth_deg: float = Field(ge=0, le=360)
 
 
 class AltitudeCalibrationPoint(BaseModel):
@@ -149,6 +149,9 @@ class SDRConfig(BaseModel):
     # Airspy "overall" gain is a 0-21 linearity index (not dB). ``None``
     # enables AGC. Field name kept as ``gain_db`` for config back-compat.
     gain_db: float | None = None
+    # Enable Airspy's 4.5 V bias tee to power an inline LNA over the coax.
+    # Only turn this on when the connected RF chain is safe to bias.
+    lna_bias_tee_enabled: bool = False
     # Rolling integration: number of FFT frames averaged exponentially before
     # publishing. Larger = smoother but slower to react.
     integration_frames: int = Field(default=32, ge=1, le=4096)

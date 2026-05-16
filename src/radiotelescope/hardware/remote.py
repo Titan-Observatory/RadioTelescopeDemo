@@ -22,6 +22,7 @@ from radiotelescope.config import HardwareConfig, SDRConfig
 from radiotelescope.models.state import (
     CommandResult,
     ConnectionStatus,
+    LnaStatus,
     RoboClawTelemetry,
 )
 
@@ -136,14 +137,20 @@ class RemoteSDRReceiver:
         self._cfg = sdr_cfg
         self._ws = None  # websockets.WebSocketClientProtocol
         self.mode: str = "uninitialised"
+        self._lna_status = LnaStatus(state="unknown", label="Unknown", detail="Gateway not connected yet")
 
     @property
     def config(self) -> SDRConfig:
         return self._cfg
 
+    @property
+    def lna_status(self) -> LnaStatus:
+        return self._lna_status
+
     async def open(self) -> None:
         if not self._cfg.enabled:
             self.mode = "disabled"
+            self._lna_status = LnaStatus(state="off", label="Off", detail="SDR disabled")
             return
         try:
             import websockets  # local import keeps the dep optional at module load
@@ -154,11 +161,13 @@ class RemoteSDRReceiver:
                 ping_timeout=20,
             )
             self.mode = "remote"
+            await self._refresh_lna_status()
             logger.info("Connected to gateway IQ stream at %s/ws/iq", self._hw.ws_base_url)
         except Exception as exc:
             logger.warning("Could not open gateway IQ stream (%s); spectrum will be empty", exc)
             self._ws = None
             self.mode = "disconnected"
+            self._lna_status = LnaStatus(state="fault", label="Issue", detail=f"Gateway IQ disconnected: {exc}")
 
     async def close(self) -> None:
         ws = self._ws
@@ -183,6 +192,17 @@ class RemoteSDRReceiver:
             logger.warning("Gateway IQ stream dropped: %s", exc)
             self._ws = None
             self.mode = "disconnected"
+            self._lna_status = LnaStatus(state="fault", label="Issue", detail=f"Gateway IQ stream dropped: {exc}")
+
+    async def _refresh_lna_status(self) -> None:
+        try:
+            async with httpx.AsyncClient(base_url=self._hw.base_url, timeout=5.0) as client:
+                r = await client.get("/api/iq/status")
+                r.raise_for_status()
+                raw = r.json().get("lna")
+            self._lna_status = LnaStatus.model_validate(raw)
+        except Exception as exc:
+            self._lna_status = LnaStatus(state="unknown", label="Unknown", detail=f"Gateway LNA status unavailable: {exc}")
 
 
 def _bytes_to_complex64(raw: bytes) -> np.ndarray:

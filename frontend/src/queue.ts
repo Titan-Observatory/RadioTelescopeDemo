@@ -1,12 +1,14 @@
-export interface QueueStatus {
-  token: string;
-  is_active: boolean;
-  position: number;
-  queue_length: number;
-  lease_remaining_s: number | null;
-  idle_remaining_s: number | null;
-  has_active_user: boolean;
-}
+// Queue types. The backend `QueueStatus` shape is generated into `./types`
+// by `python -m radiotelescope.scripts.dump_types`; we re-export it from
+// here so existing call sites keep working. `QueueConfig` lives only on the
+// wire (no backend Pydantic model — it is assembled by the `/api/queue/config`
+// route from a handful of fields), so it stays hand-written.
+//
+// Network helpers for the queue live alongside the rest of the REST surface
+// in `./api.ts` — see `api.queueConfig`, `api.queueStatus`, `api.joinQueue`,
+// `api.leaveQueue`.
+
+export type { QueueStatus } from './types';
 
 export interface QueueConfig {
   enabled: boolean;
@@ -14,31 +16,4 @@ export interface QueueConfig {
   turnstile_site_key: string;
   max_session_seconds: number;
   idle_timeout_seconds: number;
-}
-
-export async function fetchQueueConfig(): Promise<QueueConfig> {
-  const r = await fetch('/api/queue/config');
-  if (!r.ok) throw new Error(`queue config: ${r.status}`);
-  return r.json();
-}
-
-export async function fetchQueueStatus(): Promise<QueueStatus> {
-  const r = await fetch('/api/queue/status');
-  if (!r.ok) throw new Error(`queue status: ${r.status}`);
-  return r.json();
-}
-
-export async function joinQueue(turnstileToken: string | null): Promise<QueueStatus> {
-  const r = await fetch('/api/queue/join', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ turnstile_token: turnstileToken }),
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(typeof data?.detail === 'string' ? data.detail : `join: ${r.status}`);
-  return data as QueueStatus;
-}
-
-export async function leaveQueue(): Promise<void> {
-  await fetch('/api/queue/leave', { method: 'POST' });
 }

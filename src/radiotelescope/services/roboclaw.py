@@ -12,6 +12,7 @@ from radiotelescope.config import MountConfig
 from radiotelescope.hardware.roboclaw import RoboClawClient
 from radiotelescope.models.state import PollStats, RoboClawTelemetry
 from radiotelescope.pointing import altaz_to_radec
+from radiotelescope.services._pubsub import Broadcaster
 from radiotelescope.services.geometry import encoder_counts_to_altitude
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ class RoboClawService:
         self._rate = update_rate_hz
         self._mount_cfg = mount_cfg
         self._antenna = antenna
-        self._subscribers: list[asyncio.Queue[RoboClawTelemetry]] = []
+        self._broadcaster: Broadcaster[RoboClawTelemetry] = Broadcaster()
         self._task: asyncio.Task | None = None
         self._latest: RoboClawTelemetry | None = None
         self._tick_times: deque[float] = deque(maxlen=20)
@@ -81,17 +82,13 @@ class RoboClawService:
         logger.info("RoboClaw telemetry service stopped")
 
     def subscribe(self, maxsize: int = 4) -> asyncio.Queue[RoboClawTelemetry]:
-        q: asyncio.Queue[RoboClawTelemetry] = asyncio.Queue(maxsize=maxsize)
+        q = self._broadcaster.subscribe(maxsize)
         if self._latest is not None:
             q.put_nowait(self._latest)
-        self._subscribers.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue[RoboClawTelemetry]) -> None:
-        try:
-            self._subscribers.remove(q)
-        except ValueError:
-            pass
+        self._broadcaster.unsubscribe(q)
 
     async def run_blocking(self, func: Callable[[], RoboClawTelemetry]) -> RoboClawTelemetry:
         return await asyncio.to_thread(func)
@@ -140,8 +137,7 @@ class RoboClawService:
                     logger.debug("altaz_to_radec failed", exc_info=True)
 
         self._latest = snap.model_copy(update=updates) if updates else snap
-        for q in list(self._subscribers):
-            _put_latest(q, self._latest)
+        self._broadcaster.publish(self._latest)
         return self._latest
 
     async def _poll_loop(self) -> None:
@@ -149,14 +145,3 @@ class RoboClawService:
         while True:
             await self.refresh()
             await asyncio.sleep(interval)
-
-
-def _put_latest(q: asyncio.Queue[RoboClawTelemetry], state: RoboClawTelemetry) -> None:
-    try:
-        q.put_nowait(state)
-    except asyncio.QueueFull:
-        try:
-            q.get_nowait()
-        except asyncio.QueueEmpty:
-            pass
-        q.put_nowait(state)

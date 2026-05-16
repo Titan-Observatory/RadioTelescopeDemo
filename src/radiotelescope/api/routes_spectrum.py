@@ -28,6 +28,7 @@ async def spectrum_status(request: Request):
     return {
         "enabled": cfg.enabled,
         "mode": service.mode,
+        "lna": service.lna_status.model_dump(),
         "center_freq_mhz": cfg.center_freq_hz / 1e6,
         "sample_rate_mhz": cfg.sample_rate_hz / 1e6,
         "fft_size": cfg.fft_size,

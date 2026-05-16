@@ -18,6 +18,7 @@ from typing import AsyncIterator
 import numpy as np
 
 from radiotelescope.config import SDRConfig
+from radiotelescope.models.state import LnaStatus
 
 logger = logging.getLogger(__name__)
 
@@ -55,17 +56,24 @@ class SDRReceiver:
         self._sdr: object | None = None
         self._stream: object | None = None
         self.mode: str = "uninitialised"
+        self._lna_status = LnaStatus(state="unknown", label="Unknown", detail="Airspy not opened yet")
 
     @property
     def config(self) -> SDRConfig:
         return self._cfg
 
+    @property
+    def lna_status(self) -> LnaStatus:
+        return self._lna_status
+
     async def open(self) -> None:
         if not self._cfg.enabled:
             self.mode = "disabled"
+            self._lna_status = LnaStatus(state="off", label="Off", detail="SDR disabled")
             return
         if not _SOAPY_AVAILABLE:
             self.mode = "unavailable"
+            self._lna_status = LnaStatus(state="fault", label="Issue", detail="SoapySDR unavailable")
             logger.error(
                 "SoapySDR is not importable (%s); SDR will produce no data. "
                 "Install soapysdr-module-airspy + python3-soapysdr to enable "
@@ -80,6 +88,7 @@ class SDRReceiver:
             sdr = SoapySDR.Device("driver=airspy")  # type: ignore[union-attr]
             sdr.setSampleRate(SOAPY_SDR_RX, 0, float(self._cfg.sample_rate_hz))
             sdr.setFrequency(SOAPY_SDR_RX, 0, float(self._cfg.center_freq_hz))
+            self._set_lna_bias_tee(sdr)
             if self._cfg.gain_db is None:
                 sdr.setGainMode(SOAPY_SDR_RX, 0, True)  # AGC
             else:
@@ -102,6 +111,7 @@ class SDRReceiver:
             self._sdr = None
             self._stream = None
             self.mode = "unavailable"
+            self._lna_status = LnaStatus(state="fault", label="Issue", detail=f"Airspy open failed: {exc}")
             logger.error(
                 "Airspy open failed (%s); SDR will produce no data. "
                 "Check that the dongle is plugged in and not held by another process.",
@@ -115,6 +125,10 @@ class SDRReceiver:
         if sdr is None or stream is None:
             return
         try:
+            sdr.writeSetting("biastee", "false")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
             sdr.deactivateStream(stream)  # type: ignore[attr-defined]
         except Exception:
             pass
@@ -122,6 +136,26 @@ class SDRReceiver:
             sdr.closeStream(stream)  # type: ignore[attr-defined]
         except Exception:
             pass
+        self._lna_status = LnaStatus(state="off", label="Off", detail="Airspy closed")
+
+    def _set_lna_bias_tee(self, sdr: object) -> None:
+        enabled = bool(self._cfg.lna_bias_tee_enabled)
+        try:
+            sdr.writeSetting("biastee", "true" if enabled else "false")  # type: ignore[attr-defined]
+        except Exception as exc:
+            if enabled:
+                self._lna_status = LnaStatus(state="fault", label="Issue", detail=f"Airspy bias tee failed: {exc}")
+                logger.error("Could not enable Airspy bias tee for LNA: %s", exc)
+            else:
+                self._lna_status = LnaStatus(state="unknown", label="Unknown", detail=f"Airspy bias tee status unavailable: {exc}")
+                logger.debug("Could not explicitly disable Airspy bias tee: %s", exc)
+            return
+
+        self._lna_status = (
+            LnaStatus(state="on", label="On", detail="Airspy bias tee enabled")
+            if enabled
+            else LnaStatus(state="off", label="Off", detail="Airspy bias tee disabled")
+        )
 
     def _read_chunk(self, buf: np.ndarray) -> int:
         """Blocking single read into ``buf``. Returns samples read (>=0) or <0 on error."""
