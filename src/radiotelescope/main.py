@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -172,10 +172,22 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
 
         _frontend_root = frontend_dist.resolve()
 
-        @app.get("/{path:path}")
-        async def serve_spa(path: str):
+        @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+        async def serve_spa(path: str, request: Request):
+            if path.startswith("api/"):
+                return PlainTextResponse("Not found", status_code=404)
+            if path.startswith("ws/"):
+                return PlainTextResponse("Not found", status_code=404)
+            # The SPA fallback is only for browser navigation. Other methods
+            # should fail plainly instead of being reported as GET-only routes.
+            # This keeps missing API POSTs from looking like frontend route hits.
+            if request.method != "GET":
+                return PlainTextResponse("Method not allowed", status_code=405)
+            return await _serve_spa_file(path, frontend_dist, _frontend_root)
+
+        async def _serve_spa_file(path: str, frontend_dist: Path, frontend_root: Path):
             target = (frontend_dist / path).resolve()
-            if not target.is_relative_to(_frontend_root):
+            if not target.is_relative_to(frontend_root):
                 return FileResponse(frontend_dist / "index.html")
             if target.is_file():
                 return FileResponse(target)

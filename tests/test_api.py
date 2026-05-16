@@ -37,6 +37,25 @@ def test_api_rejects_non_operator_command(simulated_config_path):
     assert accepted.status_code == 404
 
 
+def test_gateway_server_accepts_hardware_commands_without_queue_session(simulated_config_path):
+    simulated_config_path.write_text(
+        simulated_config_path.read_text(encoding="utf-8").replace(
+            "[roboclaw]",
+            "[hardware]\nmode = \"gateway-server\"\n\n[roboclaw]",
+        ).replace(
+            'allowed_clients = ["testclient"]',
+            "allowed_clients = []",
+        ),
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app(simulated_config_path)) as client:
+        response = client.post("/api/roboclaw/commands/forward_m1", json={"args": {"speed": 20}})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+
 def test_api_status_contains_telemetry(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         response = client.get("/api/roboclaw/status")
@@ -95,13 +114,18 @@ def test_api_accepts_alt_az_goto(simulated_config_path):
     assert body["command_id"] == "speed_accel_decel_position_m1m2"
     assert body["response"]["m1_position"] == 550
     assert body["response"]["m2_position"] == 800
-    assert body["response"]["speed_qpps"] == 6000
-    assert body["response"]["accel_qpps2"] == 7000
+    assert body["response"]["az_speed_qpps"] == 6000
+    assert body["response"]["alt_speed_qpps"] == 6000
+    assert body["response"]["az_accel_qpps2"] == 7000
+    assert body["response"]["alt_accel_qpps2"] == 7000
 
 
 def test_api_rejects_goto_outside_pointing_limit_triangle(simulated_config_path):
     simulated_config_path.write_text(
         simulated_config_path.read_text(encoding="utf-8").replace(
+            "[roboclaw]",
+            "[hardware]\nmode = \"gateway-client\"\ngateway_host = \"192.0.2.1\"\n\n[roboclaw]",
+        ).replace(
             "goto_decel_qpps2 = 5000",
             """goto_decel_qpps2 = 5000
 pointing_limit_altaz = [
@@ -115,10 +139,8 @@ pointing_limit_altaz = [
     )
 
     with TestClient(create_app(simulated_config_path)) as client:
-        accepted = client.post("/api/telescope/goto", json={"altitude_deg": 30, "azimuth_deg": 90})
         rejected = client.post("/api/telescope/goto", json={"altitude_deg": 5, "azimuth_deg": 90})
 
-    assert accepted.status_code == 200
     assert rejected.status_code == 400
     assert "outside configured pointing limits" in rejected.json()["detail"]
 

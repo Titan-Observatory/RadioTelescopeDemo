@@ -129,11 +129,10 @@ function drawMoonIcon(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
+  r: number,
   fraction: number,
   waxing: boolean,
 ): void {
-  const r = 9;
-
   // Subtle corona
   const glow = ctx.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 2.4);
   glow.addColorStop(0,   'rgba(200, 218, 255, 0.22)');
@@ -1068,17 +1067,20 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         drawProjectedPolyline(ctx, aladin, meridian.samples, false, w, h);
       }
 
-      // Almucantar altitude labels — placed at the south meridian (az = 180°)
+      // Almucantar altitude labels — placed on opposite meridians for readability
       ctx.fillStyle    = 'rgba(114, 224, 173, 0.55)';
       ctx.font         = '10px Inter, system-ui, sans-serif';
-      ctx.textAlign    = 'left';
       ctx.textBaseline = 'middle';
-      for (const ring of almucantars) {
-        const labelPos = altAzToRaDec({ altitude_deg: ring.altitude_deg, azimuth_deg: 180 }, config, date);
-        const lp = aladin.world2pix(labelPos.ra_deg, labelPos.dec_deg);
-        if (lp && isFinite(lp[0]) && isFinite(lp[1]) &&
-            lp[0] >= 0 && lp[0] <= w && lp[1] >= 0 && lp[1] <= h) {
-          ctx.fillText(`${ring.altitude_deg}°`, lp[0] + 4, lp[1]);
+      for (const az of [180, 0]) {
+        ctx.textAlign = az === 180 ? 'left' : 'right';
+        const xOffset = az === 180 ? 4 : -4;
+        for (const ring of almucantars) {
+          const labelPos = altAzToRaDec({ altitude_deg: ring.altitude_deg, azimuth_deg: az }, config, date);
+          const lp = aladin.world2pix(labelPos.ra_deg, labelPos.dec_deg);
+          if (lp && isFinite(lp[0]) && isFinite(lp[1]) &&
+              lp[0] >= 0 && lp[0] <= w && lp[1] >= 0 && lp[1] <= h) {
+            ctx.fillText(`${ring.altitude_deg}°`, lp[0] + xOffset, lp[1]);
+          }
         }
       }
       ctx.restore();
@@ -1171,11 +1173,13 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
       const moonPos = moonRaDec(date);
       const { fraction, waxing } = moonIllumination(sunPos, moonPos);
 
-      // Sun pixel radius: project a point one solar radius (0.2655°) away in
+      // Body pixel radii: project a point one apparent radius away in
       // declination and measure the pixel distance — accurate at any zoom level.
       const SUN_ANG_RADIUS_DEG  = 0.2655;
+      const MOON_ANG_RADIUS_DEG = 0.2591;
       const SUN_EXCLUSION_DEG   = 15;
       const pSunEdge      = aladin.world2pix(sunPos.ra_deg, sunPos.dec_deg + SUN_ANG_RADIUS_DEG);
+      const pMoonEdge     = aladin.world2pix(moonPos.ra_deg, moonPos.dec_deg + MOON_ANG_RADIUS_DEG);
       const pSunExclusion = aladin.world2pix(sunPos.ra_deg, sunPos.dec_deg + SUN_EXCLUSION_DEG);
 
       // Reset each frame so the hover handler sees null when sun is below horizon
@@ -1191,7 +1195,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         if (!p || !isFinite(p[0]) || !isFinite(p[1])) continue;
         if (p[0] < -60 || p[0] > w + 60 || p[1] < -60 || p[1] > h + 60) continue;
 
-        let iconR = 9; // fallback / moon fixed size
+        let iconR = 9; // fallback if an edge projection is unavailable
         if (body.isSun && pSunEdge && isFinite(pSunEdge[0]) && isFinite(pSunEdge[1])) {
           iconR = Math.max(3, Math.hypot(pSunEdge[0] - p[0], pSunEdge[1] - p[1]));
 
@@ -1212,7 +1216,10 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
 
           drawSunIcon(ctx, p[0], p[1], iconR);
         } else if (!body.isSun) {
-          drawMoonIcon(ctx, p[0], p[1], fraction, waxing);
+          if (pMoonEdge && isFinite(pMoonEdge[0]) && isFinite(pMoonEdge[1])) {
+            iconR = Math.max(3, Math.hypot(pMoonEdge[0] - p[0], pMoonEdge[1] - p[1]));
+          }
+          drawMoonIcon(ctx, p[0], p[1], iconR, fraction, waxing);
         }
 
         // Label — sits just below the disc edge

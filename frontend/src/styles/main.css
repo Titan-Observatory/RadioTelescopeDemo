@@ -798,9 +798,20 @@ input:focus-visible {
   height: 34px;
   font-size: 13px;
 }
+.target-form-overlay input[type="number"]::-webkit-outer-spin-button,
+.target-form-overlay input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.target-form-overlay input[type="number"] {
+  -moz-appearance: textfield;
+}
 .target-form-overlay .action-button {
   width: 100%;
   margin-top: 2px;
+}
+.motion-controls-stop {
+  margin-top: 8px;
 }
 
 /* Status panel — always-visible section below the waterfall in the right column */
@@ -2716,10 +2727,24 @@ h2.panel-header {
     border-right: 1px solid var(--hairline);
     border-bottom: 0;
   }
-  /* Restore auto-height right column — spectrum renders at its natural size. */
+  /* Restore auto-height right column: the spectrum panel should own the full
+     height of its content before the status panel starts below it. */
   .dashboard-rightcol { height: auto; min-height: 0; }
-  .dashboard-rightcol .spectrum-panel-host { min-height: 380px; overflow: visible; }
-  .dashboard-rightcol .spectrum-panel-host .spectrum-chart-wrap { height: 340px; }
+  .dashboard-rightcol .spectrum-panel-host {
+    display: block;
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .dashboard-rightcol .spectrum-panel-host .spectrum-section {
+    display: block;
+    min-height: 0;
+    flex: none;
+  }
+  .dashboard-rightcol .spectrum-panel-host .spectrum-chart-wrap {
+    height: 340px;
+    flex: none;
+  }
   .skymap-mobile-fullscreen-btn { display: inline-flex; }
   .dashboard-rightcol > .panel:first-child {
     border-top-right-radius: 0;

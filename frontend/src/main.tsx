@@ -247,6 +247,16 @@ function App() {
     }
   };
 
+  const stopMotion = async () => {
+    track('motion_stop');
+    try {
+      await api.stop();
+      setTelemetry(await api.status());
+    } catch (err) {
+      track('command_failed', { command_id: 'stop', message: errorMessage(err).slice(0, 200) });
+    }
+  };
+
   const startObservationGuide = useCallback(() => {
     startGuidedObservation(async (raDeg, decDeg) => {
       track('goto_radec_submitted', { ra_deg: raDeg, dec_deg: decDeg });
@@ -354,6 +364,7 @@ function App() {
                 targetAlt={targetAlt}
                 setTargetAz={setTargetAz}
                 setTargetAlt={setTargetAlt}
+                onStop={stopMotion}
               />
             </div>
             {hasMapTarget && (
@@ -363,8 +374,7 @@ function App() {
                 onClick={() => { track('slew_from_map', { alt_deg: targetAlt, az_deg: targetAz }); void gotoAltAz(targetAlt, targetAz); }}
                 title={`Slew to Az ${targetAz.toFixed(3)} deg, Alt ${targetAlt.toFixed(3)} deg`}
               >
-                <Navigation size={24} />
-                <span>Slew</span>
+                Slew
               </button>
             )}
           </div>
@@ -506,7 +516,7 @@ function TopBar({
 // the press-and-hold jog pad and the numeric GoTo form so a single overlay
 // holds both interaction modes without doubling the on-screen real estate.
 function MotionControls({
-  runCommand, gotoAltAz, targetAz, targetAlt, setTargetAz, setTargetAlt,
+  runCommand, gotoAltAz, targetAz, targetAlt, setTargetAz, setTargetAlt, onStop,
 }: {
   runCommand: (id: string, args: Record<string, number | boolean>) => Promise<void>;
   gotoAltAz: (alt: number, az: number) => Promise<void>;
@@ -514,6 +524,7 @@ function MotionControls({
   targetAlt: number;
   setTargetAz: (v: number) => void;
   setTargetAlt: (v: number) => void;
+  onStop: () => Promise<void>;
 }) {
   const [mode, setMode] = useState<'jog' | 'goto'>('jog');
   const [slewSpeed, setSlewSpeed] = useState(40);
@@ -585,10 +596,15 @@ function MotionControls({
             />
           </label>
           <button type="submit" className="action-button">
-            <Navigation size={14} /> Slew
+            Slew
           </button>
         </form>
       )}
+      <div className="motion-controls-stop">
+        <button type="button" className="action-button stop-button" onClick={onStop}>
+          Stop
+        </button>
+      </div>
     </>
   );
 }
