@@ -80,7 +80,7 @@ async def require_control(request: Request) -> None:
     session token and flow through this same check — that way the idle/lease
     timers actually advance for local clients too.
     """
-    if request.app.state.config.hardware.mode == "gateway-server":
+    if request.app.state.config.hardware.mode == "gateway-server" and is_lan_admin(request):
         return
     if not request.app.state.config.queue.enabled:
         return

@@ -37,7 +37,23 @@ def test_api_rejects_non_operator_command(simulated_config_path):
     assert accepted.status_code == 404
 
 
-def test_gateway_server_accepts_hardware_commands_without_queue_session(simulated_config_path):
+def test_gateway_server_accepts_trusted_hardware_commands_without_queue_session(simulated_config_path):
+    simulated_config_path.write_text(
+        simulated_config_path.read_text(encoding="utf-8").replace(
+            "[roboclaw]",
+            "[hardware]\nmode = \"gateway-server\"\n\n[roboclaw]",
+        ),
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app(simulated_config_path)) as client:
+        response = client.post("/api/roboclaw/commands/forward_m1", json={"args": {"speed": 20}})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+
+def test_gateway_server_rejects_untrusted_hardware_commands_without_queue_session(simulated_config_path):
     simulated_config_path.write_text(
         simulated_config_path.read_text(encoding="utf-8").replace(
             "[roboclaw]",
@@ -52,6 +68,37 @@ def test_gateway_server_accepts_hardware_commands_without_queue_session(simulate
     with TestClient(create_app(simulated_config_path)) as client:
         response = client.post("/api/roboclaw/commands/forward_m1", json={"args": {"speed": 20}})
 
+    assert response.status_code == 403
+
+
+def test_gateway_server_accepts_internal_goto_command_from_trusted_client(simulated_config_path):
+    simulated_config_path.write_text(
+        simulated_config_path.read_text(encoding="utf-8").replace(
+            "[roboclaw]",
+            "[hardware]\nmode = \"gateway-server\"\n\n[roboclaw]",
+        ),
+        encoding="utf-8",
+    )
+
+    payload = {
+        "args": {
+            "m1_accel": 1000,
+            "m1_speed": 1000,
+            "m1_decel": 1000,
+            "m1_position": 100,
+            "m2_accel": 1000,
+            "m2_speed": 1000,
+            "m2_decel": 1000,
+            "m2_position": 200,
+            "buffer": 1,
+        }
+    }
+    with TestClient(create_app(simulated_config_path)) as client:
+        registry = client.get("/api/roboclaw/commands")
+        response = client.post("/api/roboclaw/commands/speed_accel_decel_position_m1m2", json=payload)
+
+    command_ids = {command["id"] for command in registry.json()}
+    assert "speed_accel_decel_position_m1m2" not in command_ids
     assert response.status_code == 200
     assert response.json()["ok"] is True
 

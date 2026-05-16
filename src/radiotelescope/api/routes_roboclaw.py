@@ -5,7 +5,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
-from radiotelescope.api.dependencies import require_control, require_lan_admin
+from radiotelescope.api.dependencies import is_lan_admin, require_control, require_lan_admin
 from radiotelescope.geometry import normalise_azimuth, point_in_triangle, unwrap_azimuth
 from radiotelescope.hardware.roboclaw import COMMANDS, OPERATOR_COMMAND_IDS, command_registry
 from radiotelescope.models.state import AltAzRequest, CommandInfo, CommandRequest, CommandResult, HealthStatus, RaDecRequest, RoboClawTelemetry, TelescopeConfig
@@ -13,6 +13,10 @@ from radiotelescope.pointing import radec_to_altaz
 from radiotelescope.services.geometry import altitude_to_encoder_counts
 
 router = APIRouter(tags=["roboclaw"])
+
+GATEWAY_INTERNAL_COMMAND_IDS = {
+    "speed_accel_decel_position_m1m2",
+}
 
 
 def _inside_pointing_limits(altitude_deg: float, azimuth_deg: float, request: Request) -> bool:
@@ -85,7 +89,12 @@ async def execute_command(command_id: str, body: CommandRequest, request: Reques
     spec = COMMANDS.get(command_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown command: {command_id}")
-    if command_id not in OPERATOR_COMMAND_IDS:
+    gateway_internal = (
+        command_id in GATEWAY_INTERNAL_COMMAND_IDS
+        and request.app.state.config.hardware.mode == "gateway-server"
+        and is_lan_admin(request)
+    )
+    if command_id not in OPERATOR_COMMAND_IDS and not gateway_internal:
         raise HTTPException(status_code=404, detail=f"Command is not available from the web controller: {command_id}")
 
     client = _service(request).client
