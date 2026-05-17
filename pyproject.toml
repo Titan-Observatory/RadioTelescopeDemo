@@ -21,9 +21,9 @@ dependencies = [
     # `python3-soapysdr` (with `soapysdr-module-airspy` for the Airspy
     # driver) — they aren't on PyPI, so they're intentionally NOT listed
     # here. See CLAUDE.md "Hardware Notes" for the apt install command.
-    # Used by RemoteSDRReceiver (gateway-client mode). Already a transitive
-    # dep via uvicorn[standard]; pinned here so the import in
-    # hardware/remote.py is explicit.
+    # Used by SpectrumBridge (gateway-client mode) to subscribe to the Pi's
+    # /ws/spectrum upstream. Already a transitive dep via uvicorn[standard];
+    # pinned here so the import in services/spectrum_bridge.py is explicit.
     "websockets>=12",
 ]
 

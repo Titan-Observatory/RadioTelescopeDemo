@@ -1,28 +1,27 @@
 """Remote hardware adapters for gateway-client mode.
 
-When `hardware.mode = "gateway-client"`, this process runs the full FastAPI
-app, DSP pipeline, and web UI, but the motors and the SDR live on another box
-("gateway-server") on the LAN. The two classes here implement the same
-interfaces as the local hardware (`RoboClawClient` protocol, `SDRReceiver`)
-so the services and routes don't know the difference.
+When `hardware.mode = "gateway-client"`, this process runs the FastAPI app
+and web UI but the motors live on another box ("gateway-server") on the LAN.
+``RemoteRoboClawClient`` implements the same ``RoboClawClient`` protocol the
+local serial driver does so the services don't know the difference.
+
+The SDR no longer needs a remote adapter — the Pi runs its own
+``SpectrumService`` and the host subscribes to ``/ws/spectrum`` via
+``SpectrumBridge`` instead. See plan ``swift-wobbling-hammock.md``.
 
 No auth: this is intended for a closed, hardwired LAN. See plan
-`make-it-a-hardware-precious-swan.md` for context.
+``make-it-a-hardware-precious-swan.md`` for context.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import AsyncIterator
 
 import httpx
-import numpy as np
 
-from radiotelescope.config import HardwareConfig, SDRConfig
+from radiotelescope.config import HardwareConfig
 from radiotelescope.models.state import (
     CommandResult,
     ConnectionStatus,
-    LnaStatus,
     RoboClawTelemetry,
 )
 
@@ -120,102 +119,3 @@ def _try_detail(r: httpx.Response) -> str | None:
         return detail if isinstance(detail, str) else None
     return None
 
-
-# ─── SDR ────────────────────────────────────────────────────────────────────
-
-
-class RemoteSDRReceiver:
-    """Mirrors `SDRReceiver`: opens a WS to the gateway's /ws/iq, yields chunks.
-
-    The wire format is raw `complex64` I/Q samples (8 bytes/sample,
-    ``8 * fft_size`` bytes per frame), matching what the gateway-server's
-    Airspy stream produces. No conversion is needed beyond a ``frombuffer``.
-    """
-
-    def __init__(self, hardware_cfg: HardwareConfig, sdr_cfg: SDRConfig) -> None:
-        self._hw = hardware_cfg
-        self._cfg = sdr_cfg
-        self._ws = None  # websockets.WebSocketClientProtocol
-        self.mode: str = "uninitialised"
-        self._lna_status = LnaStatus(state="unknown", label="Unknown", detail="Gateway not connected yet")
-
-    @property
-    def config(self) -> SDRConfig:
-        return self._cfg
-
-    @property
-    def lna_status(self) -> LnaStatus:
-        return self._lna_status
-
-    async def set_lna_bias_tee(self, enabled: bool) -> LnaStatus:
-        try:
-            async with httpx.AsyncClient(base_url=self._hw.base_url, timeout=5.0) as client:
-                r = await client.post("/api/iq/lna", json={"enabled": enabled})
-                r.raise_for_status()
-                raw = r.json().get("lna")
-            self._lna_status = LnaStatus.model_validate(raw)
-        except Exception as exc:
-            self._lna_status = LnaStatus(state="fault", label="Issue", detail=f"Gateway LNA toggle failed: {exc}")
-        return self._lna_status
-
-    async def open(self) -> None:
-        if not self._cfg.enabled:
-            self.mode = "disabled"
-            self._lna_status = LnaStatus(state="off", label="Off", detail="SDR disabled")
-            return
-        try:
-            import websockets  # local import keeps the dep optional at module load
-            self._ws = await websockets.connect(
-                f"{self._hw.ws_base_url}/ws/iq",
-                max_size=None,  # IQ frames are larger than the 1 MiB default
-                ping_interval=20,
-                ping_timeout=20,
-            )
-            self.mode = "remote"
-            await self._refresh_lna_status()
-            logger.info("Connected to gateway IQ stream at %s/ws/iq", self._hw.ws_base_url)
-        except Exception as exc:
-            logger.warning("Could not open gateway IQ stream (%s); spectrum will be empty", exc)
-            self._ws = None
-            self.mode = "disconnected"
-            self._lna_status = LnaStatus(state="fault", label="Issue", detail=f"Gateway IQ disconnected: {exc}")
-
-    async def close(self) -> None:
-        ws = self._ws
-        self._ws = None
-        if ws is not None:
-            try:
-                await ws.close()
-            except Exception:
-                pass
-
-    async def stream(self) -> AsyncIterator[np.ndarray]:
-        if self._ws is None:
-            return
-        try:
-            async for message in self._ws:
-                if isinstance(message, str):
-                    continue
-                yield _bytes_to_complex64(message)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Gateway IQ stream dropped: %s", exc)
-            self._ws = None
-            self.mode = "disconnected"
-            self._lna_status = LnaStatus(state="fault", label="Issue", detail=f"Gateway IQ stream dropped: {exc}")
-
-    async def _refresh_lna_status(self) -> None:
-        try:
-            async with httpx.AsyncClient(base_url=self._hw.base_url, timeout=5.0) as client:
-                r = await client.get("/api/iq/status")
-                r.raise_for_status()
-                raw = r.json().get("lna")
-            self._lna_status = LnaStatus.model_validate(raw)
-        except Exception as exc:
-            self._lna_status = LnaStatus(state="unknown", label="Unknown", detail=f"Gateway LNA status unavailable: {exc}")
-
-
-def _bytes_to_complex64(raw: bytes) -> np.ndarray:
-    """Decode the gateway IQ wire format (raw little-endian complex64)."""
-    return np.frombuffer(raw, dtype=np.complex64)

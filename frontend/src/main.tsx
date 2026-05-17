@@ -863,9 +863,19 @@ function maxAbsReading(...values: Array<number | null | undefined>): number | nu
   return present.length === 0 ? null : Math.max(...present);
 }
 
+// Encoder quantisation and PWM telemetry both jitter by ±1 around zero when the
+// motors are commanded off. Without a deadband the state readout flickers
+// between Moving/Idle every poll. 2 QPPS / 2 PWM counts is well below any real
+// commanded motion (slewing runs at hundreds of QPPS) so it's safe to ignore.
+const MOTOR_SPEED_DEADBAND_QPPS = 2;
+const MOTOR_OUTPUT_DEADBAND = 2;
+
 function motorState(speed: number | null, output: number | null): string {
   if (speed == null && output == null) return '—';
-  return (speed ?? 0) > 0 || (output ?? 0) > 0 ? 'Moving' : 'Idle';
+  const moving =
+    (speed ?? 0) > MOTOR_SPEED_DEADBAND_QPPS ||
+    (output ?? 0) > MOTOR_OUTPUT_DEADBAND;
+  return moving ? 'Moving' : 'Idle';
 }
 
 // ─── Status classifiers ──────────────────────────────────────────────────────

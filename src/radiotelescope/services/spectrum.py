@@ -41,9 +41,12 @@ class SpectrumService(SDRDriverTask[SpectrumFrame]):
         self._frames_seen: int = 0
         self._window = np.hanning(cfg.fft_size).astype(np.float32)
         self._freqs_mhz = self._build_freq_axis()
-        # Duration of one FFT in seconds — `fft_size` samples at the configured
-        # sample rate. Used to translate frame counts into real time on the UI.
-        self._frame_duration_s: float = cfg.fft_size / cfg.sample_rate_hz
+        # Measured wall-clock cadence between FFT iterations. The driver yields
+        # one IQ chunk per Soapy read regardless of `fft_size`, so the theoretical
+        # `fft_size / sample_rate` underestimates the period by ~10×. We seed with
+        # that theoretical value and let the EMA below drift it to reality.
+        self._frame_period_s: float = cfg.fft_size / cfg.sample_rate_hz
+        self._last_frame_monotonic: float | None = None
 
     def _build_freq_axis(self) -> np.ndarray:
         """FFT-shifted frequency axis in MHz, centred on `center_freq_hz`."""
@@ -118,6 +121,7 @@ class SpectrumService(SDRDriverTask[SpectrumFrame]):
     def reset_integration(self) -> None:
         self._integrated = None
         self._frames_seen = 0
+        self._last_frame_monotonic = None
 
     async def _run(self) -> None:
         cfg = self._cfg
@@ -140,6 +144,14 @@ class SpectrumService(SDRDriverTask[SpectrumFrame]):
             self._frames_seen += 1
 
             now = time.monotonic()
+            # Track real FFT cadence so the UI can show wall-clock integration
+            # time honestly. EMA over ~32 frames smooths Soapy chunk-size jitter.
+            if self._last_frame_monotonic is not None:
+                dt = now - self._last_frame_monotonic
+                if 0 < dt < 1.0:
+                    self._frame_period_s += 0.03125 * (dt - self._frame_period_s)
+            self._last_frame_monotonic = now
+
             if now - last_publish < publish_interval:
                 continue
             last_publish = now
@@ -150,14 +162,21 @@ class SpectrumService(SDRDriverTask[SpectrumFrame]):
         # 1420 MHz line stands out without needing a calibrated reference.
         power_db = 10.0 * np.log10(integrated)
         power_db -= float(np.median(power_db))
+        # Effective integration time is the rolling EMA window's wall-clock
+        # length, capped by how many frames have actually been accumulated
+        # since the last reset. Past `integration_frames`, the window is
+        # saturated and the value plateaus — which is what the UI should show
+        # instead of a counter that climbs forever.
+        cfg = self._cfg
+        effective_frames = min(self._frames_seen, cfg.integration_frames)
         frame = SpectrumFrame(
             timestamp=time.time(),
-            center_freq_mhz=self._cfg.center_freq_hz / 1e6,
-            sample_rate_mhz=self._cfg.sample_rate_hz / 1e6,
-            integration_frames=self._cfg.integration_frames,
+            center_freq_mhz=cfg.center_freq_hz / 1e6,
+            sample_rate_mhz=cfg.sample_rate_hz / 1e6,
+            integration_frames=cfg.integration_frames,
             frames_seen=self._frames_seen,
-            frame_duration_s=self._frame_duration_s,
-            integration_seconds=self._frames_seen * self._frame_duration_s,
+            frame_duration_s=self._frame_period_s,
+            integration_seconds=effective_frames * self._frame_period_s,
             mode=self._rx.mode,
             freqs_mhz=self._freqs_mhz.tolist(),
             power_db=power_db.astype(np.float32).round(3).tolist(),

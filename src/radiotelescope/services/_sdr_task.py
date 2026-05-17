@@ -1,15 +1,11 @@
 """Shared lifecycle scaffolding for SDR-driven services.
 
-``SpectrumService`` (computes FFTs locally in the ``local`` / ``gateway-client``
-deployment modes) and ``IQPublisher`` (forwards raw IQ over WebSocket in
-``gateway-server`` mode) used to copy-paste their start/stop/reconnect/loop
-plumbing verbatim. That scaffolding now lives here; subclasses only own
-their data path (``_run``).
+``SpectrumService`` (computes FFTs from an attached SDR in ``local`` /
+``gateway-server`` modes) uses this base for its start/stop/reconnect/loop
+plumbing. Subclasses only own their data path (``_run``).
 
 The receiver passed in must implement the minimal ``open() / close() /
-.mode`` surface from :class:`radiotelescope.hardware.sdr.SDRReceiver` (the
-remote variant also satisfies this), so the same base supports both the
-all-in-one (aio) and client-server deployments without modification.
+.mode`` surface from :class:`radiotelescope.hardware.sdr.SDRReceiver`.
 """
 from __future__ import annotations
 

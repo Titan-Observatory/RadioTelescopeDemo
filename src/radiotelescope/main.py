@@ -15,24 +15,24 @@ from radiotelescope.api import (
     routes_camera_proxy,
     routes_events,
     routes_feedback,
-    routes_iq,
     routes_queue,
     routes_roboclaw,
     routes_spectrum,
+    routes_spectrum_proxy,
 )
 from radiotelescope.api.auth import AuthManager, PasswordAuthMiddleware
 from radiotelescope.api.auth import router as auth_router
 from radiotelescope.api.client_allowlist import ClientAllowlistMiddleware
 from radiotelescope.api.security_headers import SecurityHeadersMiddleware
 from radiotelescope.config import load_config
-from radiotelescope.hardware.remote import RemoteRoboClawClient, RemoteSDRReceiver
+from radiotelescope.hardware.remote import RemoteRoboClawClient
 from radiotelescope.hardware.roboclaw import make_client
 from radiotelescope.hardware.sdr import SDRReceiver
 from radiotelescope.pointing import compute_fwhm_deg, make_antenna
-from radiotelescope.services.iq_publisher import IQPublisher
 from radiotelescope.services.queue import QueueService
 from radiotelescope.services.roboclaw import RoboClawService
 from radiotelescope.services.spectrum import SpectrumService
+from radiotelescope.services.spectrum_bridge import SpectrumBridge
 
 logger = logging.getLogger("radiotelescope")
 
@@ -62,31 +62,36 @@ async def lifespan(app: FastAPI):
     )
     app.state.queue_service = queue
 
-    # ── SDR pipeline: which end of the wire we're on decides what runs ──
+    # ── SDR pipeline: FFT runs next to the SDR; the LAN host only relays ──
+    #
+    # ``local`` and ``gateway-server`` both instantiate the real
+    # ``SpectrumService`` because the Airspy is physically attached.
+    # ``gateway-client`` instead runs a thin ``SpectrumBridge`` that
+    # subscribes once to the Pi's ``/ws/spectrum`` and fans frames out to
+    # local browsers — shipping integrated spectra (~1.3 Mbps) instead of
+    # raw IQ (~192 Mbps), which the Pi 3B+'s 100 Mbps NIC cannot carry.
     spectrum: SpectrumService | None = None
-    iq_publisher: IQPublisher | None = None
+    bridge: SpectrumBridge | None = None
     if cfg.sdr.enabled:
-        if mode == "gateway-server":
-            # Pi-side: hand raw IQ to LAN consumers; skip the FFT pipeline.
-            iq_publisher = IQPublisher(SDRReceiver(cfg.sdr))
-            app.state.iq_publisher = iq_publisher
+        if mode == "gateway-client":
+            bridge = SpectrumBridge(cfg.hardware)
+            app.state.spectrum_bridge = bridge
         else:
-            sdr = RemoteSDRReceiver(cfg.hardware, cfg.sdr) if mode == "gateway-client" else SDRReceiver(cfg.sdr)
-            spectrum = SpectrumService(sdr, cfg.sdr)
+            spectrum = SpectrumService(SDRReceiver(cfg.sdr), cfg.sdr)
             app.state.spectrum_service = spectrum
 
     await service.start()
     await queue.start()
     if spectrum is not None:
         await spectrum.start()
-    if iq_publisher is not None:
-        await iq_publisher.start()
+    if bridge is not None:
+        await bridge.start()
 
     logger.info("RoboClaw controller started in %s mode (hardware=%s)", client.connection.mode, mode)
     yield
 
-    if iq_publisher is not None:
-        await iq_publisher.stop()
+    if bridge is not None:
+        await bridge.stop()
     if spectrum is not None:
         await spectrum.stop()
     await queue.stop()
@@ -143,11 +148,17 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
     else:
         app.include_router(routes_camera.router)
 
-    if mode == "gateway-server":
-        # Raw IQ out to the LAN host; no DSP, no UI.
-        app.include_router(routes_iq.router)
+    # Spectrum endpoints live wherever the FFT is computed. ``local`` and
+    # ``gateway-server`` both serve them directly; ``gateway-client`` mounts
+    # a proxy that forwards HTTP to the Pi and bridges ``/ws/spectrum``
+    # through the in-process ``SpectrumBridge`` pubsub.
+    if mode == "gateway-client":
+        app.include_router(routes_spectrum_proxy.router)
     else:
         app.include_router(routes_spectrum.router)
+
+    # Feedback + events are user-facing only; the gateway-server is headless.
+    if mode != "gateway-server":
         app.include_router(routes_feedback.router)
         app.include_router(routes_events.router)
 

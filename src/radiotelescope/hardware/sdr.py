@@ -253,11 +253,3 @@ class SDRReceiver:
                 return
             yield buf
 
-    async def stream_bytes(self) -> AsyncIterator[bytes]:
-        """Yield raw complex64 I/Q chunks (8 × ``fft_size`` bytes each).
-
-        This is the gateway-server wire format consumed by
-        :class:`radiotelescope.hardware.remote.RemoteSDRReceiver`.
-        """
-        async for buf in self.stream():
-            yield buf.tobytes()
