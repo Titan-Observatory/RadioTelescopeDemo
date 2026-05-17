@@ -81,7 +81,11 @@ function buildColormapLUT(
 
 // 21 cm neutral-hydrogen line — the rolling integration is centred here.
 const H1_REST_MHZ = HYDROGEN_LINE_MHZ;
-const H1_SEARCH_HALF_WIDTH_MHZ = 0.18;
+// ±0.5 MHz around the rest line corresponds to ≈ ±105 km/s of Doppler shift,
+// which covers the bulk of Galactic neutral-hydrogen velocities visible from
+// the northern hemisphere. Wider than this and the marker band stops being
+// useful as a "look here" hint.
+const H1_SEARCH_HALF_WIDTH_MHZ = 0.5;
 
 // Default locked y-range, chosen so the median-subtracted trace fits a
 // freshly-tuned RTL-SDR's typical noise floor without clipping.
@@ -143,6 +147,7 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
   // display scale changes; those must not duplicate
   // a row — it just relabels the colours we already drew (lossy, but cheap).
   const lastWaterfallFrameRef = useRef<SpectrumFrame | null>(null);
+  const waterfallRowRef = useRef<ImageData | null>(null);
   const [status, setStatus] = useState<SpectrumStatus | null>(null);
   const [frame, setFrame] = useState<SpectrumFrame | null>(null);
   const [yRange] = useState<[number, number]>(DEFAULT_Y_RANGE);
@@ -330,7 +335,12 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
     const bins = displayed.length;
     const binsMaxIdx = bins - 1;
 
-    const row = ctx.createImageData(plotW, rowH);
+    if (!waterfallRowRef.current ||
+        waterfallRowRef.current.width !== plotW ||
+        waterfallRowRef.current.height !== rowH) {
+      waterfallRowRef.current = ctx.createImageData(plotW, rowH);
+    }
+    const row = waterfallRowRef.current;
     const rowData = row.data;
     const lut = WATERFALL_LUT;
     const lutMaxIdx = (lut.length / 4) - 1;

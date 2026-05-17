@@ -644,6 +644,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
   const horizonCanvasRef  = useRef<HTMLCanvasElement | null>(null);
   const targetCatalogRef = useRef<ReturnType<typeof A.catalog> | null>(null);
   const initializedRef = useRef(false);
+  const isDraggingRef = useRef(false);
   const onTargetRef = useRef<((az: number, alt: number) => void) | null>(null);
   // Mirrored so the init effect doesn't re-run (and tear down its event handlers)
   // every time the parent passes a fresh inline callback.
@@ -799,6 +800,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
       const handlePointerDown = (e: PointerEvent) => {
         if (!e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
         activePointer = { id: e.pointerId, x: e.clientX, y: e.clientY, dragged: false };
+        isDraggingRef.current = true;
         startDragLoop();
       };
 
@@ -813,6 +815,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         if (!activePointer || e.pointerId !== activePointer.id) return;
         if (activePointer.dragged) suppressClickUntil = performance.now() + 500;
         activePointer = null;
+        isDraggingRef.current = false;
         stopDragLoop();
       };
 
@@ -820,6 +823,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         if (!activePointer || e.pointerId !== activePointer.id) return;
         if (activePointer.dragged) suppressClickUntil = performance.now() + 500;
         activePointer = null;
+        isDraggingRef.current = false;
         stopDragLoop();
       };
 
@@ -996,8 +1000,18 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
 
     let frameId: number;
     let dashOffset = 0;
+    let lastDrawTime = 0;
 
-    const draw = () => {
+    const draw = (now: DOMHighResTimeStamp = 0) => {
+      // Throttle to ~15 fps at idle; allow full rate during drag/pan.
+      const elapsed = now - lastDrawTime;
+      if (!isDraggingRef.current && elapsed < 66) {
+        frameId = requestAnimationFrame(draw);
+        return;
+      }
+      dashOffset = (dashOffset + 0.4 * (elapsed / 16.67)) % 22;
+      lastDrawTime = now;
+
       const date = new Date();
       if (Date.now() - lastSampleTime > 30_000) refreshHorizonSamples();
 
@@ -1151,8 +1165,6 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
 
           if (pTel     && isFinite(pTel[0])     && isFinite(pTel[1]) &&
               pPending && isFinite(pPending[0])  && isFinite(pPending[1])) {
-            dashOffset = (dashOffset + 0.4) % 22;
-
             ctx.save();
             ctx.setLineDash([7, 5]);
             ctx.lineDashOffset = -dashOffset;
