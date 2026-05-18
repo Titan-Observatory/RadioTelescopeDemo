@@ -978,7 +978,7 @@ export function QueuePage({
             <h1>{inQueue ? 'You are in the queue' : 'Joining the queue'}</h1>
             <p className="queue-header-sub">
               {inQueue
-                ? "Hold tight — you'll get control when it's your turn."
+                ? "As a demo, only one observer can be in control at a time. While you wait, learn more about what you'll be observing below!"
                 : 'Complete the quick verification to take your place in line.'}
             </p>
           </div>
@@ -1005,16 +1005,15 @@ export function QueuePage({
         <section className="h1-hero">
           <div className="h1-hero-inner">
             <div className="h1-hero-text">
-              <span className="h1-eyebrow">While you wait</span>
-              <h2 className="h1-hero-title">The 21-cm Hydrogen Line</h2>
-              <p className="h1-hero-sub">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+              <span className="h1-eyebrow">What is it?</span>
+              <h2 className="h1-hero-title">The Hydrogen Line</h2>
+              <p className="h1-hero-sub">Found at ~1420 MHz with a corresponding wavelength of 21cm, the "Hydrogen Line" is used to describe a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. It's discovery and subsequent application to the emerging field of radio astronomy in 1951 unlocked an entirely new set of tools with which we could explore the universe, allowing us to see through thick clouds of dust, determine the velocity and structure of nearby hydrogen, and for the first time, learn what our own Milky Way galaxy looked like.</p>
             </div>
             <div className="h1-hero-visual">
               <HeroSpectrum />
               <p className="h1-visual-caption">
                 Neutral hydrogen 1420.4 MHz emission, looking outward through the galactic disk
-                (l = 110°, b = 0°). The local-arm peak sits at rest frequency; the Perseus-arm
-                peak is Doppler-shifted ~50 km/s to the blue. LAB all-sky survey, Kalberla et al. 2005.
+                (l = 110°, b = 0°). LAB all-sky survey, Kalberla et al. 2005.
               </p>
             </div>
           </div>
@@ -1024,8 +1023,23 @@ export function QueuePage({
         <section className="h1-spinflip">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
+              <span className="h1-eyebrow">What causes it?</span>
               <h2 className="h1-section-heading">The spin-flip transition</h2>
-              <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+              <p className="h1-section-body">Neutral hydrogen consists of one proton and one electron, each with a quantum property known as spin. The term "spin" here is a bit misleading to say the least, so for the purposes of this analogy, we'll simplify each particle and it's spin to it's resulting magnetic field, represented by a basic dipole magnet. One more caveat: quantum spin can only exist in two states; either spin up or spin down, so the resulting magnetic moment similarly can only point up or down.</p>
+              <p className="h1-section-body">With this model, we can see that neutral hydrogen can exist in one of two states: one where the magnetic moments point in the same direction, and another where they are opposite.</p>
+            </div>
+            <div className="h1-spinflip-visual">
+              {/* Animation goes here */}
+            </div>
+          </div>
+        </section>
+        
+        {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}
+        <section className="h1-spinflip">
+          <div className="h1-spinflip-inner">
+            <div className="h1-spinflip-text">
+              <h2 className="h1-section-heading">The spin-flip transition</h2>
+              <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that he was at the edge of his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
               <p className="h1-section-body">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
             </div>
             <div className="h1-spinflip-visual">
@@ -1033,7 +1047,7 @@ export function QueuePage({
             </div>
           </div>
         </section>
-
+        
         {/* ── Doppler section ───────────────────────────────────────────────── */}
         <section className="h1-doppler" id="h1-doppler-section">
           <div className="h1-doppler-inner">
@@ -1048,20 +1062,6 @@ export function QueuePage({
                 The relative velocity of hydrogen gas along our line of sight shifts the observed frequency: approaching gas is blueshifted, receding gas is redshifted.
               </p>
             </div>
-          </div>
-        </section>
-
-        {/* ── Observation section ───────────────────────────────────────────── */}
-        <section className="h1-observe">
-          <div className="h1-observe-inner">
-            <h2 className="h1-section-heading">What you'll see in the spectrum</h2>
-            <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident.</p>
-            <div className="h1-observe-visual">
-              <ObservationSpectrum />
-            </div>
-            <p className="h1-visual-caption">
-              Multiple peaks appear when the beam passes through gas clouds moving at different radial velocities — each peak is a separate arm of the galaxy
-            </p>
           </div>
         </section>
 
