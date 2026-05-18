@@ -983,7 +983,7 @@ export function QueuePage({
             <div className="h1-hero-text">
               <span className="h1-eyebrow">What is it?</span>
               <h2 className="h1-hero-title">The Hydrogen Line</h2>
-              <p className="h1-hero-sub">In the 1930's, while working at Bell Labs during it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that he was at the edge of his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
+              <p className="h1-hero-sub">Found at ~1420mhz with a corresponding wavelength of 21cm, the "Hydrogen Line" is used to describe a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. It's discovery and subsequent application to the emerging field of radio astronomy in 1951 unlocked an entirely new set of tools with which we could explore the universe, allowing us to see through thick clouds of dust, determine the velocity and structure of nearby hydrogen, and for the first time, learn what our own Milky Way galaxy looked like.</p>
             </div>
             <div className="h1-hero-visual">
               <HeroSpectrum />
@@ -1008,7 +1008,21 @@ export function QueuePage({
             </div>
           </div>
         </section>
-
+        
+        {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}
+        <section className="h1-spinflip">
+          <div className="h1-spinflip-inner">
+            <div className="h1-spinflip-text">
+              <h2 className="h1-section-heading">The spin-flip transition</h2>
+              <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that he was at the edge of his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
+              <p className="h1-section-body">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+            </div>
+            <div className="h1-spinflip-visual">
+              {/* Animation goes here */}
+            </div>
+          </div>
+        </section>
+        
         {/* ── Doppler section ───────────────────────────────────────────────── */}
         <section className="h1-doppler" id="h1-doppler-section">
           <div className="h1-doppler-inner">
