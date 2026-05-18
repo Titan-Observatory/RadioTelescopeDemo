@@ -1026,20 +1026,6 @@ export function QueuePage({
           </div>
         </section>
 
-        {/* ── Observation section ───────────────────────────────────────────── */}
-        <section className="h1-observe">
-          <div className="h1-observe-inner">
-            <h2 className="h1-section-heading">What you'll see in the spectrum</h2>
-            <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident.</p>
-            <div className="h1-observe-visual">
-              <ObservationSpectrum />
-            </div>
-            <p className="h1-visual-caption">
-              Multiple peaks appear when the beam passes through gas clouds moving at different radial velocities — each peak is a separate arm of the galaxy
-            </p>
-          </div>
-        </section>
-
 
       </main>
 
