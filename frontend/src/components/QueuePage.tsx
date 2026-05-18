@@ -154,6 +154,41 @@ function noiseSample(): number {
   return (Math.random() + Math.random() + Math.random() - 1.5) * (2 / 3);
 }
 
+function useVisibleAnimation<T extends Element>() {
+  const ref = useRef<T | null>(null);
+  const [active, setActive] = useState(true);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    let inView = true;
+    let tabVisible = document.visibilityState === 'visible';
+    const update = () => setActive(inView && tabVisible);
+
+    const onVisibilityChange = () => {
+      tabVisible = document.visibilityState === 'visible';
+      update();
+    };
+
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      update();
+    }, { threshold: 0.01 });
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    observer.observe(el);
+    update();
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      observer.disconnect();
+    };
+  }, []);
+
+  return [ref, active] as const;
+}
+
 function HeroSpectrum() {
   // Live trace = survey shape + per-frame noise, lightly low-passed across
   // frames so the line breathes instead of strobing. Smoothing constant α
@@ -161,9 +196,12 @@ function HeroSpectrum() {
   // while still letting the underlying peaks read clearly.
   const smoothedRef = useRef<number[]>(SURVEY_POWER.map(() => 0));
   const rafRef = useRef<number | null>(null);
+  const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>();
   const [paths, setPaths] = useState(() => buildHeroPaths(smoothedRef.current));
 
   useEffect(() => {
+    if (!animationActive) return;
+
     let lastTs = 0;
     // Cap repaints near 24 fps — a 60 Hz update on a decorative panel would
     // burn battery on the queue page for no visible benefit.
@@ -188,10 +226,11 @@ function HeroSpectrum() {
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [animationActive]);
 
   return (
     <svg
+      ref={svgRef}
       viewBox="0 0 600 144"
       className="h1-svg"
       preserveAspectRatio="xMidYMid meet"
@@ -415,14 +454,23 @@ function TelescopeIllustration({ cx, cy }: { cx: number; cy: number }) {
 function DopplerAnimation() {
   const [now, setNow] = useState(0);
   const startRef = useRef(0);
+  const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>();
   // Smoothed noisy bin values for the mini spectrum trace. Updated in the rAF
   // loop so render stays a pure function of `now` plus this ref.
   const miniBinsRef = useRef<number[]>(new Array(DA_MINI_BINS).fill(0));
 
   useEffect(() => {
+    if (!animationActive) return;
+
     let raf = 0;
     let lastTickT = 0;
+    let lastPaintTs = 0;
+    const minIntervalMs = 1000 / 30;
     const loop = (ts: number) => {
+      raf = requestAnimationFrame(loop);
+      if (ts - lastPaintTs < minIntervalMs) return;
+      lastPaintTs = ts;
+
       if (!startRef.current) startRef.current = ts;
       const newT = (ts - startRef.current) / 1000;
 
@@ -447,11 +495,10 @@ function DopplerAnimation() {
       miniBinsRef.current = next;
 
       setNow(newT);
-      raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [animationActive]);
 
   const t = now;
   const sourceX = sourceXAt(t);
@@ -552,6 +599,7 @@ function DopplerAnimation() {
 
   return (
     <svg
+      ref={svgRef}
       viewBox={`0 0 ${DA_W} ${DA_H}`}
       className="h1-svg"
       preserveAspectRatio="xMidYMid meet"
