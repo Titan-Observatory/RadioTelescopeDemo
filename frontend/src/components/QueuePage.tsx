@@ -983,7 +983,7 @@ export function QueuePage({
             <div className="h1-hero-text">
               <span className="h1-eyebrow">What is it?</span>
               <h2 className="h1-hero-title">The Hydrogen Line</h2>
-              <p className="h1-hero-sub">Found at ~1420mhz with a corresponding wavelength of 21cm, the "Hydrogen Line" is used to describe a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. It's discovery and subsequent application to the emerging field of radio astronomy in 1951 unlocked an entirely new set of tools with which we could explore the universe, allowing us to see through thick clouds of dust, determine the velocity and structure of nearby hydrogen, and for the first time, learn what our own Milky Way galaxy looked like.</p>
+              <p className="h1-hero-sub">Found at ~1420 MHz with a corresponding wavelength of 21cm, the "Hydrogen Line" is used to describe a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. It's discovery and subsequent application to the emerging field of radio astronomy in 1951 unlocked an entirely new set of tools with which we could explore the universe, allowing us to see through thick clouds of dust, determine the velocity and structure of nearby hydrogen, and for the first time, learn what our own Milky Way galaxy looked like.</p>
             </div>
             <div className="h1-hero-visual">
               <HeroSpectrum />
@@ -999,9 +999,10 @@ export function QueuePage({
         <section className="h1-spinflip">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
+              <span className="h1-eyebrow">What causes it?</span>
               <h2 className="h1-section-heading">The spin-flip transition</h2>
-              <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
-              <p className="h1-section-body">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+              <p className="h1-section-body">Neutral hydrogen consists of one proton and one electron, each with a quantum property known as spin. The term "spin" here is a bit misleading to say the least, so for the purposes of this analogy, we'll simplify each particle and it's spin to it's resulting magnetic field, represented by a basic dipole magnet. One more caveat: quantum spin can only exist in two states; either spin up or spin down, so the resulting magnetic moment similarly can only point up or down.</p>
+              <p className="h1-section-body">With this model, we can see that neutral hydrogen can exist in one of two states: one where the magnetic moments point in the same direction, and another where they are opposite.</p>
             </div>
             <div className="h1-spinflip-visual">
               {/* Animation goes here */}
