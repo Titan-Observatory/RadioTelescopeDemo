@@ -954,7 +954,7 @@ export function QueuePage({
             <h1>{inQueue ? 'You are in the queue' : 'Joining the queue'}</h1>
             <p className="queue-header-sub">
               {inQueue
-                ? "Hold tight — you'll get control when it's your turn."
+                ? "As a demo, only one observer can be in control at a time. While you wait, learn more about what you'll be observing below!"
                 : 'Complete the quick verification to take your place in line.'}
             </p>
           </div>
@@ -981,16 +981,15 @@ export function QueuePage({
         <section className="h1-hero">
           <div className="h1-hero-inner">
             <div className="h1-hero-text">
-              <span className="h1-eyebrow">While you wait</span>
-              <h2 className="h1-hero-title">The 21-cm Hydrogen Line</h2>
-              <p className="h1-hero-sub">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+              <span className="h1-eyebrow">What is it?</span>
+              <h2 className="h1-hero-title">The Hydrogen Line</h2>
+              <p className="h1-hero-sub">In the 1930's, while working at Bell Labs during it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that he was at the edge of his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
             </div>
             <div className="h1-hero-visual">
               <HeroSpectrum />
               <p className="h1-visual-caption">
                 Neutral hydrogen 1420.4 MHz emission, looking outward through the galactic disk
-                (l = 110°, b = 0°). The local-arm peak sits at rest frequency; the Perseus-arm
-                peak is Doppler-shifted ~50 km/s to the blue. LAB all-sky survey, Kalberla et al. 2005.
+                (l = 110°, b = 0°). LAB all-sky survey, Kalberla et al. 2005.
               </p>
             </div>
           </div>
