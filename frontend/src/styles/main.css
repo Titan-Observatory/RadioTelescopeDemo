@@ -2598,6 +2598,8 @@ h2.panel-header {
   background: var(--surface-1);
   border-bottom: 1px solid var(--hairline);
   padding: 52px 24px;
+  /* Anchor-jump landing point clears the sticky queue header. */
+  scroll-margin-top: 110px;
 }
 
 .h1-doppler-inner {
