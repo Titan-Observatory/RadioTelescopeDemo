@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
+    "render:doppler": "node scripts/render-doppler-frames.mjs",
     "sync-types": "cd .. && python -m radiotelescope.scripts.dump_types > frontend/src/types.ts"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "playwright": "^1.56.1",
     "typescript": "^5.6.3",
     "vite": "^6.0.7"
   }

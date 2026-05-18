@@ -11,7 +11,7 @@ import { api, ApiError } from './api';
 import { BRAND } from './branding';
 import { SkyMap } from './components/SkyMap';
 import { SpectrumPanel } from './components/SpectrumPanel';
-import { QueuePage } from './components/QueuePage';
+import { DopplerAnimation, QueuePage } from './components/QueuePage';
 import { startTour, maybePromptFirstVisit } from './tour';
 import { startGuidedObservation } from './guidedObservation';
 import { FeedbackDialog } from './components/FeedbackDialog';
@@ -24,12 +24,35 @@ interface RfStatus {
   lna?: LnaStatus;
 }
 
+declare global {
+  interface Window {
+    __setDopplerRenderTime?: (timeSeconds: number) => void;
+  }
+}
+
 // Apply branding to the document head so favicon + title share the same source as the TopBar.
 document.title = BRAND.name;
 const favicon = document.getElementById('favicon') as HTMLLinkElement | null;
 if (favicon) favicon.href = BRAND.faviconUrl;
 
 // ─── App ─────────────────────────────────────────────────────────────────────
+
+function DopplerRenderHarness() {
+  const [timeSeconds, setTimeSeconds] = useState(0);
+
+  useEffect(() => {
+    window.__setDopplerRenderTime = setTimeSeconds;
+    return () => { delete window.__setDopplerRenderTime; };
+  }, []);
+
+  return (
+    <div style={{ width: 900, padding: 0, background: '#080b16' }}>
+      <div className="doppler-render-target">
+        <DopplerAnimation renderTimeSeconds={timeSeconds} />
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const [telemetry, setTelemetry] = useState<RoboClawTelemetry | null>(null);
@@ -982,4 +1005,8 @@ function InfoSection() {
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 
 const root = document.getElementById('root');
-if (root) createRoot(root).render(<App />);
+if (root) {
+  const params = new URLSearchParams(window.location.search);
+  const renderTarget = params.get('render');
+  createRoot(root).render(renderTarget === 'doppler' ? <DopplerRenderHarness /> : <App />);
+}

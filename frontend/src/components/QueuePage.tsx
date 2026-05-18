@@ -154,6 +154,17 @@ function noiseSample(): number {
   return (Math.random() + Math.random() + Math.random() - 1.5) * (2 / 3);
 }
 
+function deterministicNoise(seed: number, timeSeconds: number): number {
+  const a = Math.sin(seed * 12.9898 + 78.233);
+  const b = Math.sin(seed * 39.3467 + 11.135);
+  const c = Math.sin(seed * 73.1562 + 42.798);
+  return (
+    Math.sin(timeSeconds * 11.0 + a * Math.PI) * 0.50 +
+    Math.sin(timeSeconds * 18.0 + b * Math.PI) * 0.30 +
+    Math.sin(timeSeconds * 29.0 + c * Math.PI) * 0.20
+  );
+}
+
 function useVisibleAnimation<T extends Element>() {
   const ref = useRef<T | null>(null);
   const [active, setActive] = useState(true);
@@ -451,15 +462,17 @@ function TelescopeIllustration({ cx, cy }: { cx: number; cy: number }) {
   );
 }
 
-function DopplerAnimation() {
+export function DopplerAnimation({ renderTimeSeconds }: { renderTimeSeconds?: number } = {}) {
   const [now, setNow] = useState(0);
   const startRef = useRef(0);
   const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>();
+  const isRenderFrame = renderTimeSeconds != null;
   // Smoothed noisy bin values for the mini spectrum trace. Updated in the rAF
   // loop so render stays a pure function of `now` plus this ref.
   const miniBinsRef = useRef<number[]>(new Array(DA_MINI_BINS).fill(0));
 
   useEffect(() => {
+    if (isRenderFrame) return;
     if (!animationActive) return;
 
     let raf = 0;
@@ -498,9 +511,9 @@ function DopplerAnimation() {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [animationActive]);
+  }, [animationActive, isRenderFrame]);
 
-  const t = now;
+  const t = renderTimeSeconds ?? now;
   const sourceX = sourceXAt(t);
   const vToward = vTowardAt(t); // positive when source approaches telescope
 
@@ -572,7 +585,17 @@ function DopplerAnimation() {
 
   // Build the mini spectrum trace from the smoothed bin values updated in the
   // rAF loop.
-  const miniBins = miniBinsRef.current;
+  const miniBins = isRenderFrame
+    ? Array.from({ length: DA_MINI_BINS }, (_, i) => {
+      const emitTAtDish = findEmitTimeAtTelescope(t);
+      const vReceived = vTowardAt(emitTAtDish);
+      const peakCenter = DA_MINI_CX - (vReceived / DA_V_MAX) * DA_MINI_HALF_RANGE;
+      const x = DA_MINI_PLOT_LEFT_X + (i / (DA_MINI_BINS - 1)) * DA_MINI_PLOT_W;
+      const dx = x - peakCenter;
+      const peakNorm = Math.exp(-0.5 * (dx / DA_MINI_PEAK_SIGMA) ** 2);
+      return Math.max(0, peakNorm + deterministicNoise(i, t) * DA_MINI_NOISE_AMP);
+    })
+    : miniBinsRef.current;
   const miniPts: string[] = new Array(DA_MINI_BINS);
   for (let i = 0; i < DA_MINI_BINS; i++) {
     const x = DA_MINI_PLOT_LEFT_X + (i / (DA_MINI_BINS - 1)) * DA_MINI_PLOT_W;
@@ -590,7 +613,8 @@ function DopplerAnimation() {
   const arrowLen = Math.min(58, Math.abs(vToward) * 1.9);
   const arrowStartX = sourceX + arrowDir * 11;
   const arrowEndX = sourceX + arrowDir * (11 + arrowLen);
-  const arrowY = DA_AXIS_Y + 38;
+  const arrowHeadBaseX = arrowEndX - arrowDir * 8;
+  const arrowY = DA_AXIS_Y + 46;
   const radialVelocity = -vToward;
   const velocityLabel =
     Math.abs(radialVelocity) < 0.05
@@ -658,11 +682,11 @@ function DopplerAnimation() {
         <g>
           <line
             x1={arrowStartX} y1={arrowY}
-            x2={arrowEndX}   y2={arrowY}
+            x2={arrowHeadBaseX} y2={arrowY}
             stroke="#9b9ece" strokeWidth="2"
           />
-          <polyline
-            points={`${arrowEndX},${arrowY} ${arrowEndX - arrowDir * 6},${arrowY - 4} ${arrowEndX - arrowDir * 6},${arrowY + 4}`}
+          <path
+            d={`M ${arrowEndX},${arrowY} L ${arrowHeadBaseX},${arrowY - 5} L ${arrowHeadBaseX},${arrowY + 5} Z`}
             fill="#9b9ece" stroke="none"
           />
         </g>
