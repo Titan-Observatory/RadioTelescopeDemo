@@ -110,7 +110,6 @@ class JogRequest(BaseModel):
     seq: int = Field(ge=0)
     direction: Literal["west", "east", "up", "down"]
     speed: int = Field(ge=0, le=127)
-    timeout_ms: int = Field(default=650, ge=250, le=2000)
 
 
 class JogStopRequest(BaseModel):

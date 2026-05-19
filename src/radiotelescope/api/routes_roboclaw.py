@@ -38,6 +38,7 @@ JOG_COMMANDS: dict[str, str] = {
     "up": "forward_m2",
     "down": "backward_m2",
 }
+JOG_HEARTBEAT_TIMEOUT_S = 1.0
 
 
 def _position_targets(command_id: str, args: dict[str, int | bool]) -> dict[str, int | None] | None:
@@ -165,7 +166,7 @@ async def jog(body: JogRequest, request: Request):
         await service.stop_all()
         return {"ok": True, "accepted": False, "stale": True}
 
-    service.arm_jog_watchdog(body.token, body.seq, body.timeout_ms / 1000)
+    service.arm_jog_watchdog(body.token, body.seq, JOG_HEARTBEAT_TIMEOUT_S)
     return {"ok": True, "accepted": True, "command_id": command_id, "seq": body.seq}
 
 

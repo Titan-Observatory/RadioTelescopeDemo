@@ -40,13 +40,12 @@ export const api = {
   commands: () => request<CommandInfo[]>('GET', '/api/roboclaw/commands'),
   execute: (commandId: string, args: Record<string, number | boolean>) =>
     request<CommandResult>('POST', `/api/roboclaw/commands/${commandId}`, { args }),
-  jog: (direction: JogDirection, speed: number, token: string, seq: number, timeoutMs = 650) =>
+  jog: (direction: JogDirection, speed: number, token: string, seq: number) =>
     request<{ ok: boolean; accepted: boolean; stale?: boolean; seq?: number }>('POST', '/api/telescope/jog', {
       direction,
       speed,
       token,
       seq,
-      timeout_ms: timeoutMs,
     }),
   stopJog: (token: string, seq: number) =>
     request<Record<string, CommandResult>>('POST', '/api/telescope/jog/stop', { token, seq }),

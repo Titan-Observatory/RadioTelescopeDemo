@@ -212,18 +212,35 @@ def test_home_elevation_zeros_after_encoder_stalls(simulated_config_path):
     assert status.json()["motors"]["m2"]["encoder"] == 0
 
 
-def test_jog_rejects_stale_heartbeat_after_release(simulated_config_path):
+def test_jog_rejects_stale_heartbeat(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
-        released = client.post("/api/telescope/jog/stop", json={"token": "jog-token-1", "seq": 2})
+        newer = client.post(
+            "/api/telescope/jog",
+            json={"token": "jog-token-1", "seq": 2, "direction": "west", "speed": 0},
+        )
         stale = client.post(
             "/api/telescope/jog",
             json={"token": "jog-token-1", "seq": 1, "direction": "west", "speed": 40},
         )
         status = client.get("/api/roboclaw/status")
 
-    assert released.status_code == 200
+    assert newer.status_code == 200
     assert stale.status_code == 200
     assert stale.json()["accepted"] is False
+    assert status.json()["motors"]["m1"]["raw_speed_qpps"] == 0
+
+
+def test_jog_stop_stops_immediately(simulated_config_path):
+    with TestClient(create_app(simulated_config_path)) as client:
+        started = client.post(
+            "/api/telescope/jog",
+            json={"token": "jog-token-stop", "seq": 1, "direction": "west", "speed": 40},
+        )
+        stopped = client.post("/api/telescope/jog/stop", json={"token": "jog-token-stop", "seq": 2})
+        status = client.get("/api/roboclaw/status")
+
+    assert started.status_code == 200
+    assert stopped.status_code == 200
     assert status.json()["motors"]["m1"]["raw_speed_qpps"] == 0
 
 
@@ -233,7 +250,7 @@ def test_jog_watchdog_stops_when_heartbeats_stop(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         started = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-token-2", "seq": 1, "direction": "west", "speed": 40, "timeout_ms": 1000},
+            json={"token": "jog-token-2", "seq": 1, "direction": "west", "speed": 40},
         )
         service = client.app.state.roboclaw_service
         assert service.client._speeds["m1"] > 0

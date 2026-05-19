@@ -12,7 +12,7 @@ import type { CommandInfo, RoboClawTelemetry } from '../types';
 
 export interface UseMotionCommandsResult {
   runCommand: (commandId: string, args: Record<string, number | boolean>) => Promise<void>;
-  jog: (direction: JogDirection, speed: number, token: string, seq: number, timeoutMs?: number) => Promise<void>;
+  jog: (direction: JogDirection, speed: number, token: string, seq: number) => Promise<void>;
   stopJog: (token: string, seq: number) => Promise<void>;
   gotoAltAz: (altDeg: number, azDeg: number) => Promise<void>;
   homeElevation: (speed: number) => Promise<void>;
@@ -58,10 +58,9 @@ export function useMotionCommands(
     speed: number,
     token: string,
     seq: number,
-    timeoutMs?: number,
   ) => {
     try {
-      await api.jog(direction, speed, token, seq, timeoutMs);
+      await api.jog(direction, speed, token, seq);
     } catch (err) {
       track('jog_failed', { direction, message: errorMessage(err).slice(0, 200) });
     }

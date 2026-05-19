@@ -5,7 +5,6 @@ import { track } from '../analytics';
 import type { JogDirection } from '../api';
 
 const JOG_REPEAT_MS = 250;
-const JOG_TIMEOUT_MS = 1000;
 
 function makeJogToken() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -20,7 +19,7 @@ function makeJogToken() {
 function useJog(
   direction: JogDirection,
   speed: number,
-  jog: (direction: JogDirection, speed: number, token: string, seq: number, timeoutMs?: number) => Promise<void>,
+  jog: (direction: JogDirection, speed: number, token: string, seq: number) => Promise<void>,
   stopJog: (token: string, seq: number) => Promise<void>,
   onPress?: () => void,
 ) {
@@ -57,11 +56,11 @@ function useJog(
     seqRef.current = 0;
     setActive(true);
     onPressRef.current?.();
-    void jogRef.current(directionRef.current, speedRef.current, token, ++seqRef.current, JOG_TIMEOUT_MS);
+    void jogRef.current(directionRef.current, speedRef.current, token, ++seqRef.current);
     timerRef.current = window.setInterval(() => {
       const currentToken = tokenRef.current;
       if (currentToken == null) return;
-      void jogRef.current(directionRef.current, speedRef.current, currentToken, ++seqRef.current, JOG_TIMEOUT_MS);
+      void jogRef.current(directionRef.current, speedRef.current, currentToken, ++seqRef.current);
     }, JOG_REPEAT_MS);
   }, []);
 
@@ -87,7 +86,7 @@ function useJog(
 }
 
 function PointingPad({ jog, stopJog, speed }: {
-  jog: (direction: JogDirection, speed: number, token: string, seq: number, timeoutMs?: number) => Promise<void>;
+  jog: (direction: JogDirection, speed: number, token: string, seq: number) => Promise<void>;
   stopJog: (token: string, seq: number) => Promise<void>;
   speed: number;
 }) {
@@ -166,7 +165,7 @@ function SpeedFader({ slewSpeed, setSlewSpeed }: {
 export function MotionControls({
   jog, stopJog, gotoAltAz, homeElevation, targetAz, targetAlt, setTargetAz, setTargetAlt, onStop,
 }: {
-  jog: (direction: JogDirection, speed: number, token: string, seq: number, timeoutMs?: number) => Promise<void>;
+  jog: (direction: JogDirection, speed: number, token: string, seq: number) => Promise<void>;
   stopJog: (token: string, seq: number) => Promise<void>;
   gotoAltAz: (alt: number, az: number) => Promise<void>;
   homeElevation: (speed: number) => Promise<void>;
