@@ -957,19 +957,10 @@ function InfoSection() {
         <div className="info-col info-col-about">
           <h2 className="info-col-heading">About this demo</h2>
           <p>
-            Titan Observatory is a community radio telescope built on a Raspberry Pi,
-            a motorised dish, and a software-defined radio receiver. This page gives you
-            live remote access to the real hardware — the sky map and spectrum panel
-            update in real time from the telescope's position and RF front-end.
+            Titan Observatory is building an online radio observatory with the goal of allowing anyone to perform and understand their own observations of the universe. This demo is intended to serve as a proof-of-concept for the remote observation platform and highlight the potential to create immersive and accessible experiences, which take care of the complexity and allow the user the freedom to explore.
           </p>
           <p>
-            The queue system ensures fair access: each visitor gets a timed session
-            at the controls while spectators watch along. Commands are rate-limited
-            and safety interlocks prevent the dish from leaving its allowed range.
-          </p>
-          <p className="info-note">
-            All data leaving the server is anonymised. Session tokens are ephemeral
-            and no personal information is stored.
+            It doesnt stop here. Through your generous contributions and partnerships, we hope to found a permenant home for the observatory, expand capacity with more dishes, and create a rich ecosystem of features and educational content that makes radio astronomy more accessible than ever before.
           </p>
         </div>
 
@@ -997,7 +988,7 @@ function InfoSection() {
           </ul>
           <a
             className="donate-cta"
-            href={BRAND.homepage}
+            href="https://titanobservatory.org/donate"
             target="_blank"
             rel="noreferrer"
             onClick={() => track('donate_clicked')}
