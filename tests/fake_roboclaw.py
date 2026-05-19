@@ -54,6 +54,8 @@ class SimulatedRoboClaw:
         spec = _get_spec(command_id)
         values = _validate_args(spec, args or {})
         self._apply_simulated_command(spec, values)
+        if command_id in ("read_encoder_m1", "read_encoder_m2", "read_encoders"):
+            self._tick()
         return CommandResult(command_id=command_id, ok=True, response=self._simulated_response(spec))
 
     def snapshot(self) -> RoboClawTelemetry:

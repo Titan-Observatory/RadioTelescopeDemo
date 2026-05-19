@@ -199,6 +199,19 @@ def test_api_accepts_alt_az_goto(simulated_config_path):
     assert body["response"]["alt_accel_qpps2"] == 7000
 
 
+def test_home_elevation_zeros_after_encoder_stalls(simulated_config_path):
+    with TestClient(create_app(simulated_config_path)) as client:
+        service = client.app.state.roboclaw_service
+        service.client._encoders["m2"] = 80
+
+        response = client.post("/api/telescope/home/elevation", json={"speed": 108})
+        status = client.get("/api/roboclaw/status")
+
+    assert response.status_code == 200
+    assert service.client._speeds["m2"] == 0
+    assert status.json()["motors"]["m2"]["encoder"] == 0
+
+
 def test_jog_rejects_stale_heartbeat_after_release(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         released = client.post("/api/telescope/jog/stop", json={"token": "jog-token-1", "seq": 2})

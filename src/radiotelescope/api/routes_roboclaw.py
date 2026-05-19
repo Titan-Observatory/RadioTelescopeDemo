@@ -13,6 +13,7 @@ from radiotelescope.models.state import (
     CommandInfo,
     CommandRequest,
     CommandResult,
+    ElevationHomeRequest,
     HealthStatus,
     JogRequest,
     JogStopRequest,
@@ -26,6 +27,8 @@ from radiotelescope.services.geometry import altitude_to_encoder_counts
 router = APIRouter(tags=["roboclaw"])
 
 GATEWAY_INTERNAL_COMMAND_IDS = {
+    "read_encoders",
+    "set_encoder_m2",
     "speed_accel_decel_position_m1m2",
 }
 
@@ -332,47 +335,63 @@ async def goto_radec(body: RaDecRequest, request: Request):
 
 
 @router.post("/api/telescope/home/elevation", dependencies=[Depends(require_lan_admin)])
-async def home_elevation(request: Request):
-    """Drive M2 downward until the end stop cuts current to zero, then zero the encoder."""
-    client = _service(request).client
-    homing_speed = 20          # 20/127 ≈ 16 % — slow enough not to slam the stop
-    timeout_s    = 90.0
-    threshold_a  = 0.10        # amps; below this counts as "motor stopped"
-    consecutive_needed = 5     # 5 × 100 ms = 500 ms of near-zero current to confirm
+async def home_elevation(request: Request, body: ElevationHomeRequest | None = None):
+    """Drive M2 downward until encoder counts stop decreasing, then zero it."""
+    service = _service(request)
+    service.set_position_target()
+    client = service.client
+    poll_s = 0.1
+    timeout_s = 90.0
+    min_homing_s = 0.75
+    consecutive_needed = 5
+    min_decrease_counts = 1
 
-    start_result = await asyncio.to_thread(client.execute, "backward_m2", {"speed": homing_speed})
+    speed = body.speed if body is not None else ElevationHomeRequest().speed
+    start_result = await asyncio.to_thread(client.execute, "backward_m2", {"speed": speed})
     if not start_result.ok:
         raise HTTPException(400, detail=f"Could not start elevation homing: {start_result.error}")
 
-    # Brief pause so the motor has time to draw current before we start polling.
-    await asyncio.sleep(0.5)
+    started_at = time.monotonic()
+    deadline = started_at + timeout_s
+    consecutive_stalled = 0
+    previous_encoder: int | None = None
 
-    deadline    = time.monotonic() + timeout_s
-    consecutive = 0
+    try:
+        while time.monotonic() < deadline:
+            await asyncio.sleep(poll_s)
+            encoders = await asyncio.to_thread(client.execute, "read_encoders", {})
+            if not encoders.ok:
+                raise HTTPException(400, detail=f"Could not read elevation encoder: {encoders.error}")
+            current_encoder = encoders.response.get("m2_encoder")
+            if not isinstance(current_encoder, int):
+                raise HTTPException(400, detail="Could not read elevation encoder")
 
-    while time.monotonic() < deadline:
-        curr = await asyncio.to_thread(client.execute, "read_motor_currents", {})
-        m2_a = curr.response.get("m2_current_a", 999.0)
+            if previous_encoder is None:
+                previous_encoder = current_encoder
+                continue
 
-        if m2_a < threshold_a:
-            consecutive += 1
-            if consecutive >= consecutive_needed:
-                break
+            if current_encoder <= previous_encoder - min_decrease_counts:
+                consecutive_stalled = 0
+            else:
+                consecutive_stalled += 1
+                if (
+                    consecutive_stalled >= consecutive_needed
+                    and time.monotonic() - started_at >= min_homing_s
+                ):
+                    break
+
+            previous_encoder = current_encoder
         else:
-            consecutive = 0
-
-        await asyncio.sleep(0.1)
-    else:
-        await asyncio.to_thread(client.stop_all)
-        raise HTTPException(408, detail=f"Elevation homing timed out after {timeout_s:.0f} s — end stop not reached")
-
-    await asyncio.to_thread(client.stop_all)
+            raise HTTPException(408, detail=f"Elevation homing timed out after {timeout_s:.0f} s; encoder kept decreasing")
+    finally:
+        await asyncio.to_thread(client.execute, "forward_m2", {"speed": 0})
 
     zero_result = await asyncio.to_thread(client.execute, "set_encoder_m2", {"value": 0})
     if not zero_result.ok:
         raise HTTPException(400, detail=f"Homed but could not zero encoder: {zero_result.error}")
 
-    return {"status": "ok", "message": "Elevation homed — encoder zeroed at end stop"}
+    await service.refresh()
+    return {"status": "ok", "message": "Elevation homed; encoder zeroed where counts stopped decreasing"}
 
 
 @router.post("/api/telescope/home/azimuth", dependencies=[Depends(require_lan_admin)])

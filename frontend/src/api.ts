@@ -63,6 +63,8 @@ export const api = {
       dec_deg: target.dec_deg,
       ...motionParams(speedQpps, accelQpps2, decelQpps2),
     }),
+  homeElevation: (speed: number) =>
+    request<{ status: string; message: string }>('POST', '/api/telescope/home/elevation', { speed }),
   stop: () => request<Record<string, CommandResult>>('POST', '/api/roboclaw/stop'),
   setSpectrumLna: (enabled: boolean) =>
     request<{ ok: boolean; lna: LnaStatus }>('POST', '/api/spectrum/lna', { enabled }),

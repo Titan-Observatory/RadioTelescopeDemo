@@ -128,6 +128,7 @@ const SPEED_PRESETS: { id: 'fine' | 'coarse' | 'slew'; label: string; value: num
   { id: 'coarse', label: 'Coarse', value: 40 },
   { id: 'slew',   label: 'Slew',   value: 85 },
 ];
+const HOME_ELEVATION_SPEED = Math.round(85 * 127 / 100);
 
 function SpeedFader({ slewSpeed, setSlewSpeed }: {
   slewSpeed: number;
@@ -163,11 +164,12 @@ function SpeedFader({ slewSpeed, setSlewSpeed }: {
 // the press-and-hold jog pad and the numeric GoTo form so a single overlay
 // holds both interaction modes without doubling the on-screen real estate.
 export function MotionControls({
-  jog, stopJog, gotoAltAz, targetAz, targetAlt, setTargetAz, setTargetAlt, onStop,
+  jog, stopJog, gotoAltAz, homeElevation, targetAz, targetAlt, setTargetAz, setTargetAlt, onStop,
 }: {
   jog: (direction: JogDirection, speed: number, token: string, seq: number, timeoutMs?: number) => Promise<void>;
   stopJog: (token: string, seq: number) => Promise<void>;
   gotoAltAz: (alt: number, az: number) => Promise<void>;
+  homeElevation: (speed: number) => Promise<void>;
   targetAz: number;
   targetAlt: number;
   setTargetAz: (v: number) => void;
@@ -176,6 +178,7 @@ export function MotionControls({
 }) {
   const [mode, setMode] = useState<'jog' | 'goto'>('jog');
   const [slewSpeed, setSlewSpeed] = useState(40);
+  const [homingElevation, setHomingElevation] = useState(false);
   const speed = Math.round(slewSpeed * 127 / 100);
 
   const switchMode = (next: 'jog' | 'goto') => {
@@ -193,6 +196,16 @@ export function MotionControls({
   const submitTarget = async (e: FormEvent) => {
     e.preventDefault();
     await gotoAltAz(targetAlt, targetAz);
+  };
+
+  const zeroAltitude = async () => {
+    if (homingElevation) return;
+    setHomingElevation(true);
+    try {
+      await homeElevation(HOME_ELEVATION_SPEED);
+    } finally {
+      setHomingElevation(false);
+    }
   };
 
   return (
@@ -224,6 +237,14 @@ export function MotionControls({
         <div className="motion-card">
           <PointingPad jog={jog} stopJog={stopJog} speed={speed} />
           <SpeedFader slewSpeed={slewSpeed} setSlewSpeed={changeSpeed} />
+          <button
+            type="button"
+            className="action-button home-elevation-button"
+            onClick={zeroAltitude}
+            disabled={homingElevation}
+          >
+            {homingElevation ? 'Zeroing Alt' : 'Zero Alt'}
+          </button>
         </div>
       ) : (
         <form className="target-form target-form-overlay" onSubmit={submitTarget}>

@@ -512,6 +512,22 @@ input:focus-visible {
 .stop-button:hover  { background: rgba(216, 17, 89, 0.15); border-color: rgba(216, 17, 89, 0.55); }
 .stop-button:active { background: rgba(216, 17, 89, 0.04); }
 
+.home-elevation-button {
+  width: 100%;
+  min-height: 36px;
+  border-color: rgba(65, 179, 163, 0.34);
+  background: rgba(65, 179, 163, 0.1);
+  color: var(--sect-teal);
+}
+.home-elevation-button:hover:not(:disabled) {
+  background: rgba(65, 179, 163, 0.16);
+  border-color: rgba(65, 179, 163, 0.52);
+}
+.home-elevation-button:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
 
 /* =========================================================================
    Banners
@@ -3140,6 +3156,17 @@ h2.panel-header {
      intended interaction. The "Slew" confirm button after a map tap
      stays visible (it lives outside .skymap-overlay-controls). */
   .skymap-overlay-controls { display: none; }
+  .skymap-panel:fullscreen .skymap-bottom-dock {
+    left: 10px;
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .skymap-panel:fullscreen .skymap-overlay-controls {
+    display: block;
+    width: min(260px, calc(100vw - 20px));
+    flex-basis: min(260px, calc(100vw - 20px));
+    padding: 10px;
+  }
 
   /* Slightly smaller aladin on narrow phones to leave more room for the spectrum. */
   .skymap-panel { height: 40svh; }

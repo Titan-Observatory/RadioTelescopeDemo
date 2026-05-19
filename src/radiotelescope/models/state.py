@@ -118,6 +118,10 @@ class JogStopRequest(BaseModel):
     seq: int = Field(ge=0)
 
 
+class ElevationHomeRequest(BaseModel):
+    speed: int = Field(default=108, ge=1, le=127)
+
+
 class AltAzPoint(BaseModel):
     altitude_deg: float = Field(ge=0, le=90)
     azimuth_deg: float = Field(ge=0, le=360)
