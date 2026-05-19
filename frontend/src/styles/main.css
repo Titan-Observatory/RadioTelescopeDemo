@@ -2487,7 +2487,7 @@ h2.panel-header {
 .queue-header-inner {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 20px 24px 18px;
+  padding: 36px 24px 18px;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -2580,12 +2580,26 @@ h2.panel-header {
 
 .queue-waiting-body p { margin: 0; }
 
+.queue-content-disclaimer {
+  position: absolute;
+  top: 8px;
+  left: 24px;
+  right: 24px;
+  max-width: 1180px;
+  margin: 0 auto;
+  color: var(--fg-subtle);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
+  pointer-events: none;
+}
+
 @media (max-width: 720px) {
   .queue-header-inner {
     grid-template-columns: 1fr;
     align-items: stretch;
     gap: 14px;
-    padding: 14px 18px 12px;
+    padding: 32px 18px 12px;
   }
   .queue-header-sub {
     max-height: 4.8em;
@@ -2603,6 +2617,12 @@ h2.panel-header {
   .queue-header-status {
     align-items: flex-start;
     width: 100%;
+  }
+  .queue-content-disclaimer {
+    top: 7px;
+    left: 18px;
+    right: 18px;
+    text-align: left;
   }
 }
 

@@ -1038,6 +1038,9 @@ export function QueuePage({
   return (
     <div className="queue-waiting">
       <header className={`queue-header${headerCollapsed ? ' queue-header-collapsed' : ''}`}>
+        <p className="queue-content-disclaimer">
+          All written content is made by humans. AI is a tool, not a teacher.
+        </p>
         <div className="queue-header-inner">
           <div className="queue-header-title">
             <h1>{inQueue ? 'You are in the queue' : 'Joining the queue'}</h1>
@@ -1084,8 +1087,8 @@ export function QueuePage({
             <div className="h1-hero-visual">
               <HeroSpectrum paused={animationsPaused} />
               <p className="h1-visual-caption">
-                Neutral hydrogen 1420.4 MHz emission, looking outward through the galactic disk
-                (l = 110°, b = 0°). LAB all-sky survey, Kalberla et al. 2005.
+                Hydrogen line profile looking outward through the galactic disk
+                (l = 65°, b = 0°). LAB all-sky survey, Kalberla et al. 2005.
               </p>
             </div>
           </div>
@@ -1105,9 +1108,9 @@ export function QueuePage({
                     <img src="/Screenshot%202026-05-18%20202822.png" alt="Electron spin explained: imagine a ball that's rotating, except it's not a ball and it's not rotating." />
                   </span>
                 </button>{' '}
-                to say the least, so for the purposes of this analogy, we'll simplify each particle and it's spin to it's resulting magnetic field, represented by a basic dipole magnet. One more caveat: quantum spin can only exist in two states; either spin up or spin down, so the resulting magnetic moment similarly can only point up or down.
+                to say the least, so for the purposes of this analogy, we'll simplify spin to it's two states: "up" and "down". The spin-flip transition occurs when the spins of the proton and electron flip from being aligned (both up or both down) to being anti-aligned (one up, one down), or vice versa. This transition releases a photon with a wavelength of 21 cm, which corresponds to the hydrogen line we observe in radio astronomy.
               </p>
-              <p className="h1-section-body">With this model, we can see that neutral hydrogen can exist in one of two states: one where the magnetic moments point in the same direction, and another where they are opposite.</p>
+              <p className="h1-section-body">Despite a spin-flip transition being exceptionally rare (</p>
             </div>
             <div className="h1-spinflip-visual" />
           </div>

@@ -959,14 +959,14 @@ function InfoSection() {
           <p>
             Titan Observatory is building an online radio observatory with the goal of allowing anyone to perform and understand their own observations of the universe. This demo is intended to serve as a proof-of-concept for the remote observation platform and highlight the potential to create immersive and accessible experiences, which take care of the complexity and allow the user the freedom to explore.
           </p>
-          <p>
-            It doesnt stop here. Through your generous contributions and partnerships, we hope to found a permenant home for the observatory, expand capacity with more dishes, and create a rich ecosystem of features and educational content that makes radio astronomy more accessible than ever before.
-          </p>
+          
         </div>
 
         <div className="info-col info-col-features">
           <h2 className="info-col-heading">Roadmap</h2>
-          <p className="info-col-sub">Features we're building toward for the full observatory:</p>
+          <p>
+            It doesnt stop here. Through your generous contributions and partnerships, we hope to found a permenant home for the observatory, expand capacity with more dishes, and create a rich ecosystem of features and educational content that makes radio astronomy more accessible than ever before.
+          </p>
           <ul className="feature-list">
             {PLANNED_FEATURES.map((f) => (
               <li key={f}>{f}</li>
