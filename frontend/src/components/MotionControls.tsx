@@ -48,6 +48,14 @@ function useJog(
     void stopJogRef.current(token, ++seqRef.current);
   }, []);
 
+  const cancelHeartbeatOnly = useCallback(() => {
+    if (timerRef.current == null) return;
+    window.clearInterval(timerRef.current);
+    timerRef.current = null;
+    tokenRef.current = null;
+    setActive(false);
+  }, []);
+
   const begin = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return; // left-click only on mouse
     if (timerRef.current != null) return;
@@ -66,21 +74,20 @@ function useJog(
   }, []);
 
   useEffect(() => {
-    const stopOnPageLoss = () => end();
-    window.addEventListener('blur', stopOnPageLoss);
-    document.addEventListener('visibilitychange', stopOnPageLoss);
+    window.addEventListener('blur', cancelHeartbeatOnly);
+    document.addEventListener('visibilitychange', cancelHeartbeatOnly);
     return () => {
-      window.removeEventListener('blur', stopOnPageLoss);
-      document.removeEventListener('visibilitychange', stopOnPageLoss);
-      end();
+      window.removeEventListener('blur', cancelHeartbeatOnly);
+      document.removeEventListener('visibilitychange', cancelHeartbeatOnly);
+      cancelHeartbeatOnly();
     };
-  }, [end]);
+  }, [cancelHeartbeatOnly]);
 
   return {
     active,
     onPointerDown: begin,
     onPointerUp: end,
-    onPointerCancel: end,
+    onPointerCancel: cancelHeartbeatOnly,
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   } as const;
 }
