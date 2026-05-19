@@ -384,7 +384,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
             rx="48"
             ry="27"
             fill="#5ba4f5"
-            opacity="0.08"
+            opacity="0.06"
           />
           <ellipse
             cx={SURVEY_DOPPLER_PEAK_X}
@@ -395,7 +395,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
             stroke="#5ba4f5"
             strokeWidth="1.5"
             strokeDasharray="4,3"
-            opacity="0.85"
+            opacity="0.58"
           />
           <rect
             x={SURVEY_DOPPLER_PEAK_X - 66}
@@ -406,7 +406,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
             fill="#08172e"
             stroke="#5ba4f5"
             strokeWidth="1"
-            opacity="0.95"
+            opacity="0.86"
           />
           <path
             d={`M ${SURVEY_DOPPLER_PEAK_X - 10} 52 L ${SURVEY_DOPPLER_PEAK_X - 25} 64 L ${SURVEY_DOPPLER_PEAK_X - 25} ${SURVEY_DOPPLER_PEAK_Y + 5}`}
@@ -415,12 +415,12 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
             strokeWidth="1.1"
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity="0.72"
+            opacity="0.56"
           />
           <text
             x={SURVEY_DOPPLER_PEAK_X} y="34"
             textAnchor="middle"
-            fill="#d6e8ff" fontSize="10" fontWeight="700"
+            fill="#c5ddfb" fontSize="9" fontWeight="700"
             fontFamily="ui-monospace,monospace"
           >
             Perseus Arm
@@ -428,7 +428,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
           <text
             x={SURVEY_DOPPLER_PEAK_X} y="46"
             textAnchor="middle"
-            fill="#7ab8f7" fontSize="8"
+            fill="#7ab8f7" fontSize="7.5"
             fontFamily="ui-monospace,monospace"
           >
             Milky Way spiral arm
