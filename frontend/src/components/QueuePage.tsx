@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Cloud } from 'lucide-react';
 
 import queueSpectrumRaw from '../data/queueSpectrum.txt?raw';
@@ -65,7 +65,21 @@ function parseQueueSpectrum(raw: string): SurveySample[] {
   return samples;
 }
 
-const SURVEY_SAMPLES = parseQueueSpectrum(queueSpectrumRaw);
+const RAW_SAMPLES = parseQueueSpectrum(queueSpectrumRaw);
+
+// Downsample the LAB survey. The hero panel is ~600 CSS-px wide so we don't
+// need every one of the raw 245 LAB samples; 100 bins matches the visible
+// detail without spending budget on points that fall between pixels.
+const HERO_TARGET_BINS = 100;
+const SURVEY_SAMPLES: SurveySample[] = (() => {
+  if (RAW_SAMPLES.length <= HERO_TARGET_BINS) return RAW_SAMPLES;
+  const stride = RAW_SAMPLES.length / HERO_TARGET_BINS;
+  const out: SurveySample[] = [];
+  for (let i = 0; i < HERO_TARGET_BINS; i++) {
+    out.push(RAW_SAMPLES[Math.min(RAW_SAMPLES.length - 1, Math.round(i * stride))]);
+  }
+  return out;
+})();
 const SURVEY_TB_K: number[] = SURVEY_SAMPLES.map(sample => sample.tbK);
 const SURVEY_FREQ_MHZ: number[] = SURVEY_SAMPLES.map(sample => sample.freqMhz);
 
@@ -94,12 +108,18 @@ const fToX = (f: number) => ((DISPLAY_MAX_MHZ - f) / DISPLAY_SPAN_MHZ) * HW;
 const indexToX = (i: number) => fToX(SURVEY_FREQ_MHZ[i]);
 const SURVEY_X_START = indexToX(0);
 const SURVEY_X_END   = indexToX(SURVEY_TB_K.length - 1);
-
-const SURVEY_DOPPLER_PEAK_X = (() => {
+const [SURVEY_DOPPLER_PEAK_X, SURVEY_DOPPLER_PEAK_Y] = (() => {
   let idx = 0;
   for (let i = 0; i < SURVEY_POWER.length; i++) {
     const isBlueShifted = SURVEY_FREQ_MHZ[i] > H1_REST_MHZ + 0.05;
     if (isBlueShifted && SURVEY_POWER[i] > SURVEY_POWER[idx]) idx = i;
+  }
+  return [indexToX(idx), HERO_BASE_Y - SURVEY_POWER[idx] * HERO_PEAK_PX];
+})();
+const SURVEY_MAIN_PEAK_X = (() => {
+  let idx = 0;
+  for (let i = 0; i < SURVEY_POWER.length; i++) {
+    if (SURVEY_POWER[i] > SURVEY_POWER[idx]) idx = i;
   }
   return indexToX(idx);
 })();
@@ -114,21 +134,32 @@ const FREQ_TICKS_MHZ = Array.from(
 
 // ─── SVG components ────────────────────────────────────────────────────────────
 
+// X-coordinates are a pure function of bin index and never change at runtime,
+// so we precompute them (and the corresponding pre-formatted "x," prefix
+// string used by the path builder) once instead of recomputing every frame.
+const SURVEY_X_PX: Float32Array = (() => {
+  const out = new Float32Array(SURVEY_FREQ_MHZ.length);
+  for (let i = 0; i < SURVEY_FREQ_MHZ.length; i++) out[i] = indexToX(i);
+  return out;
+})();
+const SURVEY_X_PREFIX: string[] = Array.from(SURVEY_X_PX, x => `${x.toFixed(1)},`);
+const SURVEY_X_START_STR = SURVEY_X_START.toFixed(1);
+const SURVEY_X_END_STR = SURVEY_X_END.toFixed(1);
+
 // Build the SVG path data for one playback frame. `smoothed` is the current
 // (noisy, integrating) power-per-bin estimate; we walk it across HW pixels and
 // emit a polyline path plus a matching filled-area path.
-function buildHeroPaths(smoothed: number[]): { line: string; fill: string } {
+function buildHeroPaths(smoothed: Float32Array): { line: string; fill: string } {
   const n = smoothed.length;
-  const linePts: string[] = [];
+  let pts = '';
   for (let i = 0; i < n; i++) {
-    const x = indexToX(i);
     const y = HERO_BASE_Y - smoothed[i] * HERO_PEAK_PX;
-    linePts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    pts += (i === 0 ? '' : ' L ') + SURVEY_X_PREFIX[i] + y.toFixed(1);
   }
-  const line = `M ${linePts.join(' L ')}`;
+  const line = `M ${pts}`;
   // The fill anchors to the baseline at the data's own x bounds, not the SVG
   // edges, so the gradient doesn't smear out into the blank wings.
-  const fill = `M ${SURVEY_X_START.toFixed(1)},${HERO_BASE_Y} L ${linePts.join(' L ')} L ${SURVEY_X_END.toFixed(1)},${HERO_BASE_Y} Z`;
+  const fill = `M ${SURVEY_X_START_STR},${HERO_BASE_Y} L ${pts} L ${SURVEY_X_END_STR},${HERO_BASE_Y} Z`;
   return { line, fill };
 }
 
@@ -184,104 +215,154 @@ function useVisibleAnimation<T extends Element>() {
   return [ref, active] as const;
 }
 
-function HeroSpectrum() {
+const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: boolean }) {
   // Live trace = survey shape + per-frame noise, lightly low-passed across
   // frames so the line breathes instead of strobing. Smoothing constant α
   // governs how quickly noise integrates away — 0.18 looks visibly "live"
   // while still letting the underlying peaks read clearly.
-  const smoothedRef = useRef<number[]>(SURVEY_POWER.map(() => 0));
+  //
+  // The animation updates path `d` attributes imperatively via refs so React
+  // never reconciles during the rAF loop. The component is also wrapped in
+  // `memo()` so parent re-renders (queue status polling fires every couple
+  // seconds) don't force a fresh React render and a competing path update
+  // alongside the rAF loop.
+  const smoothedRef = useRef<Float32Array>(new Float32Array(SURVEY_POWER.length));
   const rafRef = useRef<number | null>(null);
+  const linePathRef = useRef<SVGPathElement | null>(null);
+  const fillPathRef = useRef<SVGPathElement | null>(null);
   const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>();
-  const [paths, setPaths] = useState(() => buildHeroPaths(smoothedRef.current));
+  const initialPaths = buildHeroPaths(smoothedRef.current);
 
   useEffect(() => {
-    if (!animationActive) return;
+    if (!animationActive || paused) return;
 
+    // rAF (not setInterval) so the path-attribute writes are synced to the
+    // browser's paint cycle — setInterval fires asynchronously and can land
+    // in the middle of a compositor pass, producing extra paint work.
     let lastTs = 0;
-    // Cap repaints near 24 fps — a 60 Hz update on a decorative panel would
-    // burn battery on the queue page for no visible benefit.
-    const minIntervalMs = 1000 / 24;
-    const alpha = 0.18;
+    const minIntervalMs = 1000 / 20;
+    const alpha = 0.20;
     const noiseAmp = 0.07;
+    const n = SURVEY_POWER.length;
 
     const tick = (ts: number) => {
       rafRef.current = requestAnimationFrame(tick);
       if (ts - lastTs < minIntervalMs) return;
       lastTs = ts;
-      const prev = smoothedRef.current;
-      const next = new Array<number>(SURVEY_POWER.length);
-      for (let i = 0; i < SURVEY_POWER.length; i++) {
+      const buf = smoothedRef.current;
+      for (let i = 0; i < n; i++) {
         const target = SURVEY_POWER[i] + noiseSample() * noiseAmp;
-        next[i] = prev[i] + (target - prev[i]) * alpha;
+        buf[i] = buf[i] + (target - buf[i]) * alpha;
       }
-      smoothedRef.current = next;
-      setPaths(buildHeroPaths(next));
+      const { line, fill } = buildHeroPaths(buf);
+      if (linePathRef.current) linePathRef.current.setAttribute('d', line);
+      if (fillPathRef.current) fillPathRef.current.setAttribute('d', fill);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, [animationActive]);
+  }, [animationActive, paused]);
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox="0 0 600 144"
-      className="h1-svg"
-      preserveAspectRatio="xMidYMid meet"
-      aria-hidden="true"
-    >
+    <figure className="h1-hero-figure">
+      <figcaption className="h1-hero-figcaption">Hydrogen line</figcaption>
+      <svg
+        ref={svgRef}
+        viewBox="0 -22 600 166"
+        className="h1-svg"
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden="true"
+      >
       <defs>
         <linearGradient id="h1HeroGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%"   stopColor="#ffbc42" stopOpacity="0.22" />
           <stop offset="100%" stopColor="#ffbc42" stopOpacity="0" />
         </linearGradient>
       </defs>
-      {[30, 55, 80, 105].map(y => (
+      {[5, 30, 55, 80, 105].map(y => (
         <line key={y} x1="0" y1={y} x2={HW} y2={y} stroke="#1a1d2e" strokeWidth="1" />
       ))}
       {FREQ_TICKS_MHZ.map(f => (
-        <line key={f} x1={fToX(f)} y1="0" x2={fToX(f)} y2="115" stroke="#1a1d2e" strokeWidth="1" />
+        <line key={f} x1={fToX(f)} y1="-22" x2={fToX(f)} y2="115" stroke="#1a1d2e" strokeWidth="1" />
       ))}
-      <path d={paths.fill}  fill="url(#h1HeroGrad)" />
-      <path d={paths.line}  fill="none" stroke="#ffbc42" strokeWidth="2.5" strokeLinejoin="round" />
-      <line x1={fToX(H1_REST_MHZ)} y1="6" x2={fToX(H1_REST_MHZ)} y2="115" stroke="#ffbc42" strokeWidth="1" strokeDasharray="4,3" opacity="0.45" />
+      <path ref={fillPathRef} d={initialPaths.fill} fill="url(#h1HeroGrad)" />
+      <path ref={linePathRef} d={initialPaths.line} fill="none" stroke="#ffbc42" strokeWidth="2.5" strokeLinejoin="round" />
+      <line x1={fToX(H1_REST_MHZ)} y1="14" x2={fToX(H1_REST_MHZ)} y2="115" stroke="#ffbc42" strokeWidth="1" strokeDasharray="4,3" opacity="0.4" />
       {/* Secondary blueshifted emission peak in the supplied LAB profile. */}
       <line
-        x1={SURVEY_DOPPLER_PEAK_X} y1="6" x2={SURVEY_DOPPLER_PEAK_X} y2="115"
+        x1={SURVEY_DOPPLER_PEAK_X} y1={SURVEY_DOPPLER_PEAK_Y} x2={SURVEY_DOPPLER_PEAK_X} y2="46"
         stroke="#5ba4f5" strokeWidth="1" strokeDasharray="3,3" opacity="0.7"
       />
-      <a href="#h1-doppler-section">
-        <title>This peak is offset from 1420.4 MHz — that's the Doppler effect. Click to learn more.</title>
+      {/* Modest pointer on the smaller peak, linking out to the Doppler explainer. */}
+      <a href="#h1-doppler-section" style={{ cursor: 'pointer' }}>
+        <title>Neutral hydrogen in the Perseus Arm, blueshifted by galactic rotation at l = 110°. Click to learn more about the Doppler effect.</title>
         <text
-          x={SURVEY_DOPPLER_PEAK_X + 6} y="14"
-          fill="#5ba4f5" fontSize="10"
+          x={SURVEY_DOPPLER_PEAK_X} y="44"
+          textAnchor="middle"
+          fill="#5ba4f5" fontSize="9" opacity="0.6"
           fontFamily="ui-monospace,monospace"
-          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+          style={{ textDecoration: 'underline' }}
         >
-          what's this?
+          Perseus Arm
         </text>
       </a>
+      {/* Sideways bracket spanning the gap between the main (local-arm) peak
+          and the H I rest marker, linking out to the Doppler explainer. */}
+      {(() => {
+        const restX = fToX(H1_REST_MHZ);
+        const leftX = Math.min(SURVEY_MAIN_PEAK_X, restX);
+        const rightX = Math.max(SURVEY_MAIN_PEAK_X, restX);
+        const midX = (leftX + rightX) / 2;
+        const barY = 4;
+        const prongY = 14;
+        const tickY = -6;
+        const labelY = -10;
+        return (
+          <a href="#h1-doppler-section" style={{ cursor: 'pointer' }}>
+            <title>The received peak is offset from the 1420.4 MHz rest line — that gap is the Doppler shift. Click to learn more.</title>
+            <path
+              d={`M ${leftX} ${prongY} L ${leftX} ${barY} L ${rightX} ${barY} L ${rightX} ${prongY} M ${midX} ${barY} L ${midX} ${tickY}`}
+              fill="none"
+              stroke="#7ab8f7"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.9"
+            />
+            <text
+              x={midX} y={labelY}
+              textAnchor="middle"
+              fill="#c8dcff" fontSize="12" fontWeight="bold" opacity="1"
+              fontFamily="ui-monospace,monospace"
+              style={{ textDecoration: 'underline' }}
+            >
+              Why the difference?
+            </text>
+          </a>
+        );
+      })()}
       <line x1="0" y1="115" x2={HW} y2="115" stroke="#232640" strokeWidth="1" />
       {FREQ_TICKS_MHZ.map(f => {
         const isRest = Math.abs(f - 1420.4) < 0.001;
         return (
           <text
             key={f}
-            x={fToX(f)} y="129"
+            x={fToX(f)} y={isRest ? '133' : '129'}
             textAnchor="middle"
-            fill={isRest ? '#9b9ece' : '#5a5d80'}
-            fontSize={isRest ? 11 : 10}
+            fill={isRest ? '#ffbc42' : '#6f719a'}
+            fontSize={isRest ? '16' : '10'}
+            fontWeight={isRest ? 'bold' : 'normal'}
             fontFamily="ui-monospace,monospace"
           >
-            {f.toFixed(1)}
+            {isRest ? `${f.toFixed(1)} MHz` : f.toFixed(1)}
           </text>
         );
       })}
-      <text x={HW / 2} y="138" textAnchor="middle" fill="#3a3f5e" fontSize="9" fontFamily="ui-monospace,monospace">MHz</text>
-    </svg>
+      </svg>
+    </figure>
   );
-}
+});
 
 // ─── Doppler animation ────────────────────────────────────────────────────────
 //
@@ -456,7 +537,7 @@ function TelescopeIllustration({ cx, cy }: { cx: number; cy: number }) {
   );
 }
 
-export function DopplerAnimation({ renderTimeSeconds }: { renderTimeSeconds?: number } = {}) {
+export function DopplerAnimation({ renderTimeSeconds, paused = false }: { renderTimeSeconds?: number; paused?: boolean } = {}) {
   const [now, setNow] = useState(0);
   const startRef = useRef(0);
   const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>();
@@ -467,7 +548,7 @@ export function DopplerAnimation({ renderTimeSeconds }: { renderTimeSeconds?: nu
 
   useEffect(() => {
     if (isRenderFrame) return;
-    if (!animationActive) return;
+    if (!animationActive || paused) return;
 
     let raf = 0;
     let lastTickT = 0;
@@ -505,7 +586,7 @@ export function DopplerAnimation({ renderTimeSeconds }: { renderTimeSeconds?: nu
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [animationActive, isRenderFrame]);
+  }, [animationActive, isRenderFrame, paused]);
 
   const t = renderTimeSeconds ?? now;
   const sourceX = sourceXAt(t);
@@ -844,10 +925,37 @@ export function QueuePage({
   status, joining, joinError, siteKey, turnstileEnabled, onJoin, hasControl, onContinue,
 }: Props) {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const widgetRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
   const autoJoinedTokenRef = useRef<string | null>(null);
   const inQueue = (status?.position ?? -1) >= 0;
+
+  useEffect(() => {
+    const mobileQuery = window.matchMedia('(max-width: 720px)');
+    const viewport = window.visualViewport;
+    const updateCollapsed = () => {
+      setHeaderCollapsed(mobileQuery.matches && window.scrollY > 12);
+      document.documentElement.style.setProperty(
+        '--queue-viewport-top',
+        `${viewport?.offsetTop ?? 0}px`,
+      );
+    };
+
+    updateCollapsed();
+    window.addEventListener('scroll', updateCollapsed, { passive: true });
+    mobileQuery.addEventListener('change', updateCollapsed);
+    viewport?.addEventListener('resize', updateCollapsed);
+    viewport?.addEventListener('scroll', updateCollapsed);
+
+    return () => {
+      window.removeEventListener('scroll', updateCollapsed);
+      mobileQuery.removeEventListener('change', updateCollapsed);
+      viewport?.removeEventListener('resize', updateCollapsed);
+      viewport?.removeEventListener('scroll', updateCollapsed);
+      document.documentElement.style.removeProperty('--queue-viewport-top');
+    };
+  }, []);
 
   useEffect(() => {
     if (!turnstileEnabled) return;
@@ -913,47 +1021,68 @@ export function QueuePage({
   // so the captcha modal opens on top of the same UI the user will see once
   // they're in the queue, rather than a near-empty landing card.
 
+  // Progress bar fill: position 1 = front of line (full), larger = further back.
+  // Use queue_length as the denominator so the bar reflects relative standing.
+  const queueLength = status?.queue_length ?? 0;
+  const position = status?.position ?? 0;
+  const progressPct = inQueue && queueLength > 0
+    ? Math.max(6, Math.min(100, ((queueLength - position + 1) / queueLength) * 100))
+    : 0;
+
+  // Halt the background spectrum animations while the captcha modal is up —
+  // the modal overlay applies a backdrop-filter blur, which combined with an
+  // actively-repainting SVG behind it pegs the compositor on the same path
+  // that the sticky header's blur was hitting.
+  const animationsPaused = !inQueue && turnstileEnabled;
+
   return (
     <div className="queue-waiting">
-      <header className="queue-header">
+      <header className={`queue-header${headerCollapsed ? ' queue-header-collapsed' : ''}`}>
         <div className="queue-header-inner">
           <div className="queue-header-title">
             <h1>{inQueue ? 'You are in the queue' : 'Joining the queue'}</h1>
             <p className="queue-header-sub">
               {inQueue
-                ? "As a demo, only one observer can be in control at a time. While you wait, learn more about what you'll be observing below!"
+                ? "Only one observer can be in control at a time. While you wait, scroll on to learn what you'll be observing."
                 : 'Complete the quick verification to take your place in line.'}
             </p>
           </div>
           <div className="queue-header-status">
-            <span className="queue-header-label">Position</span>
-            <strong className="queue-header-position">
-              {inQueue ? `#${status!.position}` : '—'}
-            </strong>
-            {inQueue && status!.queue_length > 0 && (
-              <span className="queue-header-waiting">{status!.queue_length} waiting</span>
+            <div className="queue-header-status-row">
+              <span className="queue-header-label">Position</span>
+              <strong className="queue-header-position">
+                {inQueue ? `#${position}` : '—'}
+              </strong>
+              {inQueue && queueLength > 0 && (
+                <span className="queue-header-waiting">of {queueLength}</span>
+              )}
+            </div>
+            {inQueue && queueLength > 0 && (
+              <div className="queue-progress" aria-hidden="true">
+                <div className="queue-progress-fill" style={{ width: `${progressPct}%` }} />
+              </div>
+            )}
+            {inQueue && hasControl && (
+              <button className="action-button queue-header-cta" onClick={onContinue}>
+                Continue to telescope →
+              </button>
             )}
           </div>
-          {inQueue && hasControl && (
-            <button className="action-button" onClick={onContinue}>
-              Continue to telescope
-            </button>
-          )}
         </div>
       </header>
 
       <main className="h1-page">
 
         {/* ── Hero ──────────────────────────────────────────────────────────── */}
-        <section className="h1-hero">
+        <section className="h1-hero" id="h1-intro-section">
           <div className="h1-hero-inner">
             <div className="h1-hero-text">
               <span className="h1-eyebrow">What is it?</span>
               <h2 className="h1-hero-title">The Hydrogen Line</h2>
-              <p className="h1-hero-sub">Found at ~1420 MHz with a corresponding wavelength of 21cm, the "Hydrogen Line" is used to describe a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. It's discovery and subsequent application to the emerging field of radio astronomy in 1951 unlocked an entirely new set of tools with which we could explore the universe, allowing us to see through thick clouds of dust, determine the velocity and structure of nearby hydrogen, and for the first time, learn what our own Milky Way galaxy looked like.</p>
+              <p className="h1-hero-sub">Found at about 1420 MHz, with a corresponding wavelength of 21 cm, the hydrogen line is a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. Its discovery and use in radio astronomy in 1951 unlocked an entirely new set of tools for exploring the universe, allowing us to see through thick clouds of dust, measure the velocity and structure of nearby hydrogen, and, for the first time, learn what our own Milky Way galaxy looked like.</p>
             </div>
             <div className="h1-hero-visual">
-              <HeroSpectrum />
+              <HeroSpectrum paused={animationsPaused} />
               <p className="h1-visual-caption">
                 Neutral hydrogen 1420.4 MHz emission, looking outward through the galactic disk
                 (l = 110°, b = 0°). LAB all-sky survey, Kalberla et al. 2005.
@@ -963,31 +1092,37 @@ export function QueuePage({
         </section>
 
         {/* ── Spin-flip section ─────────────────────────────────────────────── */}
-        <section className="h1-spinflip">
+        <section className="h1-spinflip" id="h1-spinflip-section">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
               <span className="h1-eyebrow">What causes it?</span>
               <h2 className="h1-section-heading">The spin-flip transition</h2>
-              <p className="h1-section-body">Neutral hydrogen consists of one proton and one electron, each with a quantum property known as spin. The term "spin" here is a bit misleading to say the least, so for the purposes of this analogy, we'll simplify each particle and it's spin to it's resulting magnetic field, represented by a basic dipole magnet. One more caveat: quantum spin can only exist in two states; either spin up or spin down, so the resulting magnetic moment similarly can only point up or down.</p>
+              <p className="h1-section-body">
+                Neutral hydrogen consists of one proton and one electron, each with a quantum property known as spin. The term "spin" here is a bit{' '}
+                <button className="spectrum-doppler-term h1-misleading-highlight" type="button" aria-label="Show why the spin analogy is misleading">
+                  misleading
+                  <span className="h1-misleading-popover" role="tooltip">
+                    <img src="/Screenshot%202026-05-18%20202822.png" alt="Electron spin explained: imagine a ball that's rotating, except it's not a ball and it's not rotating." />
+                  </span>
+                </button>{' '}
+                to say the least, so for the purposes of this analogy, we'll simplify each particle and it's spin to it's resulting magnetic field, represented by a basic dipole magnet. One more caveat: quantum spin can only exist in two states; either spin up or spin down, so the resulting magnetic moment similarly can only point up or down.
+              </p>
               <p className="h1-section-body">With this model, we can see that neutral hydrogen can exist in one of two states: one where the magnetic moments point in the same direction, and another where they are opposite.</p>
             </div>
-            <div className="h1-spinflip-visual">
-              {/* Animation goes here */}
-            </div>
+            <div className="h1-spinflip-visual" />
           </div>
         </section>
         
         {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}
-        <section className="h1-spinflip">
+        <section className="h1-spinflip h1-spinflip-alt" id="h1-history-section">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
-              <h2 className="h1-section-heading">The spin-flip transition</h2>
+              <span className="h1-eyebrow">How was it found?</span>
+              <h2 className="h1-section-heading">A brief history of radio astronomy</h2>
               <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that he was at the edge of his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
               <p className="h1-section-body">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
             </div>
-            <div className="h1-spinflip-visual">
-              {/* Animation goes here */}
-            </div>
+            <div className="h1-spinflip-visual" />
           </div>
         </section>
         
@@ -995,12 +1130,13 @@ export function QueuePage({
         <section className="h1-doppler" id="h1-doppler-section">
           <div className="h1-doppler-inner">
             <div className="h1-doppler-text">
+              <span className="h1-eyebrow">How do we use it?</span>
               <h2 className="h1-section-heading">The Doppler Effect</h2>
               <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.</p>
               <p className="h1-section-body">Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est qui dolorem ipsum quia dolor sit amet.</p>
             </div>
             <div className="h1-doppler-visual">
-              <DopplerAnimation />
+              <DopplerAnimation paused={animationsPaused} />
               <p className="h1-visual-caption">
                 The relative velocity of hydrogen gas along our line of sight shifts the observed frequency: approaching gas is blueshifted, receding gas is redshifted.
               </p>

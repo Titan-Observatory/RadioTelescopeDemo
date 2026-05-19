@@ -5,7 +5,7 @@ import * as echarts from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 import { Layers, Maximize2, Telescope } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import {
   altAzToRaDec,
@@ -250,8 +250,8 @@ const SURVEYS = [
   },
   {
     id: 'CDS/P/DSS2/color',
-    label: 'DSS2 Color',
-    shortLabel: 'DSS2',
+    label: 'Visible Light',
+    shortLabel: 'Visible',
     title: 'DSS2 optical color all-sky survey',
     description: 'Deep optical atlas (B/R/I, ~1″ resolution) digitized from photographic plates.',
     spectrumMhz: 599_000_000,
@@ -623,11 +623,13 @@ interface SkyMapProps {
   config: TelescopeConfig | null;
   onNotice: (msg: string | null) => void;
   onTarget: (az: number, alt: number) => void;
+  onClearTarget?: () => void;
   tooltipsEnabled: boolean;
   overlays?: SkyOverlay[];
+  toolbarLeading?: ReactNode;
 }
 
-export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled, overlays = [] }: SkyMapProps) {
+export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, tooltipsEnabled, overlays = [], toolbarLeading }: SkyMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const aladinRef = useRef<ReturnType<typeof A.aladin> | null>(null);
   const configRef       = useRef<TelescopeConfig | null>(null);
@@ -644,8 +646,8 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
   const horizonCanvasRef  = useRef<HTMLCanvasElement | null>(null);
   const targetCatalogRef = useRef<ReturnType<typeof A.catalog> | null>(null);
   const initializedRef = useRef(false);
-  const isDraggingRef = useRef(false);
   const onTargetRef = useRef<((az: number, alt: number) => void) | null>(null);
+  const onClearTargetRef = useRef<(() => void) | null>(null);
   // Mirrored so the init effect doesn't re-run (and tear down its event handlers)
   // every time the parent passes a fresh inline callback.
   const onNoticeRef = useRef<((msg: string | null) => void) | null>(null);
@@ -666,6 +668,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
   useEffect(() => { telemetryRef.current = telemetry; }, [telemetry]);
   useEffect(() => { pendingRef.current   = pending;   }, [pending]);
   useEffect(() => { onTargetRef.current  = onTarget;  }, [onTarget]);
+  useEffect(() => { onClearTargetRef.current = onClearTarget ?? null; }, [onClearTarget]);
   useEffect(() => { onNoticeRef.current  = onNotice;  }, [onNotice]);
   useEffect(() => { surveyRef.current    = survey;    }, [survey]);
   useEffect(() => {
@@ -781,7 +784,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         shape: 'circle',
         displayLabel: true,
         labelColor: '#f3cc6b',
-        labelFont: '11px Inter, sans-serif',
+        labelFont: '11px "IBM Plex Sans", system-ui, sans-serif',
       });
       aladin.addCatalog(targetCatalog);
 
@@ -797,11 +800,32 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
       let suppressClickUntil = 0;
       const dragToleranceSq = TARGET_CLICK_DRAG_TOLERANCE_PX * TARGET_CLICK_DRAG_TOLERANCE_PX;
 
+      const clearPendingTarget = () => {
+        setPending(null);
+        setHoverTooltip(null);
+        onNoticeRef.current?.(null);
+        onClearTargetRef.current?.();
+      };
+
+      const handleRightClick = (e: MouseEvent | PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        clearPendingTarget();
+      };
+
       const handlePointerDown = (e: PointerEvent) => {
+        if (e.pointerType === 'mouse' && e.button === 2) {
+          handleRightClick(e);
+          return;
+        }
         if (!e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
         activePointer = { id: e.pointerId, x: e.clientX, y: e.clientY, dragged: false };
-        isDraggingRef.current = true;
         startDragLoop();
+      };
+
+      const handleMouseDown = (e: MouseEvent) => {
+        if (e.button === 2) handleRightClick(e);
       };
 
       const handlePointerMove = (e: PointerEvent) => {
@@ -815,7 +839,6 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         if (!activePointer || e.pointerId !== activePointer.id) return;
         if (activePointer.dragged) suppressClickUntil = performance.now() + 500;
         activePointer = null;
-        isDraggingRef.current = false;
         stopDragLoop();
       };
 
@@ -823,7 +846,6 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         if (!activePointer || e.pointerId !== activePointer.id) return;
         if (activePointer.dragged) suppressClickUntil = performance.now() + 500;
         activePointer = null;
-        isDraggingRef.current = false;
         stopDragLoop();
       };
 
@@ -861,7 +883,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
           }
           if (currentConfig.pointing_limit_altaz.length === 3 &&
               !isInsideTriangle(altAz, currentConfig.pointing_limit_altaz)) {
-            setPending(null);
+            clearPendingTarget();
             onNoticeRef.current?.('Selected target is outside configured pointing limits.');
             return;
           }
@@ -872,12 +894,16 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         onTargetRef.current?.(altAz.azimuth_deg, altAz.altitude_deg);
       };
       container.addEventListener('pointerdown', handlePointerDown, true);
+      container.addEventListener('mousedown', handleMouseDown, true);
+      container.addEventListener('contextmenu', handleRightClick, true);
       container.addEventListener('pointermove', handlePointerMove, true);
       container.addEventListener('pointerup', handlePointerUp, true);
       container.addEventListener('pointercancel', handlePointerCancel, true);
       container.addEventListener('click', handleClick);
       removeClickHandler = () => {
         container.removeEventListener('pointerdown', handlePointerDown, true);
+        container.removeEventListener('mousedown', handleMouseDown, true);
+        container.removeEventListener('contextmenu', handleRightClick, true);
         container.removeEventListener('pointermove', handlePointerMove, true);
         container.removeEventListener('pointerup', handlePointerUp, true);
         container.removeEventListener('pointercancel', handlePointerCancel, true);
@@ -1000,18 +1026,8 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
 
     let frameId: number;
     let dashOffset = 0;
-    let lastDrawTime = 0;
 
-    const draw = (now: DOMHighResTimeStamp = 0) => {
-      // Throttle to ~15 fps at idle; allow full rate during drag/pan.
-      const elapsed = now - lastDrawTime;
-      if (!isDraggingRef.current && elapsed < 66) {
-        frameId = requestAnimationFrame(draw);
-        return;
-      }
-      dashOffset = (dashOffset + 0.4 * (elapsed / 16.67)) % 22;
-      lastDrawTime = now;
-
+    const draw = () => {
       const date = new Date();
       if (Date.now() - lastSampleTime > 30_000) refreshHorizonSamples();
 
@@ -1081,9 +1097,45 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         drawProjectedPolyline(ctx, aladin, meridian.samples, false, w, h);
       }
 
+      // Azimuth labels — pinned to the top edge, sliding along each meridian
+      // as the user pans so the bearing of every visible line stays readable.
+      const AZ_LABEL_Y = 18;
+      const maxSegmentPx = Math.max(w, h);
+      ctx.font         = '11px "IBM Plex Sans", system-ui, sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth    = 3;
+      for (const meridian of meridians) {
+        let prev: [number, number] | null = null;
+        let labelX: number | null = null;
+        for (const { ra_deg, dec_deg } of meridian.samples) {
+          const p = aladin.world2pix(ra_deg, dec_deg);
+          if (!p || !isFinite(p[0]) || !isFinite(p[1])) { prev = null; continue; }
+          if (prev) {
+            const [x0, y0] = prev;
+            const [x1, y1] = p;
+            const straddles = (y0 - AZ_LABEL_Y) * (y1 - AZ_LABEL_Y) <= 0;
+            const continuous = Math.hypot(x1 - x0, y1 - y0) < maxSegmentPx;
+            if (straddles && continuous && y0 !== y1) {
+              const t = (AZ_LABEL_Y - y0) / (y1 - y0);
+              const x = x0 + t * (x1 - x0);
+              if (x >= 0 && x <= w) { labelX = x; break; }
+            }
+          }
+          prev = [p[0], p[1]];
+        }
+        if (labelX != null) {
+          const label = `+${Math.round(meridian.azimuth_deg).toString().padStart(3, '0')}°`;
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+          ctx.strokeText(label, labelX, AZ_LABEL_Y);
+          ctx.fillStyle = 'rgba(114, 224, 173, 0.85)';
+          ctx.fillText(label, labelX, AZ_LABEL_Y);
+        }
+      }
+
       // Almucantar altitude labels — placed on opposite meridians for readability
       ctx.fillStyle    = 'rgba(114, 224, 173, 0.55)';
-      ctx.font         = '10px Inter, system-ui, sans-serif';
+      ctx.font         = '10px "IBM Plex Sans", system-ui, sans-serif';
       ctx.textBaseline = 'middle';
       for (const az of [180, 0]) {
         ctx.textAlign = az === 180 ? 'left' : 'right';
@@ -1133,7 +1185,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         if (lp[0] < -30 || lp[0] > w + 30 || lp[1] < -30 || lp[1] > h + 30) continue;
 
         const fontSize = bold ? 14 : 11;
-        ctx.font      = `${bold ? 'bold ' : ''}${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.font      = `${bold ? 'bold ' : ''}${fontSize}px "IBM Plex Sans", system-ui, sans-serif`;
         // Subtle dark halo so labels read over both sky and ground
         ctx.lineWidth   = 3;
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
@@ -1165,6 +1217,8 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
 
           if (pTel     && isFinite(pTel[0])     && isFinite(pTel[1]) &&
               pPending && isFinite(pPending[0])  && isFinite(pPending[1])) {
+            dashOffset = (dashOffset + 0.4) % 22;
+
             ctx.save();
             ctx.setLineDash([7, 5]);
             ctx.lineDashOffset = -dashOffset;
@@ -1238,7 +1292,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
         const label  = body.isSun ? 'Sun' : 'Moon';
         const colour = body.isSun ? '#ffd020' : '#c8d8ff';
         const labelY = p[1] + iconR + 4;
-        ctx.font         = '11px Inter, system-ui, sans-serif';
+        ctx.font         = '11px "IBM Plex Sans", system-ui, sans-serif';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'top';
         ctx.lineWidth    = 3;
@@ -1447,11 +1501,16 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
       <canvas className="skymap-horizon-canvas" ref={horizonCanvasRef} />
 
       <div className="skymap-toolbar" aria-label="Sky map controls">
+        {toolbarLeading}
         <div className="skymap-layer-control">
           <button
             type="button"
             className={`skymap-control-label${viewSelectorOpen ? ' active' : ''}`}
-            onClick={() => setViewSelectorOpen((open) => !open)}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setViewSelectorOpen((open) => !open);
+            }}
             aria-expanded={viewSelectorOpen}
             aria-controls="skymap-spectrum-selector"
             title={viewSelectorOpen ? 'Hide survey selector' : 'Show survey selector'}
@@ -1462,24 +1521,29 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, tooltipsEnabled,
           {viewSelectorOpen && (
             <LightSpectrumSurveySelector activeSurvey={survey} onSelectSurvey={setSurvey} disabled={!ready} />
           )}
-          {viewSelectorOpen && (
-            <div className="skymap-surveys skymap-surveys-mobile" role="group" aria-label="Sky survey">
-              {SURVEYS.filter((s) => s.id === 'CDS/P/HI4PI/NHI' || s.id === 'CDS/P/DSS2/color').map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`skymap-survey-btn${surveyToneClass(s)}${survey === s.id ? ' active' : ''}`}
-                  onClick={() => setSurvey(s.id)}
-                  title={s.title}
-                  disabled={!ready}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
+
+      {viewSelectorOpen && (
+        <div className="skymap-surveys skymap-surveys-mobile" role="group" aria-label="Sky survey">
+          {SURVEYS.filter((s) => s.id === 'CDS/P/HI4PI/NHI' || s.id === 'CDS/P/DSS2/color').map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`skymap-survey-btn${surveyToneClass(s)}${survey === s.id ? ' active' : ''}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSurvey(s.id);
+              }}
+              title={s.title}
+              disabled={!ready}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {(pendingAltAz || (telemetry?.altitude_deg != null && telemetry.azimuth_deg != null)) && (
         <div className="skymap-altaz-chip">

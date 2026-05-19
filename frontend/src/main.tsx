@@ -300,6 +300,12 @@ function App() {
     track('map_target_picked', { alt_deg: alt, az_deg: az });
   }, []);
 
+  const handleClearMapTarget = useCallback(() => {
+    if (!hasMapTarget) return;
+    setHasMapTarget(false);
+    track('map_target_cleared');
+  }, [hasMapTarget]);
+
   // Queue gating: when the queue is enabled and we are not the active
   // controller, render the spectator/queue page instead of the control UI.
   // Position 0 = active controller; -1 = not in queue; >0 = waiting.
@@ -367,18 +373,25 @@ function App() {
             config={telescopeConfig}
             onNotice={() => { /* errors suppressed for demo */ }}
             onTarget={handleMapTarget}
+            onClearTarget={handleClearMapTarget}
             tooltipsEnabled={true}
+            toolbarLeading={(
+              <button
+                type="button"
+                className="skymap-fullscreen-btn"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleSkymapFullscreen();
+                }}
+                aria-label={isSkymapFullscreen ? 'Exit full screen' : 'Full screen'}
+                title={isSkymapFullscreen ? 'Exit full screen' : 'Full screen'}
+              >
+                {isSkymapFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+            )}
           />
           <div className="skymap-bottom-dock">
-            <button
-              type="button"
-              className="skymap-mobile-fullscreen-btn"
-              onClick={toggleSkymapFullscreen}
-              aria-label={isSkymapFullscreen ? 'Exit full screen' : 'Full screen'}
-              title={isSkymapFullscreen ? 'Exit full screen' : 'Full screen'}
-            >
-              {isSkymapFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
             <div className="skymap-overlay-controls">
               <MotionControls
                 runCommand={runCommand}

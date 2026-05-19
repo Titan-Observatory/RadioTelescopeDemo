@@ -9,8 +9,8 @@
   color-scheme: dark;
 
   /* Type */
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
 
   /* Surfaces — deep navy, close to Titan Observatory depth */
   --bg:              #0b0d16;
@@ -135,6 +135,9 @@ input:focus-visible {
    ========================================================================= */
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 80;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -195,7 +198,7 @@ input:focus-visible {
 
 .topbar-lease-label {
   color: var(--fg-subtle);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
@@ -221,7 +224,7 @@ input:focus-visible {
   background: var(--surface-1);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
   color: var(--fg-muted);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 12px;
   font-variant-numeric: normal;
   line-height: 1.45;
@@ -490,7 +493,7 @@ input:focus-visible {
 
 .topbar-time-label {
   color: var(--fg-subtle);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
@@ -935,6 +938,23 @@ input:focus-visible {
    line up — the chart's grid insets (PLOT_LEFT_PX / PLOT_RIGHT_PX) are
    mirrored by the canvas drawing offsets. */
 .spectrum-chart { width: 100%; height: 170px; flex: 0 0 auto; }
+.spectrum-chart-note {
+  position: absolute;
+  top: 2px;
+  left: var(--plot-left);
+  z-index: 3;
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+}
+.spectrum-waterfall-dropdown {
+  display: contents;
+}
+.spectrum-waterfall-summary {
+  display: none;
+}
 .spectrum-waterfall {
   display: block;
   width: 100%;
@@ -1730,10 +1750,11 @@ h2.panel-header {
   flex: 1 1 auto;
   min-width: 0;
 }
-.skymap-control-label {
+.skymap-control-label,
+.skymap-fullscreen-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   color: var(--fg-muted);
   font-size: 12px;
   font-weight: 500;
@@ -1741,7 +1762,6 @@ h2.panel-header {
   text-transform: none;
   white-space: nowrap;
   min-height: 28px;
-  padding: 0 10px;
   border: 1px solid var(--hairline-strong);
   border-radius: var(--r-md);
   background: rgba(11, 13, 22, 0.82);
@@ -1751,8 +1771,21 @@ h2.panel-header {
   pointer-events: auto;
   flex: 0 0 auto;
 }
+
+.skymap-control-label {
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.skymap-fullscreen-btn {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+}
+
 .skymap-control-label:hover,
-.skymap-control-label.active {
+.skymap-control-label.active,
+.skymap-fullscreen-btn:hover {
   color: var(--fg);
   border-color: var(--accent-line);
 }
@@ -1814,7 +1847,11 @@ h2.panel-header {
   overflow: hidden;
   background: #020306;
   position: relative;
-  z-index: 0;
+  z-index: auto;
+}
+
+.skymap-aladin .aladin-logo-container {
+  z-index: 6;
 }
 
 .skymap-spectrum-selector {
@@ -2091,31 +2128,6 @@ h2.panel-header {
   flex: 0 0 auto;
 }
 
-/* ─── Mobile fullscreen button (bottom-left of Aladin) ───────────────────── */
-
-.skymap-mobile-fullscreen-btn {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border-radius: 6px;
-  background: rgba(11, 13, 22, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: var(--fg-muted);
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  pointer-events: auto;
-  transition: color 0.15s, border-color 0.15s;
-}
-.skymap-mobile-fullscreen-btn:hover {
-  color: var(--fg);
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
 /* Fullscreen styles for the sky map panel */
 .skymap-panel:fullscreen {
   display: flex;
@@ -2134,10 +2146,6 @@ h2.panel-header {
 .skymap-panel:fullscreen .skymap-aladin {
   border-radius: 0;
 }
-.skymap-panel:fullscreen .skymap-mobile-fullscreen-btn {
-  display: inline-flex;
-}
-
 /* ─── Sky map loading ─────────────────────────────────────────────────────── */
 
 .skymap-loading {
@@ -2435,40 +2443,82 @@ h2.panel-header {
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  scroll-behavior: smooth;
 }
 
 .queue-header {
   position: sticky;
-  top: 0;
+  top: var(--queue-viewport-top, 0px);
   z-index: 10;
-  background: var(--surface-1);
+  /* Opaque background (was a 88%-transparent surface + 10px backdrop-filter
+     blur). backdrop-filter forces the browser to re-blur whatever is behind
+     the sticky header every time that content paints, which made the hero
+     spectrum animation feel orders of magnitude heavier than it actually is —
+     when scrolled to the bottom the hero is out of view (animation halted by
+     IntersectionObserver), the header sits over static content, and the page
+     is smooth. Solid background sidesteps the recomposition entirely. */
+  background: var(--bg);
   border-bottom: 1px solid var(--hairline);
-  backdrop-filter: blur(6px);
+}
+
+/* Subtle measurement ticks along the bottom of the header — picks up the
+   observatory-instrument feel without pulling focus from the queue status. */
+.queue-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 6px;
+  background-image: linear-gradient(
+    to right,
+    var(--hairline-strong) 0,
+    var(--hairline-strong) 1px,
+    transparent 1px,
+    transparent 24px
+  );
+  background-size: 24px 6px;
+  background-repeat: repeat-x;
+  background-position: left bottom;
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .queue-header-inner {
-  max-width: 1080px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 18px 24px;
-  display: flex;
+  padding: 20px 24px 18px;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  gap: 28px;
 }
 
 .queue-header-title h1 {
   margin: 0;
-  font-size: 20px;
-  line-height: 1.2;
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.18;
+  letter-spacing: -0.012em;
 }
 
 .queue-header-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--text-2);
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  max-width: 62ch;
 }
 
 .queue-header-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 200px;
+}
+
+.queue-header-status-row {
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -2476,24 +2526,46 @@ h2.panel-header {
 }
 
 .queue-header-label {
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--fg-muted);
+  letter-spacing: 0.1em;
+  color: var(--fg-subtle);
 }
 
 .queue-header-position {
   color: var(--accent);
+  font-family: var(--font-mono);
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 .queue-header-waiting {
   font-size: 13px;
-  color: var(--text-2);
-  border-left: 1px solid var(--hairline);
-  padding-left: 10px;
+  color: var(--fg-muted);
+}
+
+.queue-progress {
+  width: 100%;
+  height: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.queue-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 0;
+  transition: width 320ms ease;
+}
+
+.queue-header-cta {
+  margin-top: 4px;
 }
 
 .queue-waiting-body {
@@ -2510,10 +2582,27 @@ h2.panel-header {
 
 @media (max-width: 720px) {
   .queue-header-inner {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 14px;
+    padding: 14px 18px 12px;
+  }
+  .queue-header-sub {
+    max-height: 4.8em;
+    overflow: hidden;
+    transition:
+      max-height 180ms ease,
+      margin-top 180ms ease,
+      opacity 140ms ease;
+  }
+  .queue-header-collapsed .queue-header-sub {
+    max-height: 0;
+    margin-top: 0;
+    opacity: 0;
+  }
+  .queue-header-status {
     align-items: flex-start;
-    gap: 10px;
-    padding: 14px 18px;
+    width: 100%;
   }
 }
 
@@ -2523,97 +2612,142 @@ h2.panel-header {
 
 .h1-page { flex: 1; }
 
+/* All section anchor jumps need to clear the sticky queue header (title block
+   + section nav strip). Keep this in sync with .queue-header total height. */
+.h1-hero,
+.h1-spinflip,
+.h1-doppler,
+.h1-observe { scroll-margin-top: 160px; }
+
 /* Hero */
 .h1-hero {
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--hairline);
-  padding: 48px 24px;
+  background: linear-gradient(180deg, var(--surface-1) 0%, var(--bg) 100%);
+  padding: 72px 24px 64px;
+  position: relative;
 }
 
 .h1-hero-inner {
-  max-width: 1180px;
+  max-width: 1080px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(320px, 0.72fr) minmax(560px, 1fr);
-  gap: clamp(36px, 5vw, 72px);
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: clamp(36px, 5vw, 64px);
   align-items: center;
 }
 
+/* Shared eyebrow — small uppercase amber label preceded by a thin amber rule. */
 .h1-eyebrow {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-weight: 600;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--accent);
-  margin-bottom: 14px;
+  margin-bottom: 18px;
+}
+
+.h1-eyebrow::before {
+  content: '';
+  width: 22px;
+  height: 1px;
+  background: var(--accent-line);
 }
 
 .h1-hero-title {
-  margin: 0 0 14px;
-  font-size: 34px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  margin: 0 0 18px;
+  font-size: clamp(28px, 3.6vw, 38px);
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.1;
   color: var(--fg);
 }
 
 .h1-hero-sub {
   margin: 0;
-  max-width: 560px;
-  font-size: 14px;
-  line-height: 1.58;
+  max-width: 56ch;
+  font-size: 14.5px;
+  line-height: 1.7;
   color: var(--fg-muted);
+}
+
+/* Lead paragraph in the hero gets a slightly stronger color and weight so
+   the eye lands on it first before the body settles in. */
+.h1-hero-text .h1-hero-sub::first-line {
+  color: var(--fg);
 }
 
 .h1-hero-visual {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
 }
 
-/* Spin-flip section */
+/* Spin-flip section — wider visual side; quieter padding to break the
+   mechanical "every section is the same band" rhythm. */
 .h1-spinflip {
-  border-bottom: 1px solid var(--hairline);
-  padding: 52px 24px;
+  padding: 64px 24px;
+  position: relative;
 }
+.h1-spinflip:not(.h1-spinflip-alt) {
+  background-image:
+    linear-gradient(to right, rgba(155, 158, 206, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(155, 158, 206, 0.025) 1px, transparent 1px);
+  background-size: 80px 80px;
+  background-position: -1px -1px;
+}
+.h1-spinflip-alt { background: var(--surface-1); }
 
 .h1-spinflip-inner {
-  max-width: 920px;
+  max-width: 1080px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 52px;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: clamp(36px, 5vw, 64px);
   align-items: center;
+}
+
+.h1-spinflip-alt .h1-spinflip-inner {
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+}
+
+/* Soft top edge instead of a hard bottom border — gives a section change
+   you can feel without a visible horizontal rule. */
+.h1-spinflip + .h1-spinflip,
+.h1-spinflip + .h1-doppler,
+.h1-hero + .h1-spinflip,
+.h1-spinflip-alt + .h1-doppler {
+  border-top: 1px solid var(--hairline);
 }
 
 .h1-spinflip-visual {
   aspect-ratio: 4 / 3;
-  border-radius: var(--r-lg);
-  border: 1px dashed var(--hairline-strong);
-  background: var(--surface-1);
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline);
+  background: var(--bg);
 }
 
 /* Doppler section */
 .h1-doppler {
   background: var(--surface-1);
-  border-bottom: 1px solid var(--hairline);
-  padding: 52px 24px;
+  padding: 64px 24px 72px;
   /* Anchor-jump landing point clears the sticky queue header. */
   scroll-margin-top: 110px;
 }
 
 .h1-doppler-inner {
-  max-width: 920px;
+  max-width: 1180px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1.25fr;
-  gap: 52px;
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.35fr);
+  gap: clamp(36px, 5vw, 72px);
   align-items: start;
 }
 
-.h1-doppler-text { padding-top: 4px; }
+.h1-doppler-text { padding-top: 8px; }
 
 /* Observation section */
 .h1-observe {
@@ -2633,40 +2767,155 @@ h2.panel-header {
 
 /* Shared typography */
 .h1-section-heading {
-  margin: 0 0 18px;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
+  margin: 0 0 22px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  line-height: 1.18;
   color: var(--fg);
 }
 
 .h1-section-body {
   margin: 0 0 14px;
-  font-size: 14px;
+  font-size: 14.5px;
   line-height: 1.75;
   color: var(--fg-muted);
+  max-width: 58ch;
 }
+
+/* First body paragraph after the section heading carries the section's
+   thesis — slightly stronger color than the follow-up paragraphs. */
+.h1-section-heading + .h1-section-body { color: #c7c9e2; }
 
 .h1-section-body:last-of-type { margin-bottom: 0; }
 
-/* SVG containers */
+.h1-misleading-highlight {
+  position: relative;
+  display: inline;
+  appearance: none;
+  margin: 0;
+  padding: 0 2px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: 800;
+  line-height: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 188, 66, 0.46);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.h1-misleading-highlight:hover,
+.h1-misleading-highlight:focus-visible {
+  background: transparent;
+  color: var(--accent-strong);
+  text-decoration-color: var(--accent);
+  outline: none;
+}
+
+.h1-misleading-highlight:focus-visible {
+  text-decoration-color: var(--accent);
+}
+
+.h1-misleading-popover {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  width: min(260px, calc(100vw - 32px));
+  padding: 5px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 5px) scale(0.98);
+  transform-origin: bottom center;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.h1-misleading-popover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--hairline-strong);
+  border-bottom: 1px solid var(--hairline-strong);
+  background: #fff;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.h1-misleading-popover img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.h1-misleading-highlight:hover .h1-misleading-popover,
+.h1-misleading-highlight:focus-visible .h1-misleading-popover {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+/* SVG containers — embedded instrument panel rather than a generic card.
+   Thin top rule + faint corner marks. */
 .h1-svg {
   width: 100%;
   height: auto;
   display: block;
-  border-radius: var(--r-md);
+  border-radius: var(--r-sm);
   background: var(--bg);
   border: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline-strong);
 }
 
 .h1-svg-wide { min-width: 500px; }
 
+.h1-hero-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.h1-hero-figcaption {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: left;
+  padding-left: 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.h1-hero-figcaption::before {
+  content: '';
+  width: 18px;
+  height: 1px;
+  background: var(--accent-line);
+}
+
 .h1-visual-caption {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
   color: var(--fg-subtle);
-  text-align: center;
+  text-align: left;
+  border-top: 1px solid var(--hairline);
+  padding-top: 10px;
 }
 
 /* Continue prompt */
@@ -2691,15 +2940,15 @@ h2.panel-header {
 @media (max-width: 760px) {
   .h1-hero-inner,
   .h1-spinflip-inner,
-  .h1-doppler-inner { grid-template-columns: 1fr; }
+  .h1-spinflip-alt .h1-spinflip-inner,
+  .h1-doppler-inner { grid-template-columns: 1fr; gap: 28px; }
 
-  .h1-hero-inner { gap: 28px; }
+  .h1-hero { padding: 48px 16px 40px; }
+  .h1-spinflip, .h1-doppler { padding: 44px 16px; }
   .h1-hero-title { font-size: 26px; }
-  .h1-hero-sub { max-width: none; }
+  .h1-section-heading { font-size: 21px; margin-bottom: 16px; }
+  .h1-hero-sub, .h1-section-body { max-width: none; }
 
-  .h1-hero,
-  .h1-spinflip,
-  .h1-doppler,
   .h1-observe { padding-left: 16px; padding-right: 16px; }
 }
 
@@ -2751,7 +3000,6 @@ h2.panel-header {
     height: 340px;
     flex: none;
   }
-  .skymap-mobile-fullscreen-btn { display: inline-flex; }
   .dashboard-rightcol > .panel:first-child {
     border-top-right-radius: 0;
   }
@@ -2774,6 +3022,8 @@ h2.panel-header {
   .topbar-lease-label { display: none; }
   .topbar-time { display: none; }
   .panel     { padding: 14px 14px; }
+  .skymap-panel { padding: 0; }
+  .skymap-aladin { border-radius: 0; }
   .skymap-toolbar {
     right: 10px;
     flex-wrap: wrap;
@@ -2786,6 +3036,24 @@ h2.panel-header {
   }
   .skymap-surveys-mobile {
     display: inline-flex;
+    position: absolute;
+    top: 46px;
+    left: 10px;
+    right: 10px;
+    z-index: 42;
+    pointer-events: auto;
+    justify-content: flex-start;
+  }
+  .skymap-surveys-mobile .skymap-survey-btn {
+    pointer-events: auto;
+    touch-action: manipulation;
+  }
+  .skymap-altaz-chip {
+    bottom: auto;
+    top: 10px;
+    left: auto;
+    right: 10px;
+    z-index: 41;
   }
 
   .pad-btn { min-height: 52px; }
@@ -2803,6 +3071,53 @@ h2.panel-header {
     flex: 1 1 auto;
   }
   .spectrum-doppler-lesson-grid { grid-template-columns: 1fr; }
+  .dashboard-rightcol .spectrum-panel-host .spectrum-chart-wrap,
+  .spectrum-chart-wrap {
+    height: auto;
+  }
+  .spectrum-chart {
+    height: 160px;
+  }
+  .spectrum-waterfall-dropdown {
+    display: block;
+    flex: 0 0 auto;
+    border-top: 1px solid var(--hairline);
+  }
+  .spectrum-waterfall-summary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 2px;
+    color: var(--fg);
+    cursor: pointer;
+    list-style: none;
+    touch-action: manipulation;
+  }
+  .spectrum-waterfall-summary::-webkit-details-marker {
+    display: none;
+  }
+  .spectrum-waterfall-summary::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--fg-muted);
+    border-bottom: 2px solid var(--fg-muted);
+    transform: rotate(45deg);
+    transition: transform var(--t-fast);
+  }
+  .spectrum-waterfall-dropdown[open] > .spectrum-waterfall-summary::after {
+    transform: rotate(225deg);
+  }
+  .spectrum-waterfall-summary span {
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .spectrum-waterfall {
+    height: 190px;
+    flex: none;
+  }
 
   .banner, .error-log summary, .error-log-body { padding-left: 14px; padding-right: 14px; }
 
