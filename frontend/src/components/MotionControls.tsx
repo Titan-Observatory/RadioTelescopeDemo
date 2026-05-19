@@ -51,6 +51,7 @@ function useJog(
   const begin = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return; // left-click only on mouse
     if (timerRef.current != null) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     const token = makeJogToken();
     tokenRef.current = token;
     seqRef.current = 0;
@@ -79,7 +80,6 @@ function useJog(
     active,
     onPointerDown: begin,
     onPointerUp: end,
-    onPointerLeave: end,
     onPointerCancel: end,
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   } as const;

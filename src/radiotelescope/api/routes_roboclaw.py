@@ -175,6 +175,8 @@ async def stop_jog(body: JogStopRequest, request: Request):
     service = _service(request)
     if not service.accept_jog_sequence(body.token, body.seq):
         return {}
+    if not service.can_stop_active_jog(body.token, body.seq):
+        return {}
     service.clear_jog_watchdog(body.token, body.seq)
     service.set_position_target()
     return await service.stop_all()

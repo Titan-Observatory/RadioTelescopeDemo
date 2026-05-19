@@ -244,6 +244,25 @@ def test_jog_stop_stops_immediately(simulated_config_path):
     assert status.json()["motors"]["m1"]["raw_speed_qpps"] == 0
 
 
+def test_old_jog_stop_does_not_stop_new_active_jog(simulated_config_path):
+    with TestClient(create_app(simulated_config_path)) as client:
+        old_started = client.post(
+            "/api/telescope/jog",
+            json={"token": "old-jog-token", "seq": 1, "direction": "west", "speed": 40},
+        )
+        new_started = client.post(
+            "/api/telescope/jog",
+            json={"token": "new-jog-token", "seq": 1, "direction": "west", "speed": 40},
+        )
+        delayed_old_stop = client.post("/api/telescope/jog/stop", json={"token": "old-jog-token", "seq": 2})
+        service = client.app.state.roboclaw_service
+
+    assert old_started.status_code == 200
+    assert new_started.status_code == 200
+    assert delayed_old_stop.status_code == 200
+    assert service.client._speeds["m1"] > 0
+
+
 def test_jog_watchdog_stops_when_heartbeats_stop(simulated_config_path):
     import time
 
