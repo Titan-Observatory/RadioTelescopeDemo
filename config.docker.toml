@@ -1,7 +1,7 @@
 # Docker / Coolify config template.
 #
-# Every ${VAR} is filled in from environment variables you set in Coolify's UI.
-# The ${VAR:-fallback} form uses the fallback when the variable is not set.
+# Every placeholder of the form ${ NAME } is filled in from environment variables
+# you set in Coolify's UI. The ${ NAME :-fallback } form uses the fallback when unset.
 # Do NOT put real secrets in this file — it is committed to the repo.
 # Set all the RT_* variables in Coolify's "Environment Variables" panel.
 

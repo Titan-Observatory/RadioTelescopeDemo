@@ -242,10 +242,15 @@ def _expand_env_vars(text: str) -> str:
 
     Lets the production `config.toml` pull secrets from the systemd
     `EnvironmentFile` (see `infra/secrets.example.env`) rather than living in
-    plaintext in the same file. Substitution is naive — it does not skip
-    quoted-string interiors — but the codebase has no legitimate `${...}` in
-    TOML strings today.
+    plaintext in the same file. Comment lines (starting with #) are passed
+    through unchanged so example `${VAR}` text in comments does not trigger
+    substitution.
     """
+    def _expand_line(line: str) -> str:
+        if line.lstrip().startswith("#"):
+            return line
+        return _ENV_VAR_RE.sub(replace, line)
+
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
         default = match.group(2)
@@ -257,7 +262,7 @@ def _expand_env_vars(text: str) -> str:
         msg = f"Config references ${{{name}}} but the environment variable is unset and no `:-default` was provided"
         print(msg, flush=True)
         raise KeyError(msg)
-    return _ENV_VAR_RE.sub(replace, text)
+    return "\n".join(_expand_line(line) for line in text.splitlines())
 
 
 def load_config(path: Path | str = "config.toml") -> AppConfig:
