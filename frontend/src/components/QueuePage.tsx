@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Cloud } from 'lucide-react';
 
 import queueSpectrumRaw from '../data/queueSpectrum.txt?raw';
@@ -1089,6 +1090,15 @@ export function QueuePage({
     placement: 'above' | 'below';
   } | null>(null);
   const inQueue = (status?.position ?? -1) >= 0;
+  const passwordRequired = betaPasswordEnabled && !betaPassword.trim();
+  const waitingForCaptcha = turnstileEnabled && !captchaToken;
+  const joinDisabled = joining || rateLimited || passwordRequired || waitingForCaptcha;
+
+  const submitHeaderJoin = (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    if (joinDisabled) return;
+    void onJoin(captchaToken, betaPasswordEnabled ? betaPassword : null);
+  };
 
   const positionMisleadingPopover = () => {
     const trigger = misleadingButtonRef.current;
@@ -1214,65 +1224,6 @@ export function QueuePage({
     }
   }, [inQueue, turnstileEnabled, siteKey, isPreLaunch]);
 
-  // Non-turnstile flow: nothing to verify, so a plain landing page is fine.
-  // In pre-launch mode we skip this and render the full waiting-page UI with
-  // a "Coming Soon" header instead — the Join button has nothing to join.
-  if (!isPreLaunch && !loading && !inQueue && !turnstileEnabled) {
-    return (
-      <div className="queue-landing">
-        <div className="queue-card">
-          <h1>Radio Telescope</h1>
-          <p>This telescope is shared with other users. Join the queue to take control.</p>
-          {betaPasswordEnabled && (
-            <div className="beta-password-field">
-              <label htmlFor="beta-pw-simple">Beta access password</label>
-              <input
-                id="beta-pw-simple"
-                type="password"
-                autoComplete="current-password"
-                placeholder="Enter beta password"
-                value={betaPassword}
-                onChange={(e) => setBetaPassword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && betaPassword && !joining && !rateLimited) {
-                    void onJoin(null, betaPassword);
-                  }
-                }}
-              />
-              <p className="beta-interest-link">
-                Don&apos;t have a password?{' '}
-                <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
-                  Apply for beta access
-                </a>
-              </p>
-            </div>
-          )}
-          <button
-            className="action-button"
-            disabled={joining || rateLimited || (betaPasswordEnabled && !betaPassword)}
-            onClick={() => void onJoin(null, betaPasswordEnabled ? betaPassword : null)}
-          >
-            {joining
-              ? 'Joining…'
-              : rateLimited
-              ? `Try again in ${joinRateLimitedSec}s`
-              : 'Join queue'}
-          </button>
-          {rateLimited && (
-            <p className="banner banner-error">
-              You&apos;re trying too fast — try again in {joinRateLimitedSec}s.
-            </p>
-          )}
-          {joinError && !rateLimited && <p className="banner banner-error">{joinError}</p>}
-        </div>
-      </div>
-    );
-  }
-
-  // Turnstile flow + still-joining: render the full waiting page underneath
-  // so the captcha modal opens on top of the same UI the user will see once
-  // they're in the queue, rather than a near-empty landing card.
-
   // Progress bar fill: position 1 = front of line (full), larger = further back.
   // Use queue_length as the denominator so the bar reflects relative standing.
   const queueLength = status?.queue_length ?? 0;
@@ -1281,10 +1232,7 @@ export function QueuePage({
     ? Math.max(6, Math.min(100, ((queueLength - position + 1) / queueLength) * 100))
     : 0;
 
-  // Halt the background spectrum animations while the captcha modal is up —
-  // the modal overlay applies a backdrop-filter blur, which combined with an
-  // actively-repainting SVG behind it pegs the compositor on the same path
-  // that the sticky header's blur was hitting.
+  // Keep the animated spectrum quiet while the join verification widget is active.
   const animationsPaused = !inQueue && turnstileEnabled;
 
   return (
@@ -1308,14 +1256,62 @@ export function QueuePage({
                 ? "While the telescope checks your place, scroll on to learn what you'll be observing."
                 : inQueue
                 ? "While you wait, scroll on to learn what you'll be observing."
-                : 'Complete the quick verification to take your place in line.'}
+                : 'Enter the beta password here to join the line; the telescope information stays available below.'}
             </p>
             <p className="queue-content-disclaimer">
               All content was researched and written by humans :) AI is a tool, not a replacement.
             </p>
           </div>
           {!isPreLaunch && (
-            <div className="queue-header-status">
+            <div className={`queue-header-status${!inQueue ? ' queue-header-status-login' : ''}`}>
+              {!inQueue && (
+                <form className="queue-header-join" onSubmit={submitHeaderJoin}>
+                  {betaPasswordEnabled && (
+                    <div className="beta-password-field queue-header-password">
+                      <label htmlFor="beta-pw-header">Beta access password</label>
+                      <input
+                        id="beta-pw-header"
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="Password"
+                        value={betaPassword}
+                        onChange={(e) => setBetaPassword(e.target.value)}
+                      />
+                      <p className="beta-interest-link">
+                        Don&apos;t have one?{' '}
+                        <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
+                          Apply for beta access
+                        </a>
+                      </p>
+                    </div>
+                  )}
+                  {turnstileEnabled && (
+                    <div className="queue-header-turnstile">
+                      <div className="cf-turnstile" ref={widgetRef} />
+                    </div>
+                  )}
+                  <button className="action-button queue-header-cta" type="submit" disabled={joinDisabled}>
+                    {joining
+                      ? 'Joining...'
+                      : rateLimited
+                        ? `Try again in ${joinRateLimitedSec}s`
+                        : turnstileEnabled && !captchaToken
+                          ? 'Complete verification'
+                          : 'Join queue'}
+                  </button>
+                  <p className={`queue-status-line${joinError || rateLimited ? ' queue-status-line-error' : ''}`}>
+                    {rateLimited
+                      ? `You're trying too fast - try again in ${joinRateLimitedSec}s.`
+                      : joinError
+                        ? joinError
+                        : turnstileEnabled && !captchaToken
+                          ? 'Verification is required before joining.'
+                          : betaPasswordEnabled && !betaPassword
+                            ? 'Password required to join.'
+                            : 'Ready to join.'}
+                  </p>
+                </form>
+              )}
               <div className="queue-header-status-row">
                 <span className="queue-header-label">Position</span>
                 <strong className="queue-header-position">
@@ -1432,53 +1428,6 @@ export function QueuePage({
 
       </main>
 
-      {!isPreLaunch && !inQueue && turnstileEnabled && (
-        <div className="captcha-modal-overlay">
-          <div className="captcha-modal">
-            <div className="captcha-modal-header">
-              <h2>Verify to join</h2>
-            </div>
-            <p className="captcha-modal-body">Complete the check below to join the queue.</p>
-            {betaPasswordEnabled && (
-              <div className="beta-password-field">
-                <label htmlFor="beta-pw-captcha">Beta access password</label>
-                <input
-                  id="beta-pw-captcha"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Enter beta password"
-                  value={betaPassword}
-                  onChange={(e) => setBetaPassword(e.target.value)}
-                />
-                <p className="beta-interest-link">
-                  Don&apos;t have a password?{' '}
-                  <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
-                    Apply for beta access
-                  </a>
-                </p>
-              </div>
-            )}
-            <div className="cf-turnstile" ref={widgetRef} />
-            <p className="queue-status-line">
-              {joining
-                ? 'Joining…'
-                : rateLimited
-                  ? `Hold on — try again in ${joinRateLimitedSec}s`
-                  : captchaToken && (!betaPasswordEnabled || betaPassword)
-                    ? 'Verified — joining queue…'
-                    : betaPasswordEnabled && !betaPassword
-                      ? 'Enter your beta password above'
-                      : 'Waiting for verification…'}
-            </p>
-            {rateLimited && (
-              <p className="banner banner-error">
-                You&apos;re trying too fast — try again in {joinRateLimitedSec}s.
-              </p>
-            )}
-            {joinError && !rateLimited && <p className="banner banner-error">{joinError}</p>}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

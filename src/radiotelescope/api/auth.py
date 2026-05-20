@@ -32,6 +32,17 @@ _EXEMPT_PATHS = frozenset({
     "/api/queue/join",
 })
 _EXEMPT_PREFIXES = ("/assets/",)
+_EXEMPT_STATIC_SUFFIXES = (
+    ".css",
+    ".gif",
+    ".ico",
+    ".jpg",
+    ".jpeg",
+    ".js",
+    ".png",
+    ".svg",
+    ".webp",
+)
 _MAX_IP_RECORDS = 10_000
 
 
@@ -172,7 +183,11 @@ class PasswordAuthMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in _EXEMPT_PATHS or any(path.startswith(p) for p in _EXEMPT_PREFIXES):
+        if (
+            path in _EXEMPT_PATHS
+            or any(path.startswith(p) for p in _EXEMPT_PREFIXES)
+            or (scope["type"] == "http" and path.lower().endswith(_EXEMPT_STATIC_SUFFIXES))
+        ):
             await self.app(scope, receive, send)
             return
 
@@ -189,7 +204,7 @@ class PasswordAuthMiddleware:
 
         accept = headers.get(b"accept", b"").decode("latin-1")
         if "text/html" in accept:
-            await _redirect(send, b"/login")
+            await _redirect(send, b"/")
         else:
             body = b'{"detail":"Authentication required"}'
             await _http_response(send, 401, b"application/json", body)
@@ -331,7 +346,7 @@ async def login_page(request: Request) -> HTMLResponse | RedirectResponse:
     auth: AuthManager = request.app.state.auth
     if not auth.enabled:
         return RedirectResponse("/")
-    return HTMLResponse(_login_html())
+    return RedirectResponse("/")
 
 
 @router.post("/api/auth/login", include_in_schema=False, response_model=None)
@@ -372,6 +387,6 @@ async def do_login(request: Request, password: str = Form(...)) -> HTMLResponse 
 
 @router.post("/api/auth/logout", include_in_schema=False)
 async def do_logout() -> RedirectResponse:
-    resp = RedirectResponse(url="/login", status_code=303)
+    resp = RedirectResponse(url="/", status_code=303)
     resp.delete_cookie(_COOKIE_NAME, path="/")
     return resp

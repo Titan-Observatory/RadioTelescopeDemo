@@ -2379,80 +2379,8 @@ h2.panel-header {
 }
 
 /* =========================================================================
-   Queue / spectator landing page
+   Queue / spectator page
    ========================================================================= */
-
-.queue-landing {
-  min-height: 100svh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.queue-card {
-  background: var(--surface-1);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  padding: 28px 32px;
-  max-width: 520px;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.queue-card h1 { margin: 0; font-size: 22px; }
-.queue-card p  { margin: 0; color: var(--text-2); }
-
-.queue-status-line {
-  margin: 4px 0 0 !important;
-  font-size: 13px;
-  color: var(--fg-muted);
-  font-style: italic;
-}
-
-.cf-turnstile { min-height: 65px; }
-
-/* Captcha modal — overlaid on the in-queue waiting page so the blurred
-   background is the real queue UI, not an empty landing card. */
-
-.captcha-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  /* Dim-only — no backdrop-filter here. A full-viewport blur forces the
-     compositor to re-rasterize the entire page every frame the hero spectrum
-     repaints. The blur now lives on .captcha-modal (small area, cheap). */
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.captcha-modal {
-  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  padding: 24px 28px;
-  width: 100%;
-  max-width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.captcha-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.captcha-modal-header h2 { margin: 0; font-size: 18px; }
-
-.captcha-modal-body { margin: 0; font-size: 14px; color: var(--text-2); }
 
 .beta-password-field {
   display: flex;
@@ -2497,6 +2425,17 @@ h2.panel-header {
 }
 
 .beta-interest-link a:hover { text-decoration: underline; }
+
+.queue-status-line {
+  margin: 4px 0 0 !important;
+  font-size: 13px;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.queue-status-line-error {
+  color: var(--crit);
+}
 
 /* In-queue waiting page */
 
@@ -2580,6 +2519,34 @@ h2.panel-header {
   align-items: flex-end;
   gap: 8px;
   min-width: 200px;
+}
+
+.queue-header-status-login {
+  min-width: min(360px, 34vw);
+}
+
+.queue-header-status-login > .queue-header-status-row {
+  display: none;
+}
+
+.queue-header-join {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  justify-items: stretch;
+}
+
+.queue-header-password {
+  gap: 5px;
+}
+
+.queue-header-turnstile {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.queue-header-turnstile .cf-turnstile {
+  min-height: 65px;
 }
 
 .queue-header-status-row {
@@ -2674,6 +2641,12 @@ h2.panel-header {
   .queue-header-status {
     align-items: flex-start;
     width: 100%;
+  }
+  .queue-header-status-login {
+    min-width: 0;
+  }
+  .queue-header-turnstile {
+    justify-content: flex-start;
   }
 }
 
