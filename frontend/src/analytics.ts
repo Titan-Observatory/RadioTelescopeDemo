@@ -19,6 +19,38 @@
 
 const SESSION_STORAGE_KEY = 'rt-analytics-session';
 
+type GtagCommand = 'config' | 'event' | 'js' | 'set';
+type Gtag = (command: GtagCommand, target: string | Date, params?: Record<string, unknown>) => void;
+
+declare global {
+  interface Window {
+    RT_PUBLIC_CONFIG?: {
+      gtagId?: string;
+    };
+    dataLayer?: unknown[];
+    gtag?: Gtag;
+  }
+}
+
+const gtagId = window.RT_PUBLIC_CONFIG?.gtagId?.trim() ?? '';
+
+if (gtagId) {
+  window.dataLayer = window.dataLayer ?? [];
+  window.gtag = window.gtag ?? function gtag(...args: Parameters<Gtag>) {
+    window.dataLayer?.push(args);
+  };
+
+  const script = document.createElement('script');
+  script.async = true;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gtagId)}`;
+  document.head.appendChild(script);
+
+  window.gtag('js', new Date());
+  window.gtag('config', gtagId, {
+    page_path: window.location.pathname,
+  });
+}
+
 function getOrCreateSessionId(): string {
   try {
     const existing = sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -65,6 +97,14 @@ export function track(event: string, props: Record<string, unknown> = {}) {
   };
 
   const body = JSON.stringify(payload);
+
+  window.gtag?.('event', event, {
+    page_path: payload.page_path,
+    device_class: payload.device_class,
+    is_active_controller: payload.is_active_controller,
+    queue_position: payload.queue_position,
+    ...props,
+  });
 
   // Prefer sendBeacon so events fire reliably even during page unload.
   // Beacon requires a Blob with the right MIME; falls back to fetch keepalive.

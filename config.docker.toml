@@ -4,6 +4,7 @@
 # you set in Coolify's UI. The ${ NAME :-fallback } form uses the fallback when unset.
 # Do NOT put real secrets in this file — it is committed to the repo.
 # Set all the RT_* variables in Coolify's "Environment Variables" panel.
+# Optional: set RT_GTAG_ID to a Google tag measurement ID, e.g. G-XXXXXXXXXX.
 
 [general]
 log_level = "INFO"

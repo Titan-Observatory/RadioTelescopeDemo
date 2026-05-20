@@ -11,4 +11,23 @@ if [ -n "$RT_BETA_PASSWORDS" ] && [ ! -f passwords.txt ]; then
     echo "docker-entrypoint: wrote passwords.txt from RT_BETA_PASSWORDS"
 fi
 
+if [ -d frontend/dist ]; then
+    python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+config = {
+    "gtagId": os.environ.get("RT_GTAG_ID", "").strip(),
+}
+
+Path("frontend/dist/rt-env.js").write_text(
+    "window.RT_PUBLIC_CONFIG = "
+    + json.dumps(config, separators=(",", ":"))
+    + ";\n",
+    encoding="utf-8",
+)
+PY
+fi
+
 exec "$@"
