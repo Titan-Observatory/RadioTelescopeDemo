@@ -2414,12 +2414,27 @@ h2.panel-header {
 }
 
 .queue-header-sub a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin-left: 2px;
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
+  font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-.queue-header-sub a:hover { text-decoration: underline; }
+.queue-header-sub a:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-strong);
+  text-decoration: none;
+}
 
 .queue-status-line {
   margin: 4px 0 0 !important;
@@ -2755,6 +2770,11 @@ h2.panel-header {
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
 }
 
+.h1-discovery-section .h1-spinflip-inner {
+  grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+  max-width: 1160px;
+}
+
 /* Soft top edge instead of a hard bottom border — gives a section change
    you can feel without a visible horizontal rule. */
 .h1-spinflip + .h1-spinflip,
@@ -2769,6 +2789,44 @@ h2.panel-header {
   border-radius: var(--r-md);
   border: 1px solid var(--hairline);
   background: var(--bg);
+}
+
+.h1-ewen-figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+
+.h1-ewen-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.h1-ewen-caption {
+  padding: 16px 18px 18px;
+}
+
+.h1-ewen-caption blockquote {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--fg-muted);
+}
+
+.h1-ewen-caption cite {
+  display: block;
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-style: normal;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 /* Doppler section */
@@ -2990,6 +3048,8 @@ h2.panel-header {
   .h1-section-heading { font-size: 21px; margin-bottom: 16px; }
   .h1-hero-sub, .h1-section-body { max-width: none; }
   .h1-hero-visual { padding-top: 0; overflow-x: hidden; }
+  .h1-ewen-caption { padding: 14px 15px 16px; }
+  .h1-ewen-caption blockquote { font-size: 12.5px; }
   .h1-hero-figure {
     width: 100%;
     overflow: hidden;

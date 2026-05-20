@@ -1082,6 +1082,7 @@ export function QueuePage({
     left: number;
     top: number;
     placement: 'above' | 'below';
+    open: boolean;
   } | null>(null);
   const inQueue = (status?.position ?? -1) >= 0;
   const passwordRequired = betaPasswordEnabled && !betaPassword.trim();
@@ -1129,11 +1130,15 @@ export function QueuePage({
       MISLEADING_POPOVER_MARGIN,
       maxTop,
     );
-    setMisleadingPopover({ left, top, placement });
+    setMisleadingPopover({ left, top, placement, open: true });
+  };
+
+  const hideMisleadingPopover = () => {
+    setMisleadingPopover((current) => current ? { ...current, open: false } : null);
   };
 
   useEffect(() => {
-    if (!misleadingPopover) return;
+    if (!misleadingPopover?.open) return;
     window.addEventListener('resize', positionMisleadingPopover);
     window.addEventListener('scroll', positionMisleadingPopover, true);
     return () => {
@@ -1254,7 +1259,7 @@ export function QueuePage({
                   )}
             </p>
             <p className="queue-content-disclaimer">
-              All content was researched and written by humans :)
+              All content is researched and written by humans :)
             </p>
           </div>
           <div className={`queue-header-status${!inQueue ? ' queue-header-status-login' : ''}`}>
@@ -1350,16 +1355,16 @@ export function QueuePage({
                   className="spectrum-doppler-term h1-misleading-highlight"
                   type="button"
                   aria-label="Show why the spin analogy is misleading"
-                  aria-expanded={misleadingPopover ? 'true' : 'false'}
+                  aria-expanded={misleadingPopover?.open ? 'true' : 'false'}
                   onMouseEnter={positionMisleadingPopover}
                   onFocus={positionMisleadingPopover}
-                  onMouseLeave={() => setMisleadingPopover(null)}
-                  onBlur={() => setMisleadingPopover(null)}
+                  onMouseLeave={hideMisleadingPopover}
+                  onBlur={hideMisleadingPopover}
                   onClick={positionMisleadingPopover}
                 >
                   misleading
                   <span
-                    className={`h1-misleading-popover h1-misleading-popover-${misleadingPopover?.placement ?? 'below'}${misleadingPopover ? ' h1-misleading-popover-open' : ''}`}
+                    className={`h1-misleading-popover h1-misleading-popover-${misleadingPopover?.placement ?? 'below'}${misleadingPopover?.open ? ' h1-misleading-popover-open' : ''}`}
                     role="tooltip"
                     style={misleadingPopover ? { left: misleadingPopover.left, top: misleadingPopover.top } : undefined}
                   >
@@ -1378,15 +1383,26 @@ export function QueuePage({
         </section>
         
         {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}
-        <section className="h1-spinflip h1-spinflip-alt" id="h1-history-section">
+        <section className="h1-spinflip h1-spinflip-alt h1-discovery-section" id="h1-history-section">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
               <span className="h1-eyebrow">How was it found?</span>
               <h2 className="h1-section-heading">Science at it's best</h2>
               <p className="h1-section-body">By 1951, thanks in large part to the postwar boom in radar technologies, radio had established itself as a serious branch of astronomy. However, the surveys, solar studies, and detections were limited to telling us </p>
-              <p className="h1-section-body">Applications of the hydrogen line were obvious from the first detection. Doc Ewen, noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
             </div>
-            <div className="h1-spinflip-visual" />
+            <figure className="h1-ewen-figure">
+              <img
+                src="/ewen.jpg"
+                alt="Doc Ewen inspecting patchwork inside the horn antenna"
+                className="h1-ewen-image"
+              />
+              <figcaption className="h1-ewen-caption">
+                <blockquote>
+                  Inspecting the patch work. After one year, parts of the copper skin had cracked and peeled away from the plywood. I purchased fifty feet of rope from a local hardware store, tied one end around my waist and the other to the lower section of the antenna mount. With a large soldering iron, solder, and a bristle brush I went over the side, four floors up, and slid into the horn. About an hour later, I managed to climb out of the horn back on to the parapet. This picture of me inspecting the patchwork was taken about two days later. The line was detected within the next few weeks.
+                </blockquote>
+                <cite>Doc Ewen</cite>
+              </figcaption>
+            </figure>
           </div>
         </section>
         
@@ -1397,7 +1413,7 @@ export function QueuePage({
               <span className="h1-eyebrow">How do we use it?</span>
               <h2 className="h1-section-heading">The Doppler Effect</h2>
               <p className="h1-section-body"></p>
-              <p className="h1-section-body">Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est qui dolorem ipsum quia dolor sit amet.</p>
+              <p className="h1-section-body">Applications of the hydrogen line were obvious from the first detection. Doc Ewen, noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
             </div>
             <div className="h1-doppler-visual">
               <DopplerAnimation paused={animationsPaused} />
