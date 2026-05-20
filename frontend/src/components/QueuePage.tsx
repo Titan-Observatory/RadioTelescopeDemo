@@ -1064,18 +1064,12 @@ interface Props {
   hasControl: boolean;
   onContinue: () => void;
   loading?: boolean;
-  // 'pre-launch' renders the educational content with a "Coming Soon" header
-  // and no queue UI — used by the public static teaser deploy while the
-  // telescope hardware isn't ready for live users.
-  mode?: 'live' | 'pre-launch';
 }
 
 export function QueuePage({
   status, joining, joinError, joinRateLimitedSec = null,
   siteKey, turnstileEnabled, betaPasswordEnabled, onJoin, hasControl, onContinue, loading = false,
-  mode = 'live',
 }: Props) {
-  const isPreLaunch = mode === 'pre-launch';
   const rateLimited = joinRateLimitedSec != null && joinRateLimitedSec > 0;
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [betaPassword, setBetaPassword] = useState('');
@@ -1175,7 +1169,6 @@ export function QueuePage({
   }, []);
 
   useEffect(() => {
-    if (isPreLaunch) return;
     if (!turnstileEnabled) return;
     if (inQueue || joining) return;
     if (!captchaToken) return;
@@ -1183,24 +1176,22 @@ export function QueuePage({
     if (autoJoinedTokenRef.current === captchaToken) return;
     autoJoinedTokenRef.current = captchaToken;
     void onJoin(captchaToken, betaPasswordEnabled ? betaPassword : null);
-  }, [captchaToken, betaPassword, betaPasswordEnabled, turnstileEnabled, inQueue, joining, onJoin, isPreLaunch]);
+  }, [captchaToken, betaPassword, betaPasswordEnabled, turnstileEnabled, inQueue, joining, onJoin]);
 
   useEffect(() => {
-    if (isPreLaunch) return;
     if (!joinError) return;
     autoJoinedTokenRef.current = null;
     if (turnstileEnabled) {
       setCaptchaToken(null);
       if (window.turnstile && widgetIdRef.current) window.turnstile.reset(widgetIdRef.current);
     }
-  }, [joinError, turnstileEnabled, isPreLaunch]);
+  }, [joinError, turnstileEnabled]);
 
   // Mount the Turnstile widget inline into the queue card. Previously this
   // lived in a separate full-screen modal, which made it look like the
   // captcha had popped up "on another screen" rather than being part of the
   // join flow itself.
   useEffect(() => {
-    if (isPreLaunch) return;
     if (inQueue || !turnstileEnabled || !siteKey) return;
     const renderWidget = () => {
       if (!widgetRef.current || !window.turnstile || widgetIdRef.current) return;
@@ -1222,7 +1213,7 @@ export function QueuePage({
       script.defer = true;
       document.head.appendChild(script);
     }
-  }, [inQueue, turnstileEnabled, siteKey, isPreLaunch]);
+  }, [inQueue, turnstileEnabled, siteKey]);
 
   // Progress bar fill: position 1 = front of line (full), larger = further back.
   // Use queue_length as the denominator so the bar reflects relative standing.
@@ -1241,18 +1232,14 @@ export function QueuePage({
         <div className="queue-header-inner">
           <div className="queue-header-title">
             <h1>
-              {isPreLaunch
-                ? 'Coming Soon — Telescope Under Construction'
-                : loading
+              {loading
                 ? 'Loading queue'
                 : inQueue
                 ? 'You are in the queue'
                 : 'Joining the queue'}
             </h1>
             <p className="queue-header-sub">
-              {isPreLaunch
-                ? "The telescope isn't operational yet. Scroll on to learn about what you'll soon be observing."
-                : loading
+              {loading
                 ? "While the telescope checks your place, scroll on to learn what you'll be observing."
                 : inQueue
                 ? "While you wait, scroll on to learn what you'll be observing."
@@ -1272,65 +1259,62 @@ export function QueuePage({
               All content was researched and written by humans :)
             </p>
           </div>
-          {!isPreLaunch && (
-            <div className={`queue-header-status${!inQueue ? ' queue-header-status-login' : ''}`}>
-              {!inQueue && (
-                <form className="queue-header-join" onSubmit={submitHeaderJoin}>
-                  {betaPasswordEnabled && (
-                    <div className="beta-password-field queue-header-password">
-                      <label htmlFor="beta-pw-header">Beta access password</label>
-                      <input
-                        id="beta-pw-header"
-                        type="password"
-                        autoComplete="current-password"
-                        placeholder="Password"
-                        value={betaPassword}
-                        onChange={(e) => setBetaPassword(e.target.value)}
-                      />
-                    </div>
-                  )}
-                  {turnstileEnabled && (
-                    <div className="queue-header-turnstile">
-                      <div className="cf-turnstile" ref={widgetRef} />
-                    </div>
-                  )}
-                  <button className="action-button queue-header-cta" type="submit" disabled={joinDisabled}>
-                    {joining
-                      ? 'Joining...'
-                      : rateLimited
-                        ? `Try again in ${joinRateLimitedSec}s`
-                        : 'Join queue'}
-                  </button>
-                  <p className={`queue-status-line${joinError || rateLimited ? ' queue-status-line-error' : ''}`}>
-                    {rateLimited
-                      ? `You're trying too fast - try again in ${joinRateLimitedSec}s.`
-                      : joinError
-                        ? joinError
-                        : 'Ready to join.'}
-                  </p>
-                </form>
-              )}
-              <div className="queue-header-status-row">
-                <span className="queue-header-label">Position</span>
-                <strong className="queue-header-position">
-                  {inQueue ? `#${position}` : '—'}
-                </strong>
-                {inQueue && queueLength > 0 && (
-                  <span className="queue-header-waiting">of {queueLength}</span>
+          <div className={`queue-header-status${!inQueue ? ' queue-header-status-login' : ''}`}>
+            {!inQueue && (
+              <form className="queue-header-join" onSubmit={submitHeaderJoin}>
+                {betaPasswordEnabled && (
+                  <div className="beta-password-field queue-header-password">
+                    <label htmlFor="beta-pw-header">Beta access password</label>
+                    <input
+                      id="beta-pw-header"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="Password"
+                      value={betaPassword}
+                      onChange={(e) => setBetaPassword(e.target.value)}
+                    />
+                  </div>
                 )}
-              </div>
-              {inQueue && queueLength > 0 && (
-                <div className="queue-progress" aria-hidden="true">
-                  <div className="queue-progress-fill" style={{ width: `${progressPct}%` }} />
-                </div>
-              )}
-              {inQueue && hasControl && (
-                <button className="action-button queue-header-cta" onClick={onContinue}>
-                  Continue to telescope →
+                {turnstileEnabled && (
+                  <div className="queue-header-turnstile">
+                    <div className="cf-turnstile" ref={widgetRef} />
+                  </div>
+                )}
+                <button className="action-button queue-header-cta" type="submit" disabled={joinDisabled}>
+                  {joining
+                    ? 'Joining...'
+                    : rateLimited
+                      ? `Try again in ${joinRateLimitedSec}s`
+                      : 'Join queue'}
                 </button>
+                <p className={`queue-status-line${joinError || rateLimited ? ' queue-status-line-error' : ''}`}>
+                  {rateLimited
+                    ? `You're trying too fast - try again in ${joinRateLimitedSec}s.`
+                    : joinError
+                    }
+                </p>
+              </form>
+            )}
+            <div className="queue-header-status-row">
+              <span className="queue-header-label">Position</span>
+              <strong className="queue-header-position">
+                {inQueue ? `#${position}` : '—'}
+              </strong>
+              {inQueue && queueLength > 0 && (
+                <span className="queue-header-waiting">of {queueLength}</span>
               )}
             </div>
-          )}
+            {inQueue && queueLength > 0 && (
+              <div className="queue-progress" aria-hidden="true">
+                <div className="queue-progress-fill" style={{ width: `${progressPct}%` }} />
+              </div>
+            )}
+            {inQueue && hasControl && (
+              <button className="action-button queue-header-cta" onClick={onContinue}>
+                Continue to telescope →
+              </button>
+            )}
+          </div>
         </div>
       </header>
 

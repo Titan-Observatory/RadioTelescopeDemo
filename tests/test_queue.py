@@ -138,6 +138,23 @@ secret_key = ""
     return simulated_config_path
 
 
+def _config_with_beta_auth(simulated_config_path):
+    cfg = _config_with_queue(simulated_config_path)
+    password_file = cfg.with_name("passwords.txt")
+    password_file.write_text("let-me-in\n", encoding="utf-8")
+    text = cfg.read_text(encoding="utf-8")
+    text += f"""
+[auth]
+enabled = true
+passwords_file = "{password_file.as_posix()}"
+secret_key = "test-auth-secret-test-auth-secret"
+max_attempts = 5
+lockout_minutes = 1
+"""
+    cfg.write_text(text, encoding="utf-8")
+    return cfg
+
+
 def test_control_endpoint_requires_lease(simulated_config_path):
     cfg = _config_with_queue(simulated_config_path)
     with TestClient(create_app(cfg)) as client:
@@ -161,6 +178,28 @@ def test_join_then_command_succeeds(simulated_config_path):
             "/api/roboclaw/commands/forward_m1", json={"args": {"speed": 20}}
         )
         assert cmd.status_code == 200
+
+
+def test_beta_auth_blocks_api_until_password_join(simulated_config_path):
+    cfg = _config_with_beta_auth(simulated_config_path)
+    with TestClient(create_app(cfg)) as client:
+        config = client.get("/api/queue/config")
+        assert config.status_code == 200
+        assert config.json()["beta_password_enabled"] is True
+
+        blocked = client.get("/api/roboclaw/status")
+        assert blocked.status_code == 401
+        assert blocked.json()["detail"] == "Authentication required"
+
+        rejected = client.post("/api/queue/join", json={"beta_password": "wrong"})
+        assert rejected.status_code == 403
+
+        joined = client.post("/api/queue/join", json={"beta_password": "let-me-in"})
+        assert joined.status_code == 200
+        assert joined.json()["is_active"] is True
+
+        allowed = client.get("/api/roboclaw/status")
+        assert allowed.status_code == 200
 
 
 def test_lan_admin_bypasses_queue(simulated_config_path):
