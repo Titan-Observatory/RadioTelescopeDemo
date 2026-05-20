@@ -254,10 +254,9 @@ def _expand_env_vars(text: str) -> str:
             return value
         if default is not None:
             return default
-        raise KeyError(
-            f"Config references ${{{name}}} but the environment variable is unset "
-            f"and no `:-default` was provided"
-        )
+        msg = f"Config references ${{{name}}} but the environment variable is unset and no `:-default` was provided"
+        print(msg, flush=True)
+        raise KeyError(msg)
     return _ENV_VAR_RE.sub(replace, text)
 
 

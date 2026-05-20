@@ -75,8 +75,9 @@ idle_timeout_seconds  = 60
 max_queue_size        = 100
 max_sessions_per_ip   = 3
 join_cooldown_seconds = 5
-# REQUIRED: generate with  python -c "import secrets; print(secrets.token_urlsafe(48))"
-cookie_secret = "${RT_QUEUE_COOKIE_SECRET}"
+# Set RT_QUEUE_COOKIE_SECRET in Coolify. Generate with:
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+cookie_secret = "${RT_QUEUE_COOKIE_SECRET:-change-me-set-RT_QUEUE_COOKIE_SECRET}"
 cookie_name   = "rt_session"
 
 [auth]
