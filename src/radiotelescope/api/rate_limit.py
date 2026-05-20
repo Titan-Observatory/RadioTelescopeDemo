@@ -34,11 +34,12 @@ class RateLimitMiddleware:
 
         client = scope.get("client")
         ip = client[0] if client else "unknown"
-        if not self._allow(ip, limit_key[0], limit_key[1]):
+        allowed, retry_after = self._allow(ip, limit_key[0], limit_key[1])
+        if not allowed:
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1008, "reason": "Rate limited"})
                 return
-            await self._send_too_many_requests(send)
+            await self._send_too_many_requests(send, retry_after)
             return
 
         await self.app(scope, receive, send)
@@ -58,21 +59,32 @@ class RateLimitMiddleware:
             return ("events", self.config.events_per_minute)
         if method == "GET" and path == "/api/camera/stream":
             return ("camera_stream", self.config.camera_stream_per_minute)
+        if method == "POST" and path in {
+            "/api/telescope/goto",
+            "/api/telescope/goto_radec",
+            "/api/telescope/jog",
+        }:
+            return ("motion", self.config.motion_per_minute)
         return None
 
-    def _allow(self, ip: str, bucket: str, limit: int) -> bool:
+    def _allow(self, ip: str, bucket: str, limit: int) -> tuple[bool, float]:
+        """Returns (allowed, retry_after_seconds). retry_after is 0 when allowed."""
         now = time.monotonic()
         window_start = now - 60.0
         hits = self._hits[(ip, bucket)]
         while hits and hits[0] <= window_start:
             hits.popleft()
         if len(hits) >= limit:
-            return False
+            # One slot frees up when the oldest hit ages out of the 60 s window.
+            retry_after = max(0.0, hits[0] + 60.0 - now)
+            return False, retry_after
         hits.append(now)
-        return True
+        return True, 0.0
 
-    async def _send_too_many_requests(self, send: Send) -> None:
+    async def _send_too_many_requests(self, send: Send, retry_after_seconds: float) -> None:
         body = b'{"detail":"Rate limit exceeded"}'
+        # Round up to a whole second; Retry-After must be an integer per RFC 7231.
+        retry_after = max(1, int(retry_after_seconds + 0.999))
         send_message: Callable[[Message], Awaitable[None]] = send
         await send_message(
             {
@@ -81,6 +93,7 @@ class RateLimitMiddleware:
                 "headers": [
                     (b"content-type", b"application/json"),
                     (b"content-length", str(len(body)).encode("ascii")),
+                    (b"retry-after", str(retry_after).encode("ascii")),
                 ],
             }
         )

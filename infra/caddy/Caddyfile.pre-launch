@@ -1,0 +1,49 @@
+# Caddy config — PRE-LAUNCH mode.
+#
+# Serves the static teaser bundle (frontend/dist-static/ rsync'd to
+# /srv/telescope on the caddy host) and nothing else. There is no upstream
+# Pi: /api/* and /ws/* explicitly 404 here so an external probe sees the
+# backend simply doesn't exist.
+#
+# nginx terminates TLS in front of this; caddy listens on plain HTTP on
+# the LAN interface only.
+
+:8080 {
+    bind 10.0.27.10  # caddy host's LAN IP — do not bind to 0.0.0.0
+
+    root * /srv/telescope
+    file_server
+    encode zstd gzip
+
+    # Hashed asset filenames get 1-year immutable caching; index.html never.
+    header /assets/* Cache-Control "public, max-age=31536000, immutable"
+    header / Cache-Control "no-cache"
+
+    header {
+        # Strict CSP for the static teaser. Allows Google Fonts (used by the
+        # site), the Titan Observatory logo, and our own static assets.
+        Content-Security-Policy "default-src 'self'; img-src 'self' https://titanobservatory.org data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        # Belt-and-braces: nginx already sets HSTS, but if caddy is ever
+        # tested directly we still want the header.
+        Strict-Transport-Security "max-age=63072000; includeSubDomains"
+    }
+
+    # The backend isn't running. Make that explicit rather than 502.
+    handle /api/* {
+        respond 404
+    }
+    handle /ws/* {
+        respond 404
+    }
+
+    log {
+        output file /var/log/caddy/telescope-access.log {
+            roll_size 50mb
+            roll_keep 5
+        }
+        format json
+    }
+}

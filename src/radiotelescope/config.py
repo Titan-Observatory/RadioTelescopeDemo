@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import tomllib
 from pathlib import Path
 from typing import Literal
@@ -85,6 +87,11 @@ class MountConfig(BaseModel):
     goto_arrival_tolerance_counts: int = Field(default=1, ge=0)
     pointing_limit_altaz: list[AltAzLimitPoint] = Field(default_factory=list)
     altitude_calibration: AltitudeCalibrationConfig | None = None
+    # Maximum axis-level travel any single goto command may request from the
+    # current position, in degrees. Computed as max(|Δalt|, shortest-arc |Δaz|),
+    # which maps directly to mount motion. Defends against a hostile or
+    # mistaken user requesting a 180° slew in one command. Set to 0 to disable.
+    max_slew_deg_per_command: float = Field(default=45.0, ge=0, le=360)
 
     @field_validator("pointing_limit_altaz")
     @classmethod
@@ -127,6 +134,7 @@ class RateLimitConfig(BaseModel):
     events_per_minute: int = Field(default=120, ge=1)
     camera_stream_per_minute: int = Field(default=12, ge=1)
     websocket_connect_per_minute: int = Field(default=30, ge=1)
+    motion_per_minute: int = Field(default=20, ge=1)
 
 
 class QueueConfig(BaseModel):
@@ -221,7 +229,36 @@ class AppConfig(BaseModel):
     feedback_log_max_bytes: int = Field(default=1_048_576, ge=1)
     events_log_path: str = "events.jsonl"
     events_log_max_bytes: int = Field(default=5_242_880, ge=1)
+    motion_log_path: str = "motion.jsonl"
+    motion_log_max_bytes: int = Field(default=5_242_880, ge=1)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+
+
+_ENV_VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand_env_vars(text: str) -> str:
+    """Expand `${NAME}` and `${NAME:-default}` references in a config string.
+
+    Lets the production `config.toml` pull secrets from the systemd
+    `EnvironmentFile` (see `infra/secrets.example.env`) rather than living in
+    plaintext in the same file. Substitution is naive — it does not skip
+    quoted-string interiors — but the codebase has no legitimate `${...}` in
+    TOML strings today.
+    """
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        default = match.group(2)
+        value = os.environ.get(name)
+        if value is not None:
+            return value
+        if default is not None:
+            return default
+        raise KeyError(
+            f"Config references ${{{name}}} but the environment variable is unset "
+            f"and no `:-default` was provided"
+        )
+    return _ENV_VAR_RE.sub(replace, text)
 
 
 def load_config(path: Path | str = "config.toml") -> AppConfig:
@@ -233,8 +270,9 @@ def load_config(path: Path | str = "config.toml") -> AppConfig:
         example = path.with_name("config.example.toml")
         hint = f" Copy `{example.name}` to `{path.name}` and edit it." if example.exists() else ""
         raise FileNotFoundError(f"Config file not found: {path}.{hint}")
-    with path.open("rb") as f:
-        raw = tomllib.load(f)
+    text = path.read_text(encoding="utf-8")
+    expanded = _expand_env_vars(text)
+    raw = tomllib.loads(expanded)
     return AppConfig.model_validate(raw)
 
 

@@ -4,7 +4,7 @@
 // "am I the active controller" flag (including the welcome-card ack).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, RateLimitError } from '../api';
 import { track } from '../analytics';
 import { errorMessage } from './formatters';
 import { useJsonSocket } from './useJsonSocket';
@@ -23,7 +23,10 @@ export interface UseQueueLeaseResult {
   isActiveController: boolean;
   joining: boolean;
   joinError: string | null;
-  join: (turnstileToken: string | null) => Promise<void>;
+  /** Seconds left until the user can retry a rate-limited join. Ticks down to
+   *  null when the cooldown elapses. */
+  joinRateLimitedSec: number | null;
+  join: (turnstileToken: string | null, betaPassword: string | null) => Promise<void>;
   /** Move past the welcome card once the user clicks "Continue". */
   acknowledgeContinue: () => void;
 }
@@ -34,6 +37,7 @@ export function useQueueLease(): UseQueueLeaseResult {
   const [queueReady, setQueueReady] = useState(false);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinRateLimitedSec, setJoinRateLimitedSec] = useState<number | null>(null);
   const [continueAcked, setContinueAcked] = useState(false);
   const prevIsActiveRef = useRef<boolean | null>(null);
   const lastLeaseRemainingRef = useRef<number | null>(null);
@@ -108,22 +112,38 @@ export function useQueueLease(): UseQueueLeaseResult {
     }
   }, [queueStatus?.is_active, queueStatus?.queue_length]);
 
-  const join = useCallback(async (turnstileToken: string | null) => {
+  const join = useCallback(async (turnstileToken: string | null, betaPassword: string | null) => {
     setJoining(true);
     setJoinError(null);
+    setJoinRateLimitedSec(null);
     track('queue_join_attempt', { turnstile: turnstileToken != null });
     try {
-      const next = await api.joinQueue(turnstileToken);
+      const next = await api.joinQueue(turnstileToken, betaPassword);
       setQueueStatus(next);
       track('queue_joined', { position: next.position, queue_length: next.queue_length });
     } catch (err) {
       const message = errorMessage(err);
       setJoinError(message);
-      track('queue_join_failed', { message: message.slice(0, 200) });
+      if (err instanceof RateLimitError) {
+        setJoinRateLimitedSec(Math.max(1, err.retryAfterSec));
+        track('queue_join_rate_limited', { retry_after_sec: err.retryAfterSec });
+      } else {
+        track('queue_join_failed', { message: message.slice(0, 200) });
+      }
     } finally {
       setJoining(false);
     }
   }, []);
+
+  // Tick the rate-limit countdown down to null once it elapses. The QueuePage
+  // reads this each render to drive the disabled-button label.
+  useEffect(() => {
+    if (joinRateLimitedSec == null || joinRateLimitedSec <= 0) return;
+    const t = setTimeout(() => {
+      setJoinRateLimitedSec((v) => (v != null && v > 1 ? v - 1 : null));
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [joinRateLimitedSec]);
 
   const acknowledgeContinue = useCallback(() => setContinueAcked(true), []);
 
@@ -136,6 +156,7 @@ export function useQueueLease(): UseQueueLeaseResult {
     isActiveController,
     joining,
     joinError,
+    joinRateLimitedSec,
     join,
     acknowledgeContinue,
   };

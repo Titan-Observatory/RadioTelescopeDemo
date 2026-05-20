@@ -230,6 +230,29 @@ def test_jog_rejects_stale_heartbeat(simulated_config_path):
     assert status.json()["motors"]["m1"]["raw_speed_qpps"] == 0
 
 
+def test_stale_heartbeat_after_newer_jog_does_not_stop_active_motion(simulated_config_path):
+    with TestClient(create_app(simulated_config_path)) as client:
+        old = client.post(
+            "/api/telescope/jog",
+            json={"token": "jog-token-race", "seq": 1, "direction": "down", "speed": 40},
+        )
+        newer = client.post(
+            "/api/telescope/jog",
+            json={"token": "jog-token-race", "seq": 2, "direction": "down", "speed": 40},
+        )
+        stale = client.post(
+            "/api/telescope/jog",
+            json={"token": "jog-token-race", "seq": 1, "direction": "down", "speed": 40},
+        )
+        service = client.app.state.roboclaw_service
+
+    assert old.status_code == 200
+    assert newer.status_code == 200
+    assert stale.status_code == 200
+    assert stale.json()["accepted"] is False
+    assert service.client._speeds["m2"] < 0
+
+
 def test_jog_stop_stops_immediately(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         started = client.post(
@@ -470,3 +493,156 @@ def test_events_reject_oversized_props(simulated_config_path, tmp_path):
         )
 
     assert response.status_code == 422
+
+
+# ─── Motion safety ────────────────────────────────────────────────────────────
+
+
+def _mock_request_for_slew(*, mode: str, altitude: float | None, azimuth: float | None, cap: float = 45.0):
+    """Build the smallest fake Request that `_enforce_max_slew` reads from."""
+    from radiotelescope.api.routes_roboclaw import _enforce_max_slew  # noqa: F401 (smoke import)
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                config=SimpleNamespace(
+                    mount=SimpleNamespace(max_slew_deg_per_command=cap),
+                ),
+                roboclaw_service=SimpleNamespace(
+                    client=SimpleNamespace(connection=SimpleNamespace(mode=mode)),
+                    latest=SimpleNamespace(altitude_deg=altitude, azimuth_deg=azimuth),
+                ),
+            )
+        )
+    )
+
+
+def test_enforce_max_slew_rejects_oversized():
+    from fastapi import HTTPException
+
+    from radiotelescope.api.routes_roboclaw import _enforce_max_slew
+
+    request = _mock_request_for_slew(mode="ok", altitude=0.0, azimuth=0.0)
+    with pytest.raises(HTTPException) as exc_info:
+        _enforce_max_slew(80.0, 80.0, request)
+    assert exc_info.value.status_code == 422
+    assert "exceeds the per-command cap" in str(exc_info.value.detail)
+
+
+def test_enforce_max_slew_passes_within_cap():
+    from radiotelescope.api.routes_roboclaw import _enforce_max_slew
+
+    request = _mock_request_for_slew(mode="ok", altitude=0.0, azimuth=0.0)
+    # max(|Δalt|, shortest-arc |Δaz|) = max(30, 30) = 30 < 45 cap
+    _enforce_max_slew(30.0, 30.0, request)  # should not raise
+
+
+def test_enforce_max_slew_uses_shortest_arc_azimuth():
+    from radiotelescope.api.routes_roboclaw import _enforce_max_slew
+
+    # Current az=350°, target az=10° — shortest arc is 20°, not 340°.
+    request = _mock_request_for_slew(mode="ok", altitude=0.0, azimuth=350.0)
+    _enforce_max_slew(0.0, 10.0, request)  # should not raise
+
+
+def test_enforce_max_slew_skips_when_disconnected():
+    from radiotelescope.api.routes_roboclaw import _enforce_max_slew
+
+    request = _mock_request_for_slew(mode="disconnected", altitude=0.0, azimuth=0.0)
+    _enforce_max_slew(180.0, 180.0, request)  # huge, but no hardware to protect
+
+
+def test_enforce_max_slew_skips_without_baseline_telemetry():
+    from radiotelescope.api.routes_roboclaw import _enforce_max_slew
+
+    # No current alt/az → first command after startup; can't compute distance.
+    request = _mock_request_for_slew(mode="ok", altitude=None, azimuth=None)
+    _enforce_max_slew(80.0, 80.0, request)  # should not raise
+
+
+def test_goto_rate_limited_returns_429_with_retry_after(simulated_config_path):
+    simulated_config_path.write_text(
+        simulated_config_path.read_text(encoding="utf-8") + """
+[rate_limit]
+motion_per_minute = 2
+""",
+        encoding="utf-8",
+    )
+    with TestClient(create_app(simulated_config_path)) as client:
+        first = client.post("/api/telescope/goto", json={"altitude_deg": 30, "azimuth_deg": 45})
+        second = client.post("/api/telescope/goto", json={"altitude_deg": 30, "azimuth_deg": 45})
+        third = client.post("/api/telescope/goto", json={"altitude_deg": 30, "azimuth_deg": 45})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 429
+    # Retry-After must be a positive integer per RFC 7231.
+    retry_after = third.headers.get("retry-after")
+    assert retry_after is not None
+    assert int(retry_after) >= 1
+
+
+def test_motion_audit_log_records_accepted_goto(simulated_config_path, tmp_path):
+    import json
+
+    log_path = tmp_path / "motion.jsonl"
+    simulated_config_path.write_text(
+        f'motion_log_path = "{log_path.as_posix()}"\n'
+        + simulated_config_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app(simulated_config_path)) as client:
+        response = client.post(
+            "/api/telescope/goto",
+            json={"altitude_deg": 30, "azimuth_deg": 45},
+        )
+
+    assert response.status_code == 200
+    assert log_path.exists()
+    lines = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(lines) >= 1
+    accepted = [entry for entry in lines if entry["endpoint"] == "goto" and entry["accepted"]]
+    assert accepted, f"expected an accepted goto entry, got {lines}"
+    entry = accepted[-1]
+    assert entry["params"]["altitude_deg"] == 30
+    assert entry["params"]["azimuth_deg"] == 45
+    assert entry["reason"] is None
+
+
+def test_motion_audit_log_records_rejected_goto(simulated_config_path, tmp_path):
+    import json
+
+    log_path = tmp_path / "motion.jsonl"
+    # gateway-client mode keeps connection != "disconnected", which lets the
+    # pointing-limit check (which doesn't need a current-position baseline)
+    # engage and produce the rejection we audit-log.
+    text = simulated_config_path.read_text(encoding="utf-8").replace(
+        "[roboclaw]",
+        "[hardware]\nmode = \"gateway-client\"\ngateway_host = \"192.0.2.1\"\n\n[roboclaw]",
+    ).replace(
+        "goto_decel_qpps2 = 5000",
+        """goto_decel_qpps2 = 5000
+pointing_limit_altaz = [
+  { altitude_deg = 10.0, azimuth_deg = 10.0 },
+  { altitude_deg = 70.0, azimuth_deg = 90.0 },
+  { altitude_deg = 10.0, azimuth_deg = 170.0 },
+]
+""",
+    )
+    simulated_config_path.write_text(
+        f'motion_log_path = "{log_path.as_posix()}"\n' + text,
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app(simulated_config_path)) as client:
+        rejected = client.post(
+            "/api/telescope/goto",
+            json={"altitude_deg": 5, "azimuth_deg": 90},
+        )
+
+    assert rejected.status_code == 400
+    assert log_path.exists()
+    lines = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    refused = [entry for entry in lines if entry["endpoint"] == "goto" and not entry["accepted"]]
+    assert refused, f"expected a rejected goto entry, got {lines}"
+    assert "outside configured pointing limits" in refused[-1]["reason"]

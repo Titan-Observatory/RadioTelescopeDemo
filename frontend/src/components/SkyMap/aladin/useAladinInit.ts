@@ -1,4 +1,8 @@
-import A from 'aladin-lite';
+// `aladin-lite` is the largest dependency in the live bundle (~1.5 MB). It's
+// only needed inside the SkyMap, which mounts after the queue page, so a
+// dynamic import keeps it out of the initial paint and lets Rollup emit it as
+// a separate chunk that loads on demand.
+import type { AladinCatalog, AladinInstance, AladinStatic, GraphicOverlay } from 'aladin-lite';
 import { type Dispatch, type RefObject, type SetStateAction, useEffect, useRef } from 'react';
 
 import { altAzToRaDec, isInsideTriangle, raDecToAltAz } from '../../../lib/astro';
@@ -52,12 +56,15 @@ export function useAladinInit(opts: UseAladinInitOptions) {
     setHoverTooltip,
   } = opts;
 
-  const aladinRef = useRef<ReturnType<typeof A.aladin> | null>(null);
-  const beamOverlayRef = useRef<ReturnType<typeof A.graphicOverlay> | null>(null);
-  const limitOverlayRef = useRef<ReturnType<typeof A.graphicOverlay> | null>(null);
-  const pendingOverlayRef = useRef<ReturnType<typeof A.graphicOverlay> | null>(null);
-  const horizonOverlayRef = useRef<ReturnType<typeof A.graphicOverlay> | null>(null);
-  const targetCatalogRef = useRef<ReturnType<typeof A.catalog> | null>(null);
+  const aladinRef = useRef<AladinInstance | null>(null);
+  const beamOverlayRef = useRef<GraphicOverlay | null>(null);
+  const limitOverlayRef = useRef<GraphicOverlay | null>(null);
+  const pendingOverlayRef = useRef<GraphicOverlay | null>(null);
+  const horizonOverlayRef = useRef<GraphicOverlay | null>(null);
+  const targetCatalogRef = useRef<AladinCatalog | null>(null);
+  // The lazy-loaded aladin-lite module. SkyMap reads this once `ready` flips
+  // true to build shapes/sources without re-importing the module itself.
+  const aladinModuleRef = useRef<AladinStatic | null>(null);
   const initializedRef = useRef(false);
 
   useEffect(() => {
@@ -67,8 +74,9 @@ export function useAladinInit(opts: UseAladinInitOptions) {
     let cancelled = false;
     let removeClickHandler: (() => void) | null = null;
 
-    void A.init.then(() => {
+    void import('aladin-lite').then(({ default: A }) => A.init.then(() => {
       if (cancelled || !container) return;
+      aladinModuleRef.current = A;
       const initialDate = new Date();
       const initialTarget = altAzToRaDec(DEFAULT_HORIZON_VIEW, config, initialDate);
       const initialRotation = initialHorizonRotationDeg(initialTarget, config, initialDate);
@@ -293,7 +301,7 @@ export function useAladinInit(opts: UseAladinInitOptions) {
         container.removeEventListener('pointercancel', handlePointerCancel, true);
         container.removeEventListener('click', handleClick);
       };
-    });
+    }));
 
     return () => {
       cancelled = true;
@@ -303,6 +311,7 @@ export function useAladinInit(opts: UseAladinInitOptions) {
 
   return {
     aladinRef,
+    aladinModuleRef,
     beamOverlayRef,
     limitOverlayRef,
     pendingOverlayRef,

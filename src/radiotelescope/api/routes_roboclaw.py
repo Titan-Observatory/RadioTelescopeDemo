@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from radiotelescope.api.dependencies import is_lan_admin, require_control, require_lan_admin
+from radiotelescope.api.log_files import append_jsonl_with_rotation
 from radiotelescope.geometry import normalise_azimuth, point_in_triangle, unwrap_azimuth
 from radiotelescope.hardware.roboclaw import COMMANDS, OPERATOR_COMMAND_IDS, command_registry
 from radiotelescope.models.state import (
@@ -25,6 +30,65 @@ from radiotelescope.pointing import radec_to_altaz
 from radiotelescope.services.geometry import altitude_to_encoder_counts
 
 router = APIRouter(tags=["roboclaw"])
+
+_motion_audit_lock = asyncio.Lock()
+
+
+def _session_fingerprint(request: Request) -> str | None:
+    """Stable short identifier for the requesting session, if any.
+
+    Reads the queue session cookie (configured at `queue.cookie_name`) and
+    hashes it so the audit log doesn't store the raw bearer token. Falls
+    back to None when no cookie is present.
+    """
+    cookie_name = request.app.state.config.queue.cookie_name
+    raw = request.cookies.get(cookie_name)
+    if not raw:
+        return None
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _ip_fingerprint(request: Request) -> str | None:
+    client = request.client
+    if client is None:
+        return None
+    return hashlib.sha256(client.host.encode("utf-8")).hexdigest()[:12]
+
+
+async def _audit_motion(
+    request: Request,
+    endpoint: str,
+    *,
+    accepted: bool,
+    params: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> None:
+    """Append a single JSONL audit record for a motion command.
+
+    Records both accepted and rejected commands so an audit reader can see
+    every attempted slew, who attempted it, and why anything was refused.
+    Never raises — audit logging must never block a real motion command.
+    """
+    try:
+        cfg = request.app.state.config
+        log_path = Path(cfg.motion_log_path)
+        max_bytes = cfg.motion_log_max_bytes
+    except AttributeError:
+        return  # config not wired up (e.g. some unit tests)
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "endpoint": endpoint,
+        "accepted": accepted,
+        "reason": reason,
+        "session_hash": _session_fingerprint(request),
+        "ip_hash": _ip_fingerprint(request),
+        "params": params or {},
+    }
+    try:
+        async with _motion_audit_lock:
+            await asyncio.to_thread(append_jsonl_with_rotation, log_path, entry, max_bytes)
+    except Exception:
+        pass  # never let audit failure interfere with motion semantics
 
 GATEWAY_INTERNAL_COMMAND_IDS = {
     "read_encoders",
@@ -98,6 +162,40 @@ def _enforce_pointing_limits(altitude_deg: float, azimuth_deg: float, request: R
         )
 
 
+def _shortest_az_delta(from_az: float, to_az: float) -> float:
+    """Signed shortest-arc azimuth delta in degrees, range (-180, 180]."""
+    d = (to_az - from_az) % 360.0
+    return d if d <= 180.0 else d - 360.0
+
+
+def _enforce_max_slew(target_altitude_deg: float, target_azimuth_deg: float, request: Request) -> None:
+    """Reject single goto commands that would slew further than the configured cap.
+
+    Uses max(|Δalt|, shortest-arc |Δaz|) as the travel metric, which maps directly
+    to per-axis mount motion (each axis moves independently). Skips the check when
+    hardware is disconnected or when no current-position baseline exists yet.
+    """
+    cfg = request.app.state.config.mount
+    cap = cfg.max_slew_deg_per_command
+    if cap <= 0 or _is_disconnected(request):
+        return
+    current = _service(request).latest
+    if current.altitude_deg is None or current.azimuth_deg is None:
+        return  # no baseline yet — the first command after startup establishes it
+    dalt = abs(target_altitude_deg - current.altitude_deg)
+    daz = abs(_shortest_az_delta(current.azimuth_deg, target_azimuth_deg))
+    travel = max(dalt, daz)
+    if travel > cap:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Requested slew of {travel:.1f}° exceeds the per-command cap of {cap:.1f}° "
+                f"(current alt={current.altitude_deg:.1f}° az={current.azimuth_deg:.1f}°, "
+                f"target alt={target_altitude_deg:.1f}° az={target_azimuth_deg:.1f}°)"
+            ),
+        )
+
+
 def _service(request: Request):
     return request.app.state.roboclaw_service
 
@@ -152,21 +250,28 @@ async def stop(request: Request):
 
 @router.post("/api/telescope/jog", dependencies=[Depends(require_control)])
 async def jog(body: JogRequest, request: Request):
+    audit_params = {"direction": body.direction, "speed": body.speed, "seq": body.seq}
     service = _service(request)
     if not service.accept_jog_sequence(body.token, body.seq):
+        await _audit_motion(request, "jog", accepted=False, params=audit_params, reason="stale sequence")
         return {"ok": True, "accepted": False, "stale": True}
 
     service.set_position_target()
     command_id = JOG_COMMANDS[body.direction]
     result = await service.execute(command_id, {"speed": body.speed})
     if not result.ok:
+        await _audit_motion(
+            request, "jog", accepted=False, params=audit_params,
+            reason=result.error or "Jog command failed",
+        )
         raise HTTPException(status_code=400, detail=result.error or "Jog command failed")
 
     if not service.is_current_jog_sequence(body.token, body.seq):
-        await service.stop_all()
+        await _audit_motion(request, "jog", accepted=False, params=audit_params, reason="superseded mid-flight")
         return {"ok": True, "accepted": False, "stale": True}
 
     service.arm_jog_watchdog(body.token, body.seq, JOG_HEARTBEAT_TIMEOUT_S)
+    await _audit_motion(request, "jog", accepted=True, params=audit_params)
     return {"ok": True, "accepted": True, "command_id": command_id, "seq": body.seq}
 
 
@@ -224,6 +329,7 @@ async def _execute_goto_altaz(
     cfg = request.app.state.config.mount
     azimuth = 0.0 if azimuth_deg == 360 else azimuth_deg
     _enforce_pointing_limits(altitude_deg, azimuth, request)
+    _enforce_max_slew(altitude_deg, azimuth, request)
     m1_position = round(cfg.az_zero_count + azimuth * cfg.az_counts_per_degree)
     m2_position = altitude_to_encoder_counts(altitude_deg, cfg)
     stored_m1, stored_m2 = _service(request).stored_qpps
@@ -269,11 +375,18 @@ async def _execute_goto_altaz(
 
 @router.post("/api/telescope/goto", response_model=CommandResult, dependencies=[Depends(require_control)])
 async def goto_alt_az(body: AltAzRequest, request: Request):
-    return await _execute_goto_altaz(
-        body.altitude_deg, body.azimuth_deg,
-        body.speed_qpps, body.accel_qpps2, body.decel_qpps2,
-        request,
-    )
+    audit_params = {"altitude_deg": body.altitude_deg, "azimuth_deg": body.azimuth_deg}
+    try:
+        result = await _execute_goto_altaz(
+            body.altitude_deg, body.azimuth_deg,
+            body.speed_qpps, body.accel_qpps2, body.decel_qpps2,
+            request,
+        )
+    except HTTPException as exc:
+        await _audit_motion(request, "goto", accepted=False, params=audit_params, reason=str(exc.detail))
+        raise
+    await _audit_motion(request, "goto", accepted=True, params=audit_params)
+    return result
 
 
 @router.post("/api/telescope/sync", dependencies=[Depends(require_lan_admin)])
@@ -326,15 +439,24 @@ async def telescope_config(request: Request):
 
 @router.post("/api/telescope/goto_radec", response_model=CommandResult, dependencies=[Depends(require_control)])
 async def goto_radec(body: RaDecRequest, request: Request):
-    antenna = request.app.state.antenna
-    alt, az = await asyncio.to_thread(radec_to_altaz, body.ra_deg, body.dec_deg, antenna)
-    if alt < 0 and not _is_disconnected(request):
-        raise HTTPException(status_code=400, detail=f"Target is below the horizon (alt={alt:.1f}°)")
-    return await _execute_goto_altaz(
-        alt, az,
-        body.speed_qpps, body.accel_qpps2, body.decel_qpps2,
-        request,
-    )
+    audit_params = {"ra_deg": body.ra_deg, "dec_deg": body.dec_deg}
+    try:
+        antenna = request.app.state.antenna
+        alt, az = await asyncio.to_thread(radec_to_altaz, body.ra_deg, body.dec_deg, antenna)
+        if alt < 0 and not _is_disconnected(request):
+            raise HTTPException(status_code=400, detail=f"Target is below the horizon (alt={alt:.1f}°)")
+        audit_params["resolved_altitude_deg"] = alt
+        audit_params["resolved_azimuth_deg"] = az
+        result = await _execute_goto_altaz(
+            alt, az,
+            body.speed_qpps, body.accel_qpps2, body.decel_qpps2,
+            request,
+        )
+    except HTTPException as exc:
+        await _audit_motion(request, "goto_radec", accepted=False, params=audit_params, reason=str(exc.detail))
+        raise
+    await _audit_motion(request, "goto_radec", accepted=True, params=audit_params)
+    return result
 
 
 @router.post("/api/telescope/home/elevation", dependencies=[Depends(require_lan_admin)])

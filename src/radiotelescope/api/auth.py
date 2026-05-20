@@ -11,7 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from itsdangerous import BadSignature, URLSafeSerializer
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -21,7 +21,17 @@ from radiotelescope.api.dependencies import client_ip
 logger = logging.getLogger("radiotelescope.auth")
 
 _COOKIE_NAME = "rt_auth"
-_EXEMPT_PATHS = frozenset({"/login", "/api/auth/login", "/api/auth/logout"})
+_EXEMPT_PATHS = frozenset({
+    "/login",
+    "/api/auth/login",
+    "/api/auth/logout",
+    # The SPA root and queue bootstrap/join must be reachable before the user
+    # has an auth cookie so the inline password form can load and submit.
+    "/",
+    "/api/queue/config",
+    "/api/queue/join",
+})
+_EXEMPT_PREFIXES = ("/assets/",)
 _MAX_IP_RECORDS = 10_000
 
 
@@ -67,6 +77,18 @@ class AuthManager:
 
     def make_cookie_value(self) -> str:
         return self._ser.dumps(secrets.token_hex(32))
+
+    def set_auth_cookie(self, response: "Response", *, is_secure: bool) -> None:
+        """Attach a signed auth cookie to a FastAPI Response."""
+        response.set_cookie(
+            key=_COOKIE_NAME,
+            value=self.make_cookie_value(),
+            max_age=30 * 24 * 60 * 60,  # 30 days
+            httponly=True,
+            secure=is_secure,
+            samesite="lax",
+            path="/",
+        )
 
     # ── Password check ───────────────────────────────────────────────────────
 
@@ -150,7 +172,7 @@ class PasswordAuthMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in _EXEMPT_PATHS:
+        if path in _EXEMPT_PATHS or any(path.startswith(p) for p in _EXEMPT_PREFIXES):
             await self.app(scope, receive, send)
             return
 

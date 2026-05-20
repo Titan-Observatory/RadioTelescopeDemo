@@ -1053,18 +1053,31 @@ interface Props {
   status: QueueStatus | null;
   joining: boolean;
   joinError: string | null;
+  /** Seconds left on the rate-limit cooldown after a 429, or null if not
+   *  rate-limited. Drives the disabled-button countdown UX. */
+  joinRateLimitedSec?: number | null;
   siteKey: string | null;
   turnstileEnabled: boolean;
-  onJoin: (token: string | null) => Promise<void>;
+  betaPasswordEnabled: boolean;
+  onJoin: (token: string | null, betaPassword: string | null) => Promise<void>;
   hasControl: boolean;
   onContinue: () => void;
   loading?: boolean;
+  // 'pre-launch' renders the educational content with a "Coming Soon" header
+  // and no queue UI — used by the public static teaser deploy while the
+  // telescope hardware isn't ready for live users.
+  mode?: 'live' | 'pre-launch';
 }
 
 export function QueuePage({
-  status, joining, joinError, siteKey, turnstileEnabled, onJoin, hasControl, onContinue, loading = false,
+  status, joining, joinError, joinRateLimitedSec = null,
+  siteKey, turnstileEnabled, betaPasswordEnabled, onJoin, hasControl, onContinue, loading = false,
+  mode = 'live',
 }: Props) {
+  const isPreLaunch = mode === 'pre-launch';
+  const rateLimited = joinRateLimitedSec != null && joinRateLimitedSec > 0;
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [betaPassword, setBetaPassword] = useState('');
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const widgetRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -1152,26 +1165,32 @@ export function QueuePage({
   }, []);
 
   useEffect(() => {
+    if (isPreLaunch) return;
     if (!turnstileEnabled) return;
     if (inQueue || joining) return;
     if (!captchaToken) return;
+    if (betaPasswordEnabled && !betaPassword) return;
     if (autoJoinedTokenRef.current === captchaToken) return;
     autoJoinedTokenRef.current = captchaToken;
-    void onJoin(captchaToken);
-  }, [captchaToken, turnstileEnabled, inQueue, joining, onJoin]);
+    void onJoin(captchaToken, betaPasswordEnabled ? betaPassword : null);
+  }, [captchaToken, betaPassword, betaPasswordEnabled, turnstileEnabled, inQueue, joining, onJoin, isPreLaunch]);
 
   useEffect(() => {
-    if (!joinError || !turnstileEnabled) return;
+    if (isPreLaunch) return;
+    if (!joinError) return;
     autoJoinedTokenRef.current = null;
-    setCaptchaToken(null);
-    if (window.turnstile && widgetIdRef.current) window.turnstile.reset(widgetIdRef.current);
-  }, [joinError, turnstileEnabled]);
+    if (turnstileEnabled) {
+      setCaptchaToken(null);
+      if (window.turnstile && widgetIdRef.current) window.turnstile.reset(widgetIdRef.current);
+    }
+  }, [joinError, turnstileEnabled, isPreLaunch]);
 
   // Mount the Turnstile widget inline into the queue card. Previously this
   // lived in a separate full-screen modal, which made it look like the
   // captcha had popped up "on another screen" rather than being part of the
   // join flow itself.
   useEffect(() => {
+    if (isPreLaunch) return;
     if (inQueue || !turnstileEnabled || !siteKey) return;
     const renderWidget = () => {
       if (!widgetRef.current || !window.turnstile || widgetIdRef.current) return;
@@ -1193,19 +1212,58 @@ export function QueuePage({
       script.defer = true;
       document.head.appendChild(script);
     }
-  }, [inQueue, turnstileEnabled, siteKey]);
+  }, [inQueue, turnstileEnabled, siteKey, isPreLaunch]);
 
   // Non-turnstile flow: nothing to verify, so a plain landing page is fine.
-  if (!loading && !inQueue && !turnstileEnabled) {
+  // In pre-launch mode we skip this and render the full waiting-page UI with
+  // a "Coming Soon" header instead — the Join button has nothing to join.
+  if (!isPreLaunch && !loading && !inQueue && !turnstileEnabled) {
     return (
       <div className="queue-landing">
         <div className="queue-card">
           <h1>Radio Telescope</h1>
           <p>This telescope is shared with other users. Join the queue to take control.</p>
-          <button className="action-button" disabled={joining} onClick={() => void onJoin(null)}>
-            {joining ? 'Joining…' : 'Join queue'}
+          {betaPasswordEnabled && (
+            <div className="beta-password-field">
+              <label htmlFor="beta-pw-simple">Beta access password</label>
+              <input
+                id="beta-pw-simple"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Enter beta password"
+                value={betaPassword}
+                onChange={(e) => setBetaPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && betaPassword && !joining && !rateLimited) {
+                    void onJoin(null, betaPassword);
+                  }
+                }}
+              />
+              <p className="beta-interest-link">
+                Don&apos;t have a password?{' '}
+                <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
+                  Apply for beta access
+                </a>
+              </p>
+            </div>
+          )}
+          <button
+            className="action-button"
+            disabled={joining || rateLimited || (betaPasswordEnabled && !betaPassword)}
+            onClick={() => void onJoin(null, betaPasswordEnabled ? betaPassword : null)}
+          >
+            {joining
+              ? 'Joining…'
+              : rateLimited
+              ? `Try again in ${joinRateLimitedSec}s`
+              : 'Join queue'}
           </button>
-          {joinError && <p className="banner banner-error">{joinError}</p>}
+          {rateLimited && (
+            <p className="banner banner-error">
+              You&apos;re trying too fast — try again in {joinRateLimitedSec}s.
+            </p>
+          )}
+          {joinError && !rateLimited && <p className="banner banner-error">{joinError}</p>}
         </div>
       </div>
     );
@@ -1234,9 +1292,19 @@ export function QueuePage({
       <header className={`queue-header${headerCollapsed ? ' queue-header-collapsed' : ''}`}>
         <div className="queue-header-inner">
           <div className="queue-header-title">
-            <h1>{loading ? 'Loading queue' : inQueue ? 'You are in the queue' : 'Joining the queue'}</h1>
+            <h1>
+              {isPreLaunch
+                ? 'Coming Soon — Telescope Under Construction'
+                : loading
+                ? 'Loading queue'
+                : inQueue
+                ? 'You are in the queue'
+                : 'Joining the queue'}
+            </h1>
             <p className="queue-header-sub">
-              {loading
+              {isPreLaunch
+                ? "The telescope isn't operational yet. Scroll on to learn about what you'll soon be observing."
+                : loading
                 ? "While the telescope checks your place, scroll on to learn what you'll be observing."
                 : inQueue
                 ? "While you wait, scroll on to learn what you'll be observing."
@@ -1246,27 +1314,29 @@ export function QueuePage({
               All content was researched and written by humans :) AI is a tool, not a replacement.
             </p>
           </div>
-          <div className="queue-header-status">
-            <div className="queue-header-status-row">
-              <span className="queue-header-label">Position</span>
-              <strong className="queue-header-position">
-                {inQueue ? `#${position}` : '—'}
-              </strong>
+          {!isPreLaunch && (
+            <div className="queue-header-status">
+              <div className="queue-header-status-row">
+                <span className="queue-header-label">Position</span>
+                <strong className="queue-header-position">
+                  {inQueue ? `#${position}` : '—'}
+                </strong>
+                {inQueue && queueLength > 0 && (
+                  <span className="queue-header-waiting">of {queueLength}</span>
+                )}
+              </div>
               {inQueue && queueLength > 0 && (
-                <span className="queue-header-waiting">of {queueLength}</span>
+                <div className="queue-progress" aria-hidden="true">
+                  <div className="queue-progress-fill" style={{ width: `${progressPct}%` }} />
+                </div>
+              )}
+              {inQueue && hasControl && (
+                <button className="action-button queue-header-cta" onClick={onContinue}>
+                  Continue to telescope →
+                </button>
               )}
             </div>
-            {inQueue && queueLength > 0 && (
-              <div className="queue-progress" aria-hidden="true">
-                <div className="queue-progress-fill" style={{ width: `${progressPct}%` }} />
-              </div>
-            )}
-            {inQueue && hasControl && (
-              <button className="action-button queue-header-cta" onClick={onContinue}>
-                Continue to telescope →
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </header>
 
@@ -1362,22 +1432,50 @@ export function QueuePage({
 
       </main>
 
-      {!inQueue && turnstileEnabled && (
+      {!isPreLaunch && !inQueue && turnstileEnabled && (
         <div className="captcha-modal-overlay">
           <div className="captcha-modal">
             <div className="captcha-modal-header">
               <h2>Verify to join</h2>
             </div>
             <p className="captcha-modal-body">Complete the check below to join the queue.</p>
+            {betaPasswordEnabled && (
+              <div className="beta-password-field">
+                <label htmlFor="beta-pw-captcha">Beta access password</label>
+                <input
+                  id="beta-pw-captcha"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Enter beta password"
+                  value={betaPassword}
+                  onChange={(e) => setBetaPassword(e.target.value)}
+                />
+                <p className="beta-interest-link">
+                  Don&apos;t have a password?{' '}
+                  <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
+                    Apply for beta access
+                  </a>
+                </p>
+              </div>
+            )}
             <div className="cf-turnstile" ref={widgetRef} />
             <p className="queue-status-line">
               {joining
                 ? 'Joining…'
-                : captchaToken
-                  ? 'Verified — joining queue…'
-                  : 'Waiting for verification…'}
+                : rateLimited
+                  ? `Hold on — try again in ${joinRateLimitedSec}s`
+                  : captchaToken && (!betaPasswordEnabled || betaPassword)
+                    ? 'Verified — joining queue…'
+                    : betaPasswordEnabled && !betaPassword
+                      ? 'Enter your beta password above'
+                      : 'Waiting for verification…'}
             </p>
-            {joinError && <p className="banner banner-error">{joinError}</p>}
+            {rateLimited && (
+              <p className="banner banner-error">
+                You&apos;re trying too fast — try again in {joinRateLimitedSec}s.
+              </p>
+            )}
+            {joinError && !rateLimited && <p className="banner banner-error">{joinError}</p>}
           </div>
         </div>
       )}

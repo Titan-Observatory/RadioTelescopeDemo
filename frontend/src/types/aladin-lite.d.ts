@@ -1,5 +1,5 @@
 declare module 'aladin-lite' {
-  interface AladinOptions {
+  export interface AladinOptions {
     survey?: string;
     fov?: number;
     target?: string;
@@ -30,13 +30,13 @@ declare module 'aladin-lite' {
     projection?: string;
   }
 
-  interface GraphicOverlayOptions {
+  export interface GraphicOverlayOptions {
     color?: string;
     lineWidth?: number;
     fillColor?: string;
   }
 
-  interface CatalogOptions {
+  export interface CatalogOptions {
     name?: string;
     color?: string;
     sourceSize?: number;
@@ -46,33 +46,33 @@ declare module 'aladin-lite' {
     labelFont?: string;
   }
 
-  interface AladinShape {
+  export interface AladinShape {
     setColor(color: string): void;
   }
 
-  interface AladinSource {
+  export interface AladinSource {
     ra: number;
     dec: number;
     data: Record<string, unknown>;
   }
 
-  interface AladinCatalog {
+  export interface AladinCatalog {
     addSources(sources: AladinSource[]): void;
     removeAll(): void;
   }
 
-  interface GraphicOverlay {
+  export interface GraphicOverlay {
     add(shape: AladinShape): void;
     removeAll(): void;
   }
 
-  interface ImageHiPS {
+  export interface ImageHiPS {
     setAlpha(alpha: number): void;
     setBrightness(v: number): void;
     setContrast(v: number): void;
   }
 
-  interface AladinInstance {
+  export interface AladinInstance {
     on(event: string, handler: (e: { x: number; y: number } & Record<string, unknown>) => void): void;
     pix2world(x: number, y: number): [number, number];
     world2pix(c1: number, c2: number): [number, number];
@@ -87,7 +87,7 @@ declare module 'aladin-lite' {
     getBaseImageLayer(): ImageHiPS;
   }
 
-  interface AladinStatic {
+  export interface AladinStatic {
     init: Promise<void>;
     aladin(container: HTMLElement | string, options?: AladinOptions): AladinInstance;
     graphicOverlay(options?: GraphicOverlayOptions): GraphicOverlay;

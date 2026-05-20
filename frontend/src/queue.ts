@@ -16,4 +16,5 @@ export interface QueueConfig {
   turnstile_site_key: string;
   max_session_seconds: number;
   idle_timeout_seconds: number;
+  beta_password_enabled: boolean;
 }

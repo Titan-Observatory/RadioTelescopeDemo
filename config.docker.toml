@@ -1,0 +1,96 @@
+# Docker / Coolify config template.
+#
+# Every ${VAR} is filled in from environment variables you set in Coolify's UI.
+# The ${VAR:-fallback} form uses the fallback when the variable is not set.
+# Do NOT put real secrets in this file — it is committed to the repo.
+# Set all the RT_* variables in Coolify's "Environment Variables" panel.
+
+[general]
+log_level = "INFO"
+
+[hardware]
+# gateway-client: the web UI and queue run here in Coolify, but the motors,
+# SDR and camera live on your Pi. Set RT_GATEWAY_HOST to the Pi's LAN IP or
+# hostname, e.g. "192.168.1.42" or "pi.local".
+mode = "gateway-client"
+gateway_host = "${RT_GATEWAY_HOST:-192.168.1.100}"
+gateway_port = ${RT_GATEWAY_PORT:-8000}
+
+[telemetry]
+update_rate_hz = 5
+
+[mount]
+# These values only matter in local/gateway-server mode. In gateway-client
+# mode all mount commands are forwarded to the Pi, which uses its own config.
+az_counts_per_degree = 1000.0
+alt_counts_per_degree = 1000.0
+
+[observer]
+name = "Radio Telescope"
+latitude_deg  = ${RT_LATITUDE_DEG:-51.5}
+longitude_deg = ${RT_LONGITUDE_DEG:--0.1}
+altitude_m    = ${RT_ALTITUDE_M:-0.0}
+dish_diameter_m   = 2.286
+observing_freq_hz = 1.42e9
+
+[sdr]
+# In gateway-client mode the SDR pipeline runs on the Pi; the Coolify
+# container just relays finished spectra to browsers.
+enabled = true
+center_freq_hz    = 1.4204e9
+sample_rate_hz    = 3.0e6
+fft_size          = 2048
+integration_frames = 64
+publish_rate_hz   = 5.0
+
+[camera]
+# Same as SDR — camera is on the Pi; traffic is proxied.
+enabled = true
+device = 0
+
+[server]
+host = "0.0.0.0"   # listen on all interfaces inside the container
+port = 8000
+# Set this to your actual public URL so CORS is locked down.
+# Example: ["https://telescope.yourdomain.com"]
+cors_origins = ["${RT_PUBLIC_ORIGIN:-*}"]
+# Coolify puts a reverse proxy in front of your container. Its IP should go here
+# so the rate limiter and client-IP detection see the real visitor IP.
+trusted_proxies = ["127.0.0.1", "::1", "${RT_PROXY_IP:-172.17.0.1}"]
+lan_only = false
+
+[rate_limit]
+enabled = true
+queue_join_per_minute = 10
+feedback_per_minute = 5
+events_per_minute = 120
+camera_stream_per_minute = 12
+websocket_connect_per_minute = 30
+motion_per_minute = 20
+
+[queue]
+enabled = true
+max_session_seconds   = 600
+idle_timeout_seconds  = 60
+max_queue_size        = 100
+max_sessions_per_ip   = 3
+join_cooldown_seconds = 5
+# REQUIRED: generate with  python -c "import secrets; print(secrets.token_urlsafe(48))"
+cookie_secret = "${RT_QUEUE_COOKIE_SECRET}"
+cookie_name   = "rt_session"
+
+[auth]
+# Set RT_AUTH_ENABLED=true in Coolify to require a beta password on join.
+enabled       = ${RT_AUTH_ENABLED:-false}
+passwords_file = "passwords.txt"
+# REQUIRED when auth is enabled: generate same way as cookie_secret above.
+secret_key     = "${RT_AUTH_SECRET_KEY:-change-me-set-RT_AUTH_SECRET_KEY}"
+max_attempts   = 5
+lockout_minutes = 15
+
+[turnstile]
+# Cloudflare Turnstile bot protection. Get keys at dash.cloudflare.com → Turnstile.
+# Leave site_key/secret_key empty to use Cloudflare's always-pass test keys for now.
+enabled    = ${RT_TURNSTILE_ENABLED:-false}
+site_key   = "${RT_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}"
+secret_key = "${RT_TURNSTILE_SECRET_KEY:-1x0000000000000000000000000000000AA}"

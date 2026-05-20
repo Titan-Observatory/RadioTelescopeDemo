@@ -2454,6 +2454,50 @@ h2.panel-header {
 
 .captcha-modal-body { margin: 0; font-size: 14px; color: var(--text-2); }
 
+.beta-password-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.beta-password-field label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+
+.beta-password-field input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--text-1);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.beta-password-field input[type="password"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.beta-interest-link {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.beta-interest-link a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.beta-interest-link a:hover { text-decoration: underline; }
+
 /* In-queue waiting page */
 
 .queue-waiting {
@@ -2977,8 +3021,16 @@ h2.panel-header {
   .h1-hero-title { font-size: 26px; }
   .h1-section-heading { font-size: 21px; margin-bottom: 16px; }
   .h1-hero-sub, .h1-section-body { max-width: none; }
-  .h1-hero-visual { padding-top: 0; overflow-x: auto; }
-  .h1-hero-figure { min-width: 520px; }
+  .h1-hero-visual { padding-top: 0; overflow-x: hidden; }
+  .h1-hero-figure {
+    width: 100%;
+    overflow: hidden;
+  }
+  .h1-hero-figure .h1-svg {
+    width: 520px;
+    max-width: none;
+    align-self: center;
+  }
 
   .h1-observe { padding-left: 16px; padding-right: 16px; }
 }

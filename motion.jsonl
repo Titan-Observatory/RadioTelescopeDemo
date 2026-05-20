@@ -1,0 +1,43 @@
+{"ts": "2026-05-20T00:33:10.929Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:33:10.932Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:33:52.867Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:33:52.869Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:34:13.105Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:34:14.018Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 0, "seq": 2}}
+{"ts": "2026-05-20T00:34:14.019Z", "endpoint": "jog", "accepted": false, "reason": "stale sequence", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:34:14.049Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:34:14.050Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 2}}
+{"ts": "2026-05-20T00:34:14.052Z", "endpoint": "jog", "accepted": false, "reason": "stale sequence", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:34:14.080Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:34:14.127Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:34:14.128Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:34:14.172Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:34:25.785Z", "endpoint": "goto", "accepted": false, "reason": "Target is outside configured pointing limits (alt=5.0 deg, az=90.0 deg)", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 5.0, "azimuth_deg": 90.0}}
+{"ts": "2026-05-20T00:34:31.192Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:34:31.195Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:44:59.689Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:45:00.607Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 0, "seq": 2}}
+{"ts": "2026-05-20T00:45:00.609Z", "endpoint": "jog", "accepted": false, "reason": "stale sequence", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:45:00.654Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:45:00.655Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 2}}
+{"ts": "2026-05-20T00:45:00.656Z", "endpoint": "jog", "accepted": false, "reason": "stale sequence", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:45:00.689Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:45:00.731Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:45:00.733Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:45:00.765Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T00:45:12.311Z", "endpoint": "goto", "accepted": false, "reason": "Target is outside configured pointing limits (alt=5.0 deg, az=90.0 deg)", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 5.0, "azimuth_deg": 90.0}}
+{"ts": "2026-05-20T00:45:18.065Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T00:45:18.069Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T01:36:44.913Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T01:36:45.799Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 0, "seq": 2}}
+{"ts": "2026-05-20T01:36:45.800Z", "endpoint": "jog", "accepted": false, "reason": "stale sequence", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T01:36:45.824Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T01:36:45.826Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 2}}
+{"ts": "2026-05-20T01:36:45.827Z", "endpoint": "jog", "accepted": false, "reason": "stale sequence", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "down", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T01:36:45.857Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T01:36:45.883Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T01:36:45.884Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T01:36:45.911Z", "endpoint": "jog", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"direction": "west", "speed": 40, "seq": 1}}
+{"ts": "2026-05-20T01:36:57.501Z", "endpoint": "goto", "accepted": false, "reason": "Target is outside configured pointing limits (alt=5.0 deg, az=90.0 deg)", "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 5.0, "azimuth_deg": 90.0}}
+{"ts": "2026-05-20T01:37:02.823Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}
+{"ts": "2026-05-20T01:37:02.825Z", "endpoint": "goto", "accepted": true, "reason": null, "session_hash": null, "ip_hash": "846488f1dc5c", "params": {"altitude_deg": 30.0, "azimuth_deg": 45.0}}

@@ -1,4 +1,3 @@
-import A from 'aladin-lite';
 import { Layers, Telescope } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -66,6 +65,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
 
   const {
     aladinRef,
+    aladinModuleRef,
     beamOverlayRef,
     limitOverlayRef,
     pendingOverlayRef,
@@ -90,7 +90,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
     if (!ready || !aladinRef.current) return;
     if (survey === HYDROGEN_SURVEY_ID) {
       aladinRef.current.setImageLayer(
-        A.imageHiPS('CDS/P/HI4PI/NHI', {
+        aladinModuleRef.current!.imageHiPS('CDS/P/HI4PI/NHI', {
           name: 'HI4PI colorized hydrogen line',
           colormap: 'inferno',
           stretch: 'asinh',
@@ -132,14 +132,14 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
       const vertices = config.pointing_limit_altaz.map((point) => altAzToRaDec(point, config, date));
       const polyline = vertices.map((point): [number, number] => [point.ra_deg, point.dec_deg]);
       limitOverlayRef.current.add(
-        A.polyline([...polyline, polyline[0]], {
+        aladinModuleRef.current!.polyline([...polyline, polyline[0]], {
           color: 'rgba(255,126,89,0.9)',
           lineWidth: 2,
         }),
       );
       vertices.forEach((point) => {
         limitOverlayRef.current?.add(
-          A.circle(point.ra_deg, point.dec_deg, 0.08, {
+          aladinModuleRef.current!.circle(point.ra_deg, point.dec_deg, 0.08, {
             color: '#ff7e59',
             lineWidth: 2,
           }),
@@ -175,15 +175,15 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
     if (ra_deg != null && dec_deg != null) {
       // Outer glow ring (2× FWHM radius, translucent)
       beamOverlayRef.current.add(
-        A.circle(ra_deg, dec_deg, fwhm, { color: 'rgba(114,224,173,0.10)', lineWidth: 1 }),
+        aladinModuleRef.current!.circle(ra_deg, dec_deg, fwhm, { color: 'rgba(114,224,173,0.10)', lineWidth: 1 }),
       );
       // FWHM boundary ring
       beamOverlayRef.current.add(
-        A.circle(ra_deg, dec_deg, fwhm / 2, { color: 'rgba(114,224,173,0.85)', lineWidth: 2 }),
+        aladinModuleRef.current!.circle(ra_deg, dec_deg, fwhm / 2, { color: 'rgba(114,224,173,0.85)', lineWidth: 2 }),
       );
       // Centre dot
       beamOverlayRef.current.add(
-        A.circle(ra_deg, dec_deg, 0.04, { color: '#72e0ad', lineWidth: 3 }),
+        aladinModuleRef.current!.circle(ra_deg, dec_deg, 0.04, { color: '#72e0ad', lineWidth: 3 }),
       );
     }
   }, [telemetry, config, ready]);
@@ -196,13 +196,13 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
     if (pending) {
       const fwhm = config?.beam_fwhm_deg ?? 6.5;
       pendingOverlayRef.current.add(
-        A.circle(pending.ra_deg, pending.dec_deg, fwhm / 2, {
+        aladinModuleRef.current!.circle(pending.ra_deg, pending.dec_deg, fwhm / 2, {
           color: 'rgba(243,204,107,0.9)',
           lineWidth: 2,
         }),
       );
       pendingOverlayRef.current.add(
-        A.circle(pending.ra_deg, pending.dec_deg, 0.04, {
+        aladinModuleRef.current!.circle(pending.ra_deg, pending.dec_deg, 0.04, {
           color: '#f3cc6b',
           lineWidth: 3,
         }),
@@ -217,7 +217,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
     targetCatalogRef.current.removeAll();
     targetCatalogRef.current.addSources(
       overlays.map((overlay) =>
-        A.source(overlay.ra_deg, overlay.dec_deg, {
+        aladinModuleRef.current!.source(overlay.ra_deg, overlay.dec_deg, {
           name: overlay.label,
           id: overlay.id,
           color: overlay.color,
