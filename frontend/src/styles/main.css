@@ -2413,18 +2413,13 @@ h2.panel-header {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
-.beta-interest-link {
-  margin: 0;
-  font-size: 12px;
-  color: var(--fg-muted);
-}
-
-.beta-interest-link a {
+.queue-header-sub a {
   color: var(--accent);
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.beta-interest-link a:hover { text-decoration: underline; }
+.queue-header-sub a:hover { text-decoration: underline; }
 
 .queue-status-line {
   margin: 4px 0 0 !important;

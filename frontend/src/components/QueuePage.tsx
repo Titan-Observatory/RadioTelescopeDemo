@@ -1236,7 +1236,7 @@ export function QueuePage({
                 ? 'Loading queue'
                 : inQueue
                 ? 'You are in the queue'
-                : 'Joining the queue'}
+                : 'Titan Observatory Demo'}
             </h1>
             <p className="queue-header-sub">
               {loading
@@ -1245,13 +1245,11 @@ export function QueuePage({
                 ? "While you wait, scroll on to learn what you'll be observing."
                 : (
                     <>
-                      Password required to join.{' '}
-                      <span className="beta-interest-link">
-                        Don&apos;t have one?{' '}
-                        <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
-                          Apply for access
-                        </a>
-                      </span>
+                      The telescope is currently under construction.{' '}
+                      Interested in helping us test?{' '}
+                      <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
+                        Apply for access
+                      </a>
                     </>
                   )}
             </p>
@@ -1264,7 +1262,7 @@ export function QueuePage({
               <form className="queue-header-join" onSubmit={submitHeaderJoin}>
                 {betaPasswordEnabled && (
                   <div className="beta-password-field queue-header-password">
-                    <label htmlFor="beta-pw-header">Beta access password</label>
+                    <label htmlFor="beta-pw-header">Testing access</label>
                     <input
                       id="beta-pw-header"
                       type="password"
