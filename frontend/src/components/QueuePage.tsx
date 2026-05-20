@@ -1259,7 +1259,7 @@ export function QueuePage({
                 : 'Enter the beta password here to join the line; the telescope information stays available below.'}
             </p>
             <p className="queue-content-disclaimer">
-              All content was researched and written by humans :) AI is a tool, not a replacement.
+              All content was researched and written by humans :)
             </p>
           </div>
           {!isPreLaunch && (
@@ -1280,7 +1280,7 @@ export function QueuePage({
                       <p className="beta-interest-link">
                         Don&apos;t have one?{' '}
                         <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
-                          Apply for beta access
+                          Apply for access
                         </a>
                       </p>
                     </div>
@@ -1344,7 +1344,7 @@ export function QueuePage({
             <div className="h1-hero-text">
               <span className="h1-eyebrow">What is it?</span>
               <h2 className="h1-hero-title">The Hydrogen Line</h2>
-              <p className="h1-hero-sub">Found at about 1420 MHz, with a corresponding wavelength of 21 cm, the hydrogen line is a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. Its discovery and use in early days of radio astronomy unlocked an entirely new set of tools for exploring the universe, allowing us to see through thick clouds of dust, measure the velocity and structure of nearby hydrogen, and, for the first time, learn what our own Milky Way galaxy looked like.</p>
+              <p className="h1-hero-sub">Found at around 1420.4 MHz, the hydrogen line is a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. Its discovery and use in early days of radio astronomy unlocked an entirely new set of tools for exploring the universe, allowing us to see through thick clouds of dust, measure the velocity and structure of nearby hydrogen, and, for the first time, learn what our own Milky Way galaxy looked like.</p>
             </div>
             <div className="h1-hero-visual">
               <HeroSpectrum paused={animationsPaused} />
@@ -1386,9 +1386,12 @@ export function QueuePage({
                     <img src="/Screenshot%202026-05-18%20202822.png" alt="Electron spin explained: imagine a ball that's rotating, except it's not a ball and it's not rotating." />
                   </span>
                 </button>{' '}
-                to say the least, so for this analogy, we'll simplify spin to its two possible states: "up" and "down". The spin of each particle induces a small magnetic moment, and the interaction between them gives the parallel configuration, where the proton and electron spins point in the same direction, slightly more energy than the anti-parallel configuration, where one is up and the other is down. A spin-flip transition happens when the electron's spin spontaneously flips, releasing a photon at 1420.4 MHz. That photon is the hydrogen line observed in radio astronomy.
+                to say the least, so for this analogy, we'll simplify spin to its two possible states: "up" and "down". When the spin of the two particles are parallel, pointing in the same direction, the atom has a *slightly* higher energy level than when the spins are anti-parallel.
               </p>
-              <p className="h1-section-body">Although an individual spin-flip transition is exceptionally rare, with an average wait of about 11 million years, neutral hydrogen is so abundant that the combined signal is constant and measurable, even with a home-built radio telescope.</p>
+              <p className="h1-section-body">
+                Due to quantum mechanics, occasionally the electron inside a hydrogen atom with parallel spins will spontaneously flip directions. Rule #1 of the universe is that energy must be conserved, so when a spin-flip occurs, the difference in energy is released as a photon with a frequency of 1420.4 MHz.
+              </p>
+              <p className="h1-section-body">Although an individual spin-flip transition is exceptionally rare, neutral hydrogen is so abundant in the galaxy that the combined signal is constant and measurable, even with a home-built radio telescope!</p>
             </div>
             <div className="h1-spinflip-visual" />
           </div>
@@ -1399,8 +1402,8 @@ export function QueuePage({
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
               <span className="h1-eyebrow">How was it found?</span>
-              <h2 className="h1-section-heading">An example of science at it's best</h2>
-              <p className="h1-section-body">By 1951, thanks in part to the postwar boom in radar technologies, radio had established itself as a serious branch of astronomy. However, the surveys, solar studies, and detections were limited to telling us </p>
+              <h2 className="h1-section-heading">Science at it's best</h2>
+              <p className="h1-section-body">By 1951, thanks in large part to the postwar boom in radar technologies, radio had established itself as a serious branch of astronomy. However, the surveys, solar studies, and detections were limited to telling us </p>
               <p className="h1-section-body">Applications of the hydrogen line were obvious from the first detection. Doc Ewen, noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
             </div>
             <div className="h1-spinflip-visual" />
@@ -1428,8 +1431,8 @@ export function QueuePage({
         <section className="h1-spinflip h1-spinflip-alt" id="h1-history-section">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
-              <span className="h1-eyebrow">How was it found?</span>
-              <h2 className="h1-section-heading">A brief history of radio astronomy</h2>
+              <span className="h1-eyebrow">More lore</span>
+              <h2 className="h1-section-heading">The beginning of radio astronomy</h2>
               <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that this was reaching outside his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
               <p className="h1-section-body">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
             </div>
