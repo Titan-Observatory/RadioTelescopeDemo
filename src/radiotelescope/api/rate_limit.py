@@ -62,7 +62,6 @@ class RateLimitMiddleware:
         if method == "POST" and path in {
             "/api/telescope/goto",
             "/api/telescope/goto_radec",
-            "/api/telescope/jog",
         }:
             return ("motion", self.config.motion_per_minute)
         return None

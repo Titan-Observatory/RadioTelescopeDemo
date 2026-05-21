@@ -1378,10 +1378,10 @@ export function QueuePage({
                     <img src="/Screenshot%202026-05-18%20202822.png" alt="Electron spin explained: imagine a ball that's rotating, except it's not a ball and it's not rotating." />
                   </span>
                 </button>{' '}
-                to say the least, so for this analogy, we'll simplify it to two possible states: "up" and "down". When the proton and electron spins are parallel, pointing in the same direction, the atom has a slightly higher energy level than when the spins are anti-parallel.
+                to say the least, so for this analogy, we'll simply represent it's two possible states: "up" and "down". When the proton and electron spins are parallel, pointing in the same direction, the atom has a slightly higher energy level than when the spins are anti-parallel.
               </p>
               <p className="h1-section-body">
-                Due to quantum mechanics, the electron inside a hydrogen atom with parallel spins will occasionally flip direction spontaneously. Rule #1 of the universe is that energy must be conserved, so when a spin-flip occurs, the energy difference is released as a photon with a frequency of 1420.4 MHz.
+                Very rarely, a hydrogen atom in the higher-energy parallel configuration transitions, or “flips,” into the lower-energy anti-parallel configuration. Because energy is conserved, the atom cannot simply lose that extra energy. It must carry the energy away somehow, and in this case it is released as a radio photon at 1420.4 MHz, corresponding to a wavelength of about 21 centimeters.
               </p>
               <p className="h1-section-body">Although any individual spin-flip transition is exceptionally rare, neutral hydrogen is so abundant in the galaxy that the combined signal is constant and measurable, even with a home-built radio telescope!</p>
             </div>
@@ -1393,9 +1393,11 @@ export function QueuePage({
         <section className="h1-spinflip h1-spinflip-alt h1-discovery-section" id="h1-history-section">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
-              <span className="h1-eyebrow">How was it found?</span>
-              <h2 className="h1-section-heading">Science at it's best</h2>
-              <p className="h1-section-body">By 1951, thanks in large part to the postwar boom in radar technologies, radio had established itself as a serious branch of astronomy. However, the surveys, solar studies, and detections were limited to telling us </p>
+              <span className="h1-eyebrow">How was it discovered?</span>
+              <h2 className="h1-section-heading">Science at its best</h2>
+              <p className="h1-section-body">In the decades after radio waves were first detected from space in 1931, radio astronomy was mostly a way of measuring continuum emission, giving us a general "brightness" of a source. It could reveal that something was there, but not much else.</p>
+              <p className="h1-section-body">Astronomers already knew the power of spectral lines from visible-light astronomy, but applying that idea to radio astronomy required a unique skillset between astronomy and RF engineering.</p>
+              <p className="h1-section-body">Doc Ewen, after noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
             </div>
             <figure className="h1-ewen-figure">
               <img
@@ -1405,7 +1407,7 @@ export function QueuePage({
               />
               <figcaption className="h1-ewen-caption">
                 <blockquote>
-                  Inspecting the patch work. After one year, parts of the copper skin had cracked and peeled away from the plywood. I purchased fifty feet of rope from a local hardware store, tied one end around my waist and the other to the lower section of the antenna mount. With a large soldering iron, solder, and a bristle brush I went over the side, four floors up, and slid into the horn. About an hour later, I managed to climb out of the horn back on to the parapet. This picture of me inspecting the patchwork was taken about two days later. The line was detected within the next few weeks.
+                  After one year, parts of the copper skin had cracked and peeled away from the plywood. I purchased fifty feet of rope from a local hardware store, tied one end around my waist and the other to the lower section of the antenna mount. With a large soldering iron, solder, and a bristle brush I went over the side, four floors up, and slid into the horn. About an hour later, I managed to climb out of the horn back on to the parapet. This picture of me inspecting the patchwork was taken about two days later. The line was detected within the next few weeks.
                 </blockquote>
                 <cite>Doc Ewen</cite>
               </figcaption>
@@ -1420,7 +1422,7 @@ export function QueuePage({
               <span className="h1-eyebrow">How do we use it?</span>
               <h2 className="h1-section-heading">The Doppler Effect</h2>
               <p className="h1-section-body"></p>
-              <p className="h1-section-body">Applications of the hydrogen line were obvious from the first detection. Doc Ewen, noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
+              <p className="h1-section-body"></p>
             </div>
             <div className="h1-doppler-visual">
               <DopplerAnimation paused={animationsPaused} />
@@ -1437,7 +1439,8 @@ export function QueuePage({
               <span className="h1-eyebrow">More lore</span>
               <h2 className="h1-section-heading">The beginning of radio astronomy</h2>
               <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun.</p>
-              <p className="h1-section-body">Recognizing that this was reaching outside his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
+              <p className="h1-section-body">Recognizing that this puzzle had left his domain of RF engineering, Janksky met with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
+              <p className="h1-section-body">The early days of radio astronomy were not quite as revolutionary as one might expect when opening a new window to the universe. In the 20 years after the discovery of radio waves from space, amatuer radio operators like Grote Reber , and by the end of the 40s we started discovering "radio stars," or discrete signals that were not . However, observations were still broadband, and radio astronomy was </p>
             </div>
             <figure className="h1-jansky-figure">
               <img

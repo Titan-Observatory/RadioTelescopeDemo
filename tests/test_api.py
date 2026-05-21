@@ -581,6 +581,31 @@ motion_per_minute = 2
     assert int(retry_after) >= 1
 
 
+def test_jog_is_not_rate_limited_by_motion_bucket(simulated_config_path):
+    simulated_config_path.write_text(
+        simulated_config_path.read_text(encoding="utf-8") + """
+[rate_limit]
+motion_per_minute = 2
+""",
+        encoding="utf-8",
+    )
+    with TestClient(create_app(simulated_config_path)) as client:
+        responses = [
+            client.post(
+                "/api/telescope/jog",
+                json={"token": "jog-rate-limit", "seq": seq, "direction": "west", "speed": 40},
+            )
+            for seq in range(1, 5)
+        ]
+        limited_goto = [
+            client.post("/api/telescope/goto", json={"altitude_deg": 30, "azimuth_deg": 45})
+            for _ in range(3)
+        ]
+
+    assert [response.status_code for response in responses] == [200, 200, 200, 200]
+    assert [response.status_code for response in limited_goto] == [200, 200, 429]
+
+
 def test_motion_audit_log_records_accepted_goto(simulated_config_path, tmp_path):
     import json
 
