@@ -1251,13 +1251,20 @@ export function QueuePage({
                 : (
                     <>
                       The telescope is currently under construction.{' '}
-                      Interested in helping us test?{' '}
-                      <a href="https://forms.gle/qPtCGmJdvtG6W8Ky6" target="_blank" rel="noopener noreferrer">
-                        Apply for access
-                      </a>
+                      Interested in helping us test?
                     </>
                   )}
             </p>
+            {!loading && !inQueue && (
+              <a
+                className="queue-access-link"
+                href="https://forms.gle/qPtCGmJdvtG6W8Ky6"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Apply for access
+              </a>
+            )}
             <p className="queue-content-disclaimer">
               All content is researched and written by humans :)
             </p>
@@ -1371,12 +1378,12 @@ export function QueuePage({
                     <img src="/Screenshot%202026-05-18%20202822.png" alt="Electron spin explained: imagine a ball that's rotating, except it's not a ball and it's not rotating." />
                   </span>
                 </button>{' '}
-                to say the least, so for this analogy, we'll simplify spin to its two possible states: "up" and "down". When the spin of the two particles are parallel, pointing in the same direction, the atom has a *slightly* higher energy level than when the spins are anti-parallel.
+                to say the least, so for this analogy, we'll simplify it to two possible states: "up" and "down". When the proton and electron spins are parallel, pointing in the same direction, the atom has a slightly higher energy level than when the spins are anti-parallel.
               </p>
               <p className="h1-section-body">
-                Due to quantum mechanics, occasionally the electron inside a hydrogen atom with parallel spins will spontaneously flip directions. Rule #1 of the universe is that energy must be conserved, so when a spin-flip occurs, the difference in energy is released as a photon with a frequency of 1420.4 MHz.
+                Due to quantum mechanics, the electron inside a hydrogen atom with parallel spins will occasionally flip direction spontaneously. Rule #1 of the universe is that energy must be conserved, so when a spin-flip occurs, the energy difference is released as a photon with a frequency of 1420.4 MHz.
               </p>
-              <p className="h1-section-body">Although an individual spin-flip transition is exceptionally rare, neutral hydrogen is so abundant in the galaxy that the combined signal is constant and measurable, even with a home-built radio telescope!</p>
+              <p className="h1-section-body">Although any individual spin-flip transition is exceptionally rare, neutral hydrogen is so abundant in the galaxy that the combined signal is constant and measurable, even with a home-built radio telescope!</p>
             </div>
             <div className="h1-spinflip-visual" />
           </div>
@@ -1424,15 +1431,24 @@ export function QueuePage({
           </div>
         </section>
 
-        <section className="h1-spinflip h1-spinflip-alt" id="h1-history-section">
+        <section className="h1-spinflip h1-spinflip-alt h1-jansky-section" id="h1-history-section">
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
               <span className="h1-eyebrow">More lore</span>
               <h2 className="h1-section-heading">The beginning of radio astronomy</h2>
-              <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that this was reaching outside his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
-              <p className="h1-section-body">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+              <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun.</p>
+              <p className="h1-section-body">Recognizing that this was reaching outside his expertise as a radio engineer, Janksky discussed the puzzle with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
             </div>
-            <div className="h1-spinflip-visual" />
+            <figure className="h1-jansky-figure">
+              <img
+                src="/Jansky.jpg"
+                alt="Karl Jansky's rotating directional radio antenna array"
+                className="h1-jansky-image"
+              />
+              <figcaption className="h1-jansky-caption">
+                Karl Jansky, working at Bell Telephone Laboratories in Holmdel, NJ, built this antenna to receive radio waves at a frequency of 20.5 MHz (wavelength about 14.5 meters). It was mounted on a turntable that allowed it to rotate in any direction, earning it the name "Jansky's merry-go-round".
+              </figcaption>
+            </figure>
           </div>
         </section>
 

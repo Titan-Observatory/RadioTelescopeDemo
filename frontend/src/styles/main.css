@@ -2413,23 +2413,25 @@ h2.panel-header {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
-.queue-header-sub a {
+.queue-access-link {
   display: inline-flex;
   align-items: center;
-  min-height: 26px;
-  margin-left: 2px;
-  padding: 2px 9px;
+  width: fit-content;
+  margin: 7px 0 0;
+  padding: 3px 11px;
   border: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
+  font-size: 13px;
   font-weight: 700;
+  line-height: 1.25;
   text-decoration: none;
   white-space: nowrap;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-.queue-header-sub a:hover {
+.queue-access-link:hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent-strong);
@@ -2622,7 +2624,7 @@ h2.panel-header {
 .queue-waiting-body p { margin: 0; }
 
 .queue-content-disclaimer {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   color: var(--fg-subtle);
   font-size: 12px;
   line-height: 1.4;
@@ -2647,6 +2649,9 @@ h2.panel-header {
     max-height: 0;
     margin-top: 0;
     opacity: 0;
+  }
+  .queue-header-collapsed .queue-access-link {
+    display: none;
   }
   .queue-header-status {
     align-items: flex-start;
@@ -2775,6 +2780,11 @@ h2.panel-header {
   max-width: 1160px;
 }
 
+.h1-jansky-section .h1-spinflip-inner {
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  max-width: 1180px;
+}
+
 /* Soft top edge instead of a hard bottom border — gives a section change
    you can feel without a visible horizontal rule. */
 .h1-spinflip + .h1-spinflip,
@@ -2827,6 +2837,33 @@ h2.panel-header {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--accent);
+}
+
+.h1-jansky-figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+
+.h1-jansky-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  object-fit: cover;
+  object-position: center 68%;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.h1-jansky-caption {
+  margin: 0;
+  padding: 14px 16px 16px;
+  font-size: 12.5px;
+  line-height: 1.58;
+  color: var(--fg-muted);
 }
 
 /* Doppler section */
@@ -2883,15 +2920,14 @@ h2.panel-header {
   margin: 0 0 14px;
   font-size: 14.5px;
   line-height: 1.75;
-  color: var(--fg-muted);
+  color: #c7c9e2;
   max-width: 58ch;
 }
 
-/* First body paragraph after the section heading carries the section's
-   thesis — slightly stronger color than the follow-up paragraphs. */
-.h1-section-heading + .h1-section-body { color: #c7c9e2; }
-
-.h1-section-body:last-of-type { margin-bottom: 0; }
+.h1-section-body:last-of-type {
+  color: var(--fg-muted);
+  margin-bottom: 0;
+}
 
 .h1-misleading-highlight {
   position: relative;
