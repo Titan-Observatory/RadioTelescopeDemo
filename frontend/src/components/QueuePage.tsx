@@ -1395,8 +1395,8 @@ export function QueuePage({
             <div className="h1-spinflip-text">
               <span className="h1-eyebrow">How was it discovered?</span>
               <h2 className="h1-section-heading">Science at its best</h2>
-              <p className="h1-section-body">In the decades after radio waves were first detected from space in 1931, radio astronomy was mostly a way of measuring continuum emission, giving us a general "brightness" of a source. It could reveal that something was there, but not much else.</p>
-              <p className="h1-section-body">Astronomers already knew the power of spectral lines from visible-light astronomy, but applying that idea to radio astronomy required a unique skillset between astronomy and RF engineering.</p>
+              <p className="h1-section-body">In the years after radio waves were first detected from space in 1931, radio astronomy was mostly a way of measuring continuum emission, giving us a general "brightness" of a source, but not much else. While the power of spectral lines was well-known in visible-light astronomy, it's application to the radio end of the spectrum was not immediately investigated due to the unique skillset required, sitting awkwardly between RF engineering and astronomy- two very different worlds.</p>
+              <p className="h1-section-body">By the 1950s, thanks to the likes of </p>
               <p className="h1-section-body">Doc Ewen, after noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
             </div>
             <figure className="h1-ewen-figure">
