@@ -1,0 +1,44 @@
+[Unit]
+Description=Titan Observatory radio telescope backend (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=telescope
+Group=telescope
+WorkingDirectory=/opt/radiotelescope
+
+# Production secrets (queue cookie secret, Turnstile keys, etc.) live here
+# at mode 0600 owned by the telescope user. Generated once during bootstrap;
+# see ../README.md.
+EnvironmentFile=/etc/radiotelescope/secrets.env
+
+ExecStart=/opt/radiotelescope/venv/bin/radiotelescope -c /etc/radiotelescope/config.toml
+
+# Restart on transient failure but not on clean exits or startup config errors.
+Restart=on-failure
+RestartSec=2s
+StartLimitIntervalSec=60s
+StartLimitBurst=3
+
+# Hardening — the backend touches GPIO/I2C/USB, so we can't lock it down
+# fully, but these still raise the bar against a compromised process.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log/radiotelescope /var/lib/radiotelescope
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=radiotelescope
+
+[Install]
+WantedBy=multi-user.target

@@ -70,6 +70,12 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   // (BaselinePickPopover) and positioned from .skymap-panel's bounding box.
   useEffect(() => {
     if (!open || step !== 'pick') return;
+    // Scroll the sky map into view BEFORE we lock body scroll, otherwise on
+    // mobile (where panels stack vertically) the map can be offscreen and the
+    // user has no way to reach it.
+    const target = document.querySelector('.skymap-panel');
+    // Instant (not smooth) so the scroll completes before we lock body overflow.
+    target?.scrollIntoView({ block: 'start', behavior: 'auto' });
     document.body.classList.add('rt-baseline-pick');
     return () => document.body.classList.remove('rt-baseline-pick');
   }, [open, step]);
@@ -314,14 +320,24 @@ function BaselinePickPopover({ onCancel, onConfirm }: {
 
   if (!rect) return null;
 
-  // Prefer the right side of the map. If there isn't room (narrow viewport),
-  // tuck the popover into the top-right of the map itself.
+  // Prefer the right side of the map. If there isn't room beside it (narrow
+  // viewport / mobile stack), drop the popover BELOW the map so it doesn't
+  // cover the very thing the user is trying to click.
   const POPOVER_WIDTH = 340;
   const MARGIN = 16;
   const fitsRight = rect.right + MARGIN + POPOVER_WIDTH + MARGIN <= window.innerWidth;
   const style: React.CSSProperties = fitsRight
-    ? { left: rect.right + MARGIN, top: rect.top + 12 }
-    : { left: rect.right - POPOVER_WIDTH - MARGIN, top: rect.top + 12 };
+    ? { left: rect.right + MARGIN, top: rect.top + 12, width: POPOVER_WIDTH }
+    : {
+        // Bottom-sheet style: the map fills most of a phone viewport, so
+        // pinning the popover to the bottom edge keeps the map clickable
+        // above it regardless of where the panel sits in the page.
+        left: MARGIN,
+        right: MARGIN,
+        bottom: MARGIN,
+        width: 'auto',
+        maxWidth: `calc(100vw - ${MARGIN * 2}px)`,
+      };
 
   return createPortal(
     <div className="baseline-pick-popover" style={style} role="dialog" aria-modal="false">

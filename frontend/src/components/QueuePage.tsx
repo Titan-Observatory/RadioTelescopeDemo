@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Cloud } from 'lucide-react';
 
+import queueSpectrumRaw from '../data/queueSpectrum.txt?raw';
 import type { QueueStatus } from '../queue';
+import { StarsBackground } from './StarsBackground';
 
 declare global {
   interface Window {
@@ -24,127 +27,157 @@ declare global {
 const TURNSTILE_SCRIPT_ID = 'cf-turnstile-script';
 const TURNSTILE_SCRIPT_SRC =
   'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback&render=explicit';
+const MISLEADING_POPOVER_WIDTH = 260;
+const MISLEADING_POPOVER_HEIGHT = 245;
+const MISLEADING_POPOVER_GAP = 10;
+const MISLEADING_POPOVER_MARGIN = 12;
 
-// ─── SVG path helpers ──────────────────────────────────────────────────────────
-
-function gaussianPts(cx: number, sigma: number, amp: number, base: number, w: number): string[] {
-  const pts: string[] = [];
-  for (let x = 0; x <= w; x += 3)
-    pts.push(`${x},${(base - amp * Math.exp(-0.5 * ((x - cx) / sigma) ** 2)).toFixed(1)}`);
-  return pts;
-}
-
-function gaussianLine(cx: number, sigma: number, amp: number, base: number, w: number): string {
-  return `M ${gaussianPts(cx, sigma, amp, base, w).join(' L ')}`;
-}
-
-function gaussianFill(cx: number, sigma: number, amp: number, base: number, w: number): string {
-  return `M 0,${base} L ${gaussianPts(cx, sigma, amp, base, w).join(' L ')} L ${w},${base} Z`;
-}
-
-function noiseFloor(base: number, w: number, amp: number): string {
-  const pts: string[] = [];
-  let v = 0;
-  for (let x = 0; x <= w; x += 4) {
-    v = v * 0.55 + (Math.sin(x * 0.43 + 7) * 0.5 + Math.sin(x * 0.19 + 3) * 0.5) * amp;
-    pts.push(`${x},${(base + v).toFixed(1)}`);
-  }
-  return `M ${pts.join(' L ')}`;
-}
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 // ─── Precomputed path data ─────────────────────────────────────────────────────
 
-// Hero spectrum: 600×135 — animated playback of a real H I survey profile.
+// Hero spectrum: animated playback of a real H I survey profile.
 const HW = 600;
-const HERO_BASE_Y = 112;          // y-coordinate of the 0-power baseline
-const HERO_PEAK_PX = 90;          // pixels of y-range allocated to the strongest peak
+const HERO_CHART_TOP = -42;
+const HERO_BASE_Y = 156;          // y-coordinate of the 0-power baseline
+const HERO_CHART_BOTTOM = 190;
+const HERO_CHART_HEIGHT = HERO_BASE_Y - HERO_CHART_TOP;
+const HERO_PEAK_HEADROOM = 54;
+const HERO_PEAK_PX = HERO_CHART_HEIGHT - HERO_PEAK_HEADROOM;
+const HERO_AXIS_LABEL_Y = HERO_BASE_Y + 22;
+const HERO_REST_LABEL_Y = HERO_BASE_Y + 19;
+const HERO_REST_LABEL_BOX_Y = HERO_BASE_Y + 4;
+const HERO_PERSEUS_BAND_TOP = HERO_CHART_TOP + HERO_CHART_HEIGHT * 0.34;
+const HERO_PERSEUS_LABEL_Y = HERO_CHART_TOP + HERO_CHART_HEIGHT * 0.31;
 
-// Real LAB-survey hydrogen-line brightness temperatures (K) sampled in 1.03
-// km/s steps across v_LSR = -80 … +80 km/s. The line of sight is (l=110°,
-// b=0°), which slices outward through the galactic disk: the local-arm peak
-// sits right at the rest frequency, and the Perseus-arm peak ~50 km/s
-// blueshifted shows up as a clearly separated second bump — a textbook
-// Doppler-shift example with two comparable peaks and quiet wings.
-//
-// Pulled from the Argelander Institut LAB profile server:
-//   https://www.astro.uni-bonn.de/hisurvey/euhou/LABprofile/
-// Eventually we'll swap this for a real recording from this telescope.
-const SURVEY_TB_K: number[] = [
-  16.25, 15.84, 15.27, 15.02, 14.92, 15.18, 15.64, 16.37, 17.07, 17.93, 18.32,
-  18.49, 18.78, 19.12, 20.26, 21.90, 24.66, 28.88, 35.45, 43.83, 53.37, 62.21,
-  68.85, 72.88, 74.77, 76.67, 77.51, 78.62, 80.21, 81.63, 81.79, 79.82, 75.48,
-  69.36, 61.44, 53.08, 45.61, 40.33, 35.66, 31.86, 28.56, 26.45, 24.05, 21.73,
-  19.39, 17.92, 17.30, 17.27, 16.66, 15.98, 15.31, 14.64, 14.09, 13.14, 12.08,
-  11.56, 11.17, 11.36, 11.69, 12.50, 13.67, 15.70, 17.91, 20.78, 24.17, 28.69,
-  33.54, 39.06, 44.62, 50.14, 56.64, 64.63, 72.15, 77.85, 79.96, 78.77, 76.51,
-  71.87, 63.29, 51.71, 40.08, 30.15, 22.27, 16.57, 12.67, 10.02, 7.98, 6.35,
-  5.27, 4.22, 3.43, 2.82, 2.31, 1.88, 1.53, 1.21, 1.03, 0.91, 0.57, 0.69,
-  0.46, 0.46, 0.36, 0.33, 0.16, 0.21, 0.17, 0.20, 0.11, 0.14, 0.06, 0.01,
-  0.04, 0.13, 0.03, 0.03, 0.04, 0.04, 0.07, 0.03, 0.01, 0.01, -0.02, 0.02,
-  0.11, 0.01, 0.02, 0.12, 0.02, 0.07, -0.01, 0.09, 0.02, 0.19, 0.07, 0.01,
-  0.05, 0.13, 0.01, 0.09, 0.02, 0.00, -0.02, 0.09, 0.03, -0.05, 0.05, -0.05,
-  0.05, -0.00, -0.00, 0.05, -0.02, 0.02, 0.08,
-];
+// LAB hydrogen-line profile supplied for the queue-page example spectrum.
+// Columns in the source file are v_lsr [km/s], T_B [K], frequency [MHz],
+// and wavelength [cm].
+type SurveySample = {
+  tbK: number;
+  freqMhz: number;
+};
+
+function parseQueueSpectrum(raw: string): SurveySample[] {
+  const samples: SurveySample[] = [];
+
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('%')) continue;
+
+    const parts = trimmed.split(/\s+/);
+    if (parts.length < 3) continue;
+
+    const tbK = Number(parts[1]);
+    const freqMhz = Number(parts[2]);
+    if (Number.isFinite(tbK) && Number.isFinite(freqMhz)) {
+      samples.push({ tbK, freqMhz });
+    }
+  }
+
+  if (samples.length === 0) {
+    throw new Error('Queue spectrum data did not contain any LAB samples.');
+  }
+
+  return samples;
+}
+
+const RAW_SAMPLES = parseQueueSpectrum(queueSpectrumRaw);
+
+// Downsample the LAB survey. The hero panel is ~600 CSS-px wide so we don't
+// need every one of the raw 245 LAB samples; 100 bins matches the visible
+// detail without spending budget on points that fall between pixels.
+const HERO_TARGET_BINS = 100;
+const SURVEY_SAMPLES: SurveySample[] = (() => {
+  if (RAW_SAMPLES.length <= HERO_TARGET_BINS) return RAW_SAMPLES;
+  const stride = RAW_SAMPLES.length / HERO_TARGET_BINS;
+  const out: SurveySample[] = [];
+  for (let i = 0; i < HERO_TARGET_BINS; i++) {
+    out.push(RAW_SAMPLES[Math.min(RAW_SAMPLES.length - 1, Math.round(i * stride))]);
+  }
+  return out;
+})();
+const SURVEY_TB_K: number[] = SURVEY_SAMPLES.map(sample => sample.tbK);
+const SURVEY_FREQ_MHZ: number[] = SURVEY_SAMPLES.map(sample => sample.freqMhz);
 
 // Normalize to [0, 1] for the SVG mapping; the receiver-noise animation layers
 // on top of this baseline shape per frame.
 const SURVEY_PEAK_K = SURVEY_TB_K.reduce((m, v) => (v > m ? v : m), 0);
 const SURVEY_POWER: number[] = SURVEY_TB_K.map((v) => Math.max(0, v) / SURVEY_PEAK_K);
 
-// Frequency-axis mapping. Display range hugs the data span (±80 km/s ≈
-// ±0.38 MHz around the rest line) so the trace fills the chart, with just
+// Frequency-axis mapping. Display range hugs the supplied data span with
 // enough padding to land round-numbered tick labels on the axis.
 const H1_REST_MHZ = 1420.4058;
-const DISPLAY_MIN_MHZ = 1420.0;
-const DISPLAY_MAX_MHZ = 1420.8;
+const DISPLAY_TICK_STEP_MHZ = 0.2;
+const DISPLAY_MIN_SIGNAL_K = 0.02;
+const DISPLAY_PAD_MHZ = 0.04;
+const DISPLAY_SIGNAL_FREQ_MHZ = SURVEY_SAMPLES
+  .filter(sample => sample.tbK >= DISPLAY_MIN_SIGNAL_K)
+  .map(sample => sample.freqMhz);
+const DISPLAY_MIN_MHZ =
+  Math.min(...DISPLAY_SIGNAL_FREQ_MHZ) - DISPLAY_PAD_MHZ;
+const DISPLAY_MAX_MHZ =
+  Math.max(...DISPLAY_SIGNAL_FREQ_MHZ) + DISPLAY_PAD_MHZ;
 const DISPLAY_SPAN_MHZ = DISPLAY_MAX_MHZ - DISPLAY_MIN_MHZ;
-const C_KM_S = 299792.458;
-const SURVEY_V_START = -80;
-const SURVEY_V_STEP = 160 / (SURVEY_TB_K.length - 1);
 // Higher frequency on the left (blueshifted), lower on the right (redshifted)
 // — the standard convention used by SDR spectrum tools.
 const fToX = (f: number) => ((DISPLAY_MAX_MHZ - f) / DISPLAY_SPAN_MHZ) * HW;
-const vToX = (v: number) => fToX(H1_REST_MHZ * (1 - v / C_KM_S));
-const indexToX = (i: number) => vToX(SURVEY_V_START + i * SURVEY_V_STEP);
+const indexToX = (i: number) => fToX(SURVEY_FREQ_MHZ[i]);
 const SURVEY_X_START = indexToX(0);
 const SURVEY_X_END   = indexToX(SURVEY_TB_K.length - 1);
-
-const SURVEY_PEAK_X = (() => {
+const SURVEY_DOPPLER_PEAK_X = (() => {
   let idx = 0;
-  for (let i = 0; i < SURVEY_POWER.length; i++) if (SURVEY_POWER[i] > SURVEY_POWER[idx]) idx = i;
+  for (let i = 0; i < SURVEY_POWER.length; i++) {
+    const isBlueShifted = SURVEY_FREQ_MHZ[i] > H1_REST_MHZ + 0.05;
+    if (isBlueShifted && SURVEY_POWER[i] > SURVEY_POWER[idx]) idx = i;
+  }
   return indexToX(idx);
 })();
+const [SURVEY_MAIN_PEAK_X, SURVEY_MAIN_PEAK_Y] = (() => {
+  let idx = 0;
+  for (let i = 0; i < SURVEY_POWER.length; i++) {
+    if (SURVEY_POWER[i] > SURVEY_POWER[idx]) idx = i;
+  }
+  return [indexToX(idx), HERO_BASE_Y - SURVEY_POWER[idx] * HERO_PEAK_PX];
+})();
+const SURVEY_MAIN_PEAK_RATIO = SURVEY_MAIN_PEAK_X / HW;
 
-// Frequency tick labels placed at round 0.2 MHz intervals across the display.
-const FREQ_TICKS_MHZ = [1420.0, 1420.2, 1420.4, 1420.6, 1420.8];
-
-// Observation spectrum: 680×200, three peaks at different velocities
-const OW = 680, OBASE = 142;
-const OBS_APP_FILL  = gaussianFill(190, 32, 74, OBASE, OW);
-const OBS_APP_LINE  = gaussianLine(190, 32, 74, OBASE, OW);
-const OBS_REST_FILL = gaussianFill(340, 26, 38, OBASE, OW);
-const OBS_REST_LINE = gaussianLine(340, 26, 38, OBASE, OW);
-const OBS_REC_FILL  = gaussianFill(490, 38, 82, OBASE, OW);
-const OBS_REC_LINE  = gaussianLine(490, 38, 82, OBASE, OW);
-const OBS_NOISE     = noiseFloor(OBASE, OW, 6);
+// Frequency tick labels placed at round intervals across the display.
+const FIRST_FREQ_TICK_MHZ = Math.ceil(DISPLAY_MIN_MHZ / DISPLAY_TICK_STEP_MHZ) * DISPLAY_TICK_STEP_MHZ;
+const LAST_FREQ_TICK_MHZ = Math.floor(DISPLAY_MAX_MHZ / DISPLAY_TICK_STEP_MHZ) * DISPLAY_TICK_STEP_MHZ;
+const FREQ_TICKS_MHZ = Array.from(
+  { length: Math.round((LAST_FREQ_TICK_MHZ - FIRST_FREQ_TICK_MHZ) / DISPLAY_TICK_STEP_MHZ) + 1 },
+  (_, i) => FIRST_FREQ_TICK_MHZ + i * DISPLAY_TICK_STEP_MHZ,
+);
 
 // ─── SVG components ────────────────────────────────────────────────────────────
+
+// X-coordinates are a pure function of bin index and never change at runtime,
+// so we precompute them (and the corresponding pre-formatted "x," prefix
+// string used by the path builder) once instead of recomputing every frame.
+const SURVEY_X_PX: Float32Array = (() => {
+  const out = new Float32Array(SURVEY_FREQ_MHZ.length);
+  for (let i = 0; i < SURVEY_FREQ_MHZ.length; i++) out[i] = indexToX(i);
+  return out;
+})();
+const SURVEY_X_PREFIX: string[] = Array.from(SURVEY_X_PX, x => `${x.toFixed(1)},`);
+const SURVEY_X_START_STR = SURVEY_X_START.toFixed(1);
+const SURVEY_X_END_STR = SURVEY_X_END.toFixed(1);
 
 // Build the SVG path data for one playback frame. `smoothed` is the current
 // (noisy, integrating) power-per-bin estimate; we walk it across HW pixels and
 // emit a polyline path plus a matching filled-area path.
-function buildHeroPaths(smoothed: number[]): { line: string; fill: string } {
+function buildHeroPaths(smoothed: Float32Array): { line: string; fill: string } {
   const n = smoothed.length;
-  const linePts: string[] = [];
+  let pts = '';
   for (let i = 0; i < n; i++) {
-    const x = indexToX(i);
     const y = HERO_BASE_Y - smoothed[i] * HERO_PEAK_PX;
-    linePts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    pts += (i === 0 ? '' : ' L ') + SURVEY_X_PREFIX[i] + y.toFixed(1);
   }
-  const line = `M ${linePts.join(' L ')}`;
+  const line = `M ${pts}`;
   // The fill anchors to the baseline at the data's own x bounds, not the SVG
   // edges, so the gradient doesn't smear out into the blank wings.
-  const fill = `M ${SURVEY_X_START.toFixed(1)},${HERO_BASE_Y} L ${linePts.join(' L ')} L ${SURVEY_X_END.toFixed(1)},${HERO_BASE_Y} Z`;
+  const fill = `M ${SURVEY_X_START_STR},${HERO_BASE_Y} L ${pts} L ${SURVEY_X_END_STR},${HERO_BASE_Y} Z`;
   return { line, fill };
 }
 
@@ -154,7 +187,18 @@ function noiseSample(): number {
   return (Math.random() + Math.random() + Math.random() - 1.5) * (2 / 3);
 }
 
-function useVisibleAnimation<T extends Element>() {
+function deterministicNoise(seed: number, timeSeconds: number): number {
+  const a = Math.sin(seed * 12.9898 + 78.233);
+  const b = Math.sin(seed * 39.3467 + 11.135);
+  const c = Math.sin(seed * 73.1562 + 42.798);
+  return (
+    Math.sin(timeSeconds * 11.0 + a * Math.PI) * 0.50 +
+    Math.sin(timeSeconds * 18.0 + b * Math.PI) * 0.30 +
+    Math.sin(timeSeconds * 29.0 + c * Math.PI) * 0.20
+  );
+}
+
+function useVisibleAnimation<T extends Element>(rootMarginTopPx = 0) {
   const ref = useRef<T | null>(null);
   const [active, setActive] = useState(true);
 
@@ -171,10 +215,15 @@ function useVisibleAnimation<T extends Element>() {
       update();
     };
 
+    // Negative top rootMargin shrinks the observer's effective viewport from
+    // the top, so anything sliding under the sticky header counts as out of
+    // view. Pausing the animation while it's behind a translucent
+    // backdrop-filter is the only thing that lets the compositor cache the
+    // blurred header layer between frames.
     const observer = new IntersectionObserver(([entry]) => {
       inView = entry.isIntersecting;
       update();
-    }, { threshold: 0.01 });
+    }, { threshold: 0.01, rootMargin: `-${rootMarginTopPx}px 0px 0px 0px` });
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     observer.observe(el);
@@ -184,111 +233,275 @@ function useVisibleAnimation<T extends Element>() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       observer.disconnect();
     };
-  }, []);
+  }, [rootMarginTopPx]);
 
   return [ref, active] as const;
 }
 
-function HeroSpectrum() {
+function useStickyHeaderHeight() {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const el = document.querySelector('.queue-header') as HTMLElement | null;
+    if (!el) return;
+    const measure = () => setHeight(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return height;
+}
+
+const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: boolean }) {
   // Live trace = survey shape + per-frame noise, lightly low-passed across
   // frames so the line breathes instead of strobing. Smoothing constant α
   // governs how quickly noise integrates away — 0.18 looks visibly "live"
   // while still letting the underlying peaks read clearly.
-  const smoothedRef = useRef<number[]>(SURVEY_POWER.map(() => 0));
+  //
+  // The animation updates path `d` attributes imperatively via refs so React
+  // never reconciles during the rAF loop. The component is also wrapped in
+  // `memo()` so parent re-renders (queue status polling fires every couple
+  // seconds) don't force a fresh React render and a competing path update
+  // alongside the rAF loop.
+  const smoothedRef = useRef<Float32Array>(new Float32Array(SURVEY_POWER.length));
   const rafRef = useRef<number | null>(null);
-  const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>();
-  const [paths, setPaths] = useState(() => buildHeroPaths(smoothedRef.current));
+  const linePathRef = useRef<SVGPathElement | null>(null);
+  const fillPathRef = useRef<SVGPathElement | null>(null);
+  const peakFillPathRef = useRef<SVGPathElement | null>(null);
+  const glowPathRef = useRef<SVGPathElement | null>(null);
+  const headerHeight = useStickyHeaderHeight();
+  const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>(headerHeight);
+  const initialPaths = buildHeroPaths(smoothedRef.current);
 
   useEffect(() => {
-    if (!animationActive) return;
+    if (!animationActive || paused) return;
 
+    // rAF (not setInterval) so the path-attribute writes are synced to the
+    // browser's paint cycle — setInterval fires asynchronously and can land
+    // in the middle of a compositor pass, producing extra paint work.
     let lastTs = 0;
-    // Cap repaints near 24 fps — a 60 Hz update on a decorative panel would
-    // burn battery on the queue page for no visible benefit.
-    const minIntervalMs = 1000 / 24;
-    const alpha = 0.18;
+    const minIntervalMs = 1000 / 20;
+    const alpha = 0.20;
     const noiseAmp = 0.07;
+    const n = SURVEY_POWER.length;
 
     const tick = (ts: number) => {
       rafRef.current = requestAnimationFrame(tick);
       if (ts - lastTs < minIntervalMs) return;
       lastTs = ts;
-      const prev = smoothedRef.current;
-      const next = new Array<number>(SURVEY_POWER.length);
-      for (let i = 0; i < SURVEY_POWER.length; i++) {
+      const buf = smoothedRef.current;
+      for (let i = 0; i < n; i++) {
         const target = SURVEY_POWER[i] + noiseSample() * noiseAmp;
-        next[i] = prev[i] + (target - prev[i]) * alpha;
+        buf[i] = buf[i] + (target - buf[i]) * alpha;
       }
-      smoothedRef.current = next;
-      setPaths(buildHeroPaths(next));
+      const { line, fill } = buildHeroPaths(buf);
+      if (linePathRef.current) linePathRef.current.setAttribute('d', line);
+      if (fillPathRef.current) fillPathRef.current.setAttribute('d', fill);
+      if (peakFillPathRef.current) peakFillPathRef.current.setAttribute('d', fill);
+      if (glowPathRef.current) glowPathRef.current.setAttribute('d', line);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, [animationActive]);
+  }, [animationActive, paused]);
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox="0 0 600 144"
-      className="h1-svg"
-      preserveAspectRatio="xMidYMid meet"
-      aria-hidden="true"
-    >
+    <figure className="h1-hero-figure">
+      <svg
+        ref={svgRef}
+        viewBox={`0 ${HERO_CHART_TOP} ${HW} ${HERO_CHART_BOTTOM - HERO_CHART_TOP}`}
+        className="h1-svg"
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden="true"
+      >
       <defs>
-        <linearGradient id="h1HeroGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#ffbc42" stopOpacity="0.22" />
+        <linearGradient id="h1HeroBaseFillGrad" x1="0" y1={HERO_CHART_TOP} x2="0" y2={HERO_BASE_Y} gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#ffbc42" stopOpacity="0.18" />
+          <stop offset="52%" stopColor="#ffbc42" stopOpacity="0.08" />
           <stop offset="100%" stopColor="#ffbc42" stopOpacity="0" />
         </linearGradient>
+        <radialGradient
+          id="h1HeroPeakFillGrad"
+          cx={SURVEY_MAIN_PEAK_X}
+          cy={SURVEY_MAIN_PEAK_Y + 28}
+          r="150"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#ffbc42" stopOpacity="0.36" />
+          <stop offset="45%" stopColor="#ffbc42" stopOpacity="0.14" />
+          <stop offset="100%" stopColor="#ffbc42" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="h1HeroLineGlowGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset={`${Math.max(0, SURVEY_MAIN_PEAK_RATIO - 0.18) * 100}%`} stopColor="#ffbc42" stopOpacity="0.05" />
+          <stop offset={`${Math.max(0, SURVEY_MAIN_PEAK_RATIO - 0.07) * 100}%`} stopColor="#ffbc42" stopOpacity="0.5" />
+          <stop offset={`${SURVEY_MAIN_PEAK_RATIO * 100}%`} stopColor="#ffd37a" stopOpacity="0.95" />
+          <stop offset={`${Math.min(1, SURVEY_MAIN_PEAK_RATIO + 0.08) * 100}%`} stopColor="#ffbc42" stopOpacity="0.34" />
+          <stop offset={`${Math.min(1, SURVEY_MAIN_PEAK_RATIO + 0.2) * 100}%`} stopColor="#ffbc42" stopOpacity="0.04" />
+        </linearGradient>
+        <linearGradient id="h1PerseusArmGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#5ba4f5" stopOpacity="0.18" />
+          <stop offset="60%" stopColor="#5ba4f5" stopOpacity="0.08" />
+          <stop offset="100%" stopColor="#5ba4f5" stopOpacity="0" />
+        </linearGradient>
       </defs>
-      {[30, 55, 80, 105].map(y => (
+      {Array.from({ length: 7 }, (_, i) => HERO_CHART_TOP + (HERO_CHART_HEIGHT / 6) * i).map(y => (
         <line key={y} x1="0" y1={y} x2={HW} y2={y} stroke="#1a1d2e" strokeWidth="1" />
       ))}
       {FREQ_TICKS_MHZ.map(f => (
-        <line key={f} x1={fToX(f)} y1="0" x2={fToX(f)} y2="115" stroke="#1a1d2e" strokeWidth="1" />
+        <line key={f} x1={fToX(f)} y1={HERO_CHART_TOP} x2={fToX(f)} y2={HERO_BASE_Y} stroke="#1a1d2e" strokeWidth="1" />
       ))}
-      <path d={paths.fill}  fill="url(#h1HeroGrad)" />
-      <path d={paths.line}  fill="none" stroke="#ffbc42" strokeWidth="2.5" strokeLinejoin="round" />
-      <line x1={fToX(H1_REST_MHZ)} y1="6" x2={fToX(H1_REST_MHZ)} y2="115" stroke="#ffbc42" strokeWidth="1" strokeDasharray="4,3" opacity="0.45" />
-      {/* Doppler-shifted peak marker — the Perseus-arm gas in this sightline
-          is moving toward us at ~50 km/s, shifting its emission well to the
-          blue side of the 1420.4 MHz rest line. */}
-      <line
-        x1={SURVEY_PEAK_X} y1="6" x2={SURVEY_PEAK_X} y2="115"
-        stroke="#5ba4f5" strokeWidth="1" strokeDasharray="3,3" opacity="0.7"
+      <rect
+        x={SURVEY_DOPPLER_PEAK_X - 46}
+        y={HERO_PERSEUS_BAND_TOP}
+        width="92"
+        height={HERO_BASE_Y - HERO_PERSEUS_BAND_TOP}
+        fill="url(#h1PerseusArmGrad)"
       />
-      <a href="#h1-doppler-section">
-        <title>This peak is offset from 1420.4 MHz — that's the Doppler effect. Click to learn more.</title>
-        <text
-          x={SURVEY_PEAK_X + 6} y="14"
-          fill="#5ba4f5" fontSize="10"
-          fontFamily="ui-monospace,monospace"
-          style={{ cursor: 'pointer', textDecoration: 'underline' }}
-        >
-          what's this?
-        </text>
+      <path ref={fillPathRef} d={initialPaths.fill} fill="url(#h1HeroBaseFillGrad)" />
+      <path ref={peakFillPathRef} d={initialPaths.fill} fill="url(#h1HeroPeakFillGrad)" />
+      <line x1="0" y1={HERO_BASE_Y} x2={HW} y2={HERO_BASE_Y} stroke="#232640" strokeWidth="1" />
+      <path ref={glowPathRef} d={initialPaths.line} fill="none" stroke="url(#h1HeroLineGlowGrad)" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" opacity="0.42" />
+      <path ref={linePathRef} d={initialPaths.line} fill="none" stroke="#ffbc42" strokeWidth="3.25" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1={fToX(H1_REST_MHZ)} y1={SURVEY_MAIN_PEAK_Y} x2={fToX(H1_REST_MHZ)} y2={HERO_BASE_Y} stroke="#ffbc42" strokeWidth="1.35" strokeDasharray="5,4" opacity="0.72" />
+      {/* Secondary blueshifted emission peak in the supplied LAB profile:
+          neutral hydrogen in the Perseus Arm. */}
+      <a href="#h1-doppler-section" style={{ cursor: 'pointer' }}>
+        <title>Neutral hydrogen in the Perseus Arm, a spiral arm of the Milky Way, blueshifted by galactic rotation at l = 110°. Click to learn more about the Doppler effect.</title>
+        <g>
+          <rect
+            x={SURVEY_DOPPLER_PEAK_X - 72}
+            y={HERO_PERSEUS_LABEL_Y}
+            width="144"
+            height="36"
+            rx="5"
+            fill="#08172e"
+            stroke="#5ba4f5"
+            strokeWidth="1"
+            opacity="0.82"
+          />
+          <text
+            x={SURVEY_DOPPLER_PEAK_X} y={HERO_PERSEUS_LABEL_Y + 16}
+            textAnchor="middle"
+            fill="#c5ddfb" fontSize="10.5" fontWeight="700"
+            fontFamily="ui-monospace,monospace"
+          >
+            Perseus Arm
+          </text>
+          <text
+            x={SURVEY_DOPPLER_PEAK_X} y={HERO_PERSEUS_LABEL_Y + 29}
+            textAnchor="middle"
+            fill="#7ab8f7" fontSize="8.25"
+            fontFamily="ui-monospace,monospace"
+          >
+            Milky Way spiral arm
+          </text>
+        </g>
       </a>
-      <line x1="0" y1="115" x2={HW} y2="115" stroke="#232640" strokeWidth="1" />
+      {/* Sideways bracket spanning the gap between the main (local-arm) peak
+          and the H I rest marker, linking out to the Doppler explainer. */}
+      {(() => {
+        const restX = fToX(H1_REST_MHZ);
+        const leftX = Math.min(SURVEY_MAIN_PEAK_X, restX);
+        const rightX = Math.max(SURVEY_MAIN_PEAK_X, restX);
+        const midX = (leftX + rightX) / 2;
+        const prongY = SURVEY_MAIN_PEAK_Y - 9;
+        const barY = prongY - 12;
+        const tickY = barY - 15;
+        const labelY = tickY - 3;
+        const linkBoxY = labelY - 13;
+        return (
+          <a href="#h1-doppler-section" style={{ cursor: 'pointer' }}>
+            <title>The received peak is offset from the 1420.4 MHz rest line — that gap is the Doppler shift. Click to learn more.</title>
+            <path
+              d={`M ${leftX} ${prongY} L ${leftX} ${barY} L ${rightX} ${barY} L ${rightX} ${prongY} M ${midX} ${barY} L ${midX} ${tickY}`}
+              fill="none"
+              stroke="#7ab8f7"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.72"
+            />
+            <rect
+              x={midX - 70}
+              y={linkBoxY}
+              width="140"
+              height="18"
+              rx="4"
+              fill="#0b1328"
+              stroke="#7ab8f7"
+              strokeWidth="1"
+              opacity="0.88"
+            />
+            <text
+              x={midX - 6} y={labelY}
+              textAnchor="middle"
+              fill="#d4e5ff" fontSize="11" fontWeight="bold" opacity="0.92"
+              fontFamily="ui-monospace,monospace"
+              style={{ textDecoration: 'underline' }}
+            >
+              Why the difference?
+            </text>
+            <path
+              d={`M ${midX + 57} ${labelY - 5} L ${midX + 62} ${labelY - 5} L ${midX + 62} ${labelY} M ${midX + 62} ${labelY - 5} L ${midX + 55} ${labelY + 2}`}
+              fill="none"
+              stroke="#d4e5ff"
+              strokeWidth="1.1"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.9"
+            />
+          </a>
+        );
+      })()}
       {FREQ_TICKS_MHZ.map(f => {
         const isRest = Math.abs(f - 1420.4) < 0.001;
+        if (isRest) {
+          return (
+            <g key={f}>
+              <rect
+                x={fToX(f) - 38}
+                y={HERO_REST_LABEL_BOX_Y}
+                width="76"
+                height="21"
+                rx="4"
+                fill="#251b0d"
+                stroke="#ffbc42"
+                strokeWidth="1"
+                opacity="0.94"
+              />
+              <text
+                x={fToX(f)}
+                y={HERO_REST_LABEL_Y}
+                textAnchor="middle"
+                fill="#ffd37a"
+                fontSize="12"
+                fontWeight="800"
+                fontFamily="ui-monospace,monospace"
+              >
+                {`${f.toFixed(1)} MHz`}
+              </text>
+            </g>
+          );
+        }
         return (
           <text
             key={f}
-            x={fToX(f)} y="129"
+            x={fToX(f)} y={HERO_AXIS_LABEL_Y}
             textAnchor="middle"
-            fill={isRest ? '#9b9ece' : '#5a5d80'}
-            fontSize={isRest ? 11 : 10}
+            fill="#6f719a"
+            fontSize="10"
+            fontWeight="normal"
             fontFamily="ui-monospace,monospace"
           >
             {f.toFixed(1)}
           </text>
         );
       })}
-      <text x={HW / 2} y="138" textAnchor="middle" fill="#3a3f5e" fontSize="9" fontFamily="ui-monospace,monospace">MHz</text>
-    </svg>
+      </svg>
+    </figure>
   );
-}
+});
 
 // ─── Doppler animation ────────────────────────────────────────────────────────
 //
@@ -305,7 +518,7 @@ function HeroSpectrum() {
 // source's instantaneous motion.
 
 const DA_W = 600;
-const DA_H = 360;                   // total SVG height (scene + mini spectrum)
+const DA_H = 380;                   // total SVG height (scene + mini spectrum)
 const DA_AXIS_Y = 108;              // y of horizontal axis through source
 const DA_TELESCOPE_X = 64;          // x of dish centre
 const DA_DISH_BACK_X = DA_TELESCOPE_X - 0.5;
@@ -403,6 +616,18 @@ const DA_MINI_NOISE_TAU_S = 0.08;      // smoothing time constant (s)
 // nearly the full width.
 const DA_MINI_HALF_RANGE = (DA_MINI_W / 2 - 36) * 0.55;
 
+// Map mini-spectrum x to the frequency it represents. DA_V_MAX (in km/s in this
+// scene) shifts the peak by DA_MINI_HALF_RANGE px, and Doppler says that
+// corresponds to Δf = f₀ · v/c at the H1 rest line.
+const DA_SPEED_OF_LIGHT_KMS = 299792.458;
+const DA_DOPPLER_DF_AT_VMAX_MHZ =
+  H1_REST_MHZ * DA_V_MAX / DA_SPEED_OF_LIGHT_KMS;
+const DA_MINI_MHZ_PER_PX =
+  DA_DOPPLER_DF_AT_VMAX_MHZ / DA_MINI_HALF_RANGE;
+const daFreqToX = (mhz: number) =>
+  DA_MINI_CX + (mhz - H1_REST_MHZ) / DA_MINI_MHZ_PER_PX;
+const DA_MINI_FREQ_LABELS_MHZ = [1420.2, 1420.3, 1420.4, 1420.5, 1420.6];
+
 const dopplerColor = (vFrac: number): string => {
   // vFrac in approx [-V_MAX/C, +V_MAX/C]; positive = approaching (blueshift).
   const amber = [255, 188, 66];
@@ -451,16 +676,19 @@ function TelescopeIllustration({ cx, cy }: { cx: number; cy: number }) {
   );
 }
 
-function DopplerAnimation() {
+export function DopplerAnimation({ renderTimeSeconds, paused = false }: { renderTimeSeconds?: number; paused?: boolean } = {}) {
   const [now, setNow] = useState(0);
   const startRef = useRef(0);
-  const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>();
+  const headerHeight = useStickyHeaderHeight();
+  const [svgRef, animationActive] = useVisibleAnimation<SVGSVGElement>(headerHeight);
+  const isRenderFrame = renderTimeSeconds != null;
   // Smoothed noisy bin values for the mini spectrum trace. Updated in the rAF
   // loop so render stays a pure function of `now` plus this ref.
   const miniBinsRef = useRef<number[]>(new Array(DA_MINI_BINS).fill(0));
 
   useEffect(() => {
-    if (!animationActive) return;
+    if (isRenderFrame) return;
+    if (!animationActive || paused) return;
 
     let raf = 0;
     let lastTickT = 0;
@@ -482,7 +710,7 @@ function DopplerAnimation() {
       const alpha = 1 - Math.exp(-dt / DA_MINI_NOISE_TAU_S);
       const emitTAtDish = findEmitTimeAtTelescope(newT);
       const vReceived = vTowardAt(emitTAtDish);
-      const peakCenter = DA_MINI_CX - (vReceived / DA_V_MAX) * DA_MINI_HALF_RANGE;
+      const peakCenter = DA_MINI_CX + (vReceived / DA_V_MAX) * DA_MINI_HALF_RANGE;
       const prev = miniBinsRef.current;
       const next = new Array<number>(DA_MINI_BINS);
       for (let i = 0; i < DA_MINI_BINS; i++) {
@@ -498,9 +726,9 @@ function DopplerAnimation() {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [animationActive]);
+  }, [animationActive, isRenderFrame, paused]);
 
-  const t = now;
+  const t = renderTimeSeconds ?? now;
   const sourceX = sourceXAt(t);
   const vToward = vTowardAt(t); // positive when source approaches telescope
 
@@ -572,7 +800,17 @@ function DopplerAnimation() {
 
   // Build the mini spectrum trace from the smoothed bin values updated in the
   // rAF loop.
-  const miniBins = miniBinsRef.current;
+  const miniBins = isRenderFrame
+    ? Array.from({ length: DA_MINI_BINS }, (_, i) => {
+      const emitTAtDish = findEmitTimeAtTelescope(t);
+      const vReceived = vTowardAt(emitTAtDish);
+      const peakCenter = DA_MINI_CX + (vReceived / DA_V_MAX) * DA_MINI_HALF_RANGE;
+      const x = DA_MINI_PLOT_LEFT_X + (i / (DA_MINI_BINS - 1)) * DA_MINI_PLOT_W;
+      const dx = x - peakCenter;
+      const peakNorm = Math.exp(-0.5 * (dx / DA_MINI_PEAK_SIGMA) ** 2);
+      return Math.max(0, peakNorm + deterministicNoise(i, t) * DA_MINI_NOISE_AMP);
+    })
+    : miniBinsRef.current;
   const miniPts: string[] = new Array(DA_MINI_BINS);
   for (let i = 0; i < DA_MINI_BINS; i++) {
     const x = DA_MINI_PLOT_LEFT_X + (i / (DA_MINI_BINS - 1)) * DA_MINI_PLOT_W;
@@ -590,7 +828,8 @@ function DopplerAnimation() {
   const arrowLen = Math.min(58, Math.abs(vToward) * 1.9);
   const arrowStartX = sourceX + arrowDir * 11;
   const arrowEndX = sourceX + arrowDir * (11 + arrowLen);
-  const arrowY = DA_AXIS_Y + 38;
+  const arrowHeadBaseX = arrowEndX - arrowDir * 8;
+  const arrowY = DA_AXIS_Y + 46;
   const radialVelocity = -vToward;
   const velocityLabel =
     Math.abs(radialVelocity) < 0.05
@@ -658,11 +897,11 @@ function DopplerAnimation() {
         <g>
           <line
             x1={arrowStartX} y1={arrowY}
-            x2={arrowEndX}   y2={arrowY}
+            x2={arrowHeadBaseX} y2={arrowY}
             stroke="#9b9ece" strokeWidth="2"
           />
-          <polyline
-            points={`${arrowEndX},${arrowY} ${arrowEndX - arrowDir * 6},${arrowY - 4} ${arrowEndX - arrowDir * 6},${arrowY + 4}`}
+          <path
+            d={`M ${arrowEndX},${arrowY} L ${arrowHeadBaseX},${arrowY - 5} L ${arrowHeadBaseX},${arrowY + 5} Z`}
             fill="#9b9ece" stroke="none"
           />
         </g>
@@ -726,7 +965,7 @@ function DopplerAnimation() {
       </defs>
       <rect
         x={DA_MINI_LEFT_X} y={DA_MINI_TOP_Y}
-        width={DA_MINI_W} height={DA_MINI_BASE_Y - DA_MINI_TOP_Y + 18}
+        width={DA_MINI_W} height={DA_MINI_BASE_Y - DA_MINI_TOP_Y + 32}
         fill="#0c0f1c" stroke="#1d2138" rx="4"
       />
       <text
@@ -748,19 +987,15 @@ function DopplerAnimation() {
           />
         );
       })}
-      {/* Vertical gridlines at the same fractional positions as the hero
-          spectrum's MHz ticks (1420.0, 1420.2, 1420.4, 1420.6, 1420.8). */}
-      {[0.125, 0.375, 0.5, 0.625, 0.875].map((f) => {
-        const x = DA_MINI_LEFT_X + 12 + f * (DA_MINI_W - 24);
-        return (
-          <line
-            key={f}
-            x1={x} y1={DA_MINI_PLOT_TOP_Y}
-            x2={x} y2={DA_MINI_BASE_Y}
-            stroke="#1a1d2e" strokeWidth="1"
-          />
-        );
-      })}
+      {/* Vertical gridlines aligned to the frequency-axis tick labels. */}
+      {DA_MINI_FREQ_LABELS_MHZ.map((mhz) => (
+        <line
+          key={mhz}
+          x1={daFreqToX(mhz)} y1={DA_MINI_PLOT_TOP_Y}
+          x2={daFreqToX(mhz)} y2={DA_MINI_BASE_Y}
+          stroke="#1a1d2e" strokeWidth="1"
+        />
+      ))}
       {/* Rest-frequency dashed marker, matching the hero amber line. */}
       <line
         x1={DA_MINI_CX} y1={DA_MINI_PLOT_TOP_Y}
@@ -781,81 +1016,34 @@ function DopplerAnimation() {
         strokeWidth="2.5"
         strokeLinejoin="round"
       />
-      {/* Tick labels along the axis. */}
+      {/* Frequency tick labels along the axis. */}
+      {DA_MINI_FREQ_LABELS_MHZ.map((mhz) => {
+        const isRest = Math.abs(mhz - 1420.4) < 0.001;
+        return (
+          <text
+            key={mhz}
+            x={daFreqToX(mhz)} y={DA_MINI_BASE_Y + 13}
+            textAnchor="middle"
+            fill={isRest ? '#9b9ece' : '#6f719a'}
+            fontSize={isRest ? 11 : 9}
+            fontFamily="ui-monospace,monospace"
+          >
+            {mhz.toFixed(1)}
+          </text>
+        );
+      })}
       <text
-        x={DA_MINI_LEFT_X + 12} y={DA_MINI_BASE_Y + 14}
-        fill="#5ba4f5" fontSize="10"
+        x={DA_MINI_LEFT_X + 12} y={DA_MINI_BASE_Y + 27}
+        fill="#ff7a4d" fontSize="10"
       >
-        blueshift ←
+        redshift ←
       </text>
       <text
-        x={DA_MINI_CX} y={DA_MINI_BASE_Y + 14}
-        textAnchor="middle" fill="#9b9ece" fontSize="11"
-        fontFamily="ui-monospace,monospace"
+        x={DA_MINI_LEFT_X + DA_MINI_W - 12} y={DA_MINI_BASE_Y + 27}
+        textAnchor="end" fill="#5ba4f5" fontSize="10"
       >
-        1420.4 MHz
+        → blueshift
       </text>
-      <text
-        x={DA_MINI_LEFT_X + DA_MINI_W - 12} y={DA_MINI_BASE_Y + 14}
-        textAnchor="end" fill="#ff7a4d" fontSize="10"
-      >
-        → redshift
-      </text>
-    </svg>
-  );
-}
-
-function ObservationSpectrum() {
-  const appX = 190, restX = 340, recX = 490, axisY = 152;
-  return (
-    <svg
-      viewBox={`0 0 ${OW} 200`}
-      className="h1-svg h1-svg-wide"
-      preserveAspectRatio="xMidYMid meet"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id="h1AppGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#5ba4f5" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="#5ba4f5" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="h1RestGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#ffbc42" stopOpacity="0.15" />
-          <stop offset="100%" stopColor="#ffbc42" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="h1RecGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#ff7a4d" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="#ff7a4d" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      {[40, 80, 120].map(y => (
-        <line key={y} x1="0" y1={y} x2={OW} y2={y} stroke="#1a1d2e" strokeWidth="1" />
-      ))}
-
-      <line x1={restX} y1="0" x2={restX} y2={axisY} stroke="#ffbc42" strokeWidth="1" strokeDasharray="5,4" opacity="0.35" />
-      <path d={OBS_NOISE}    fill="none" stroke="#252840" strokeWidth="1.5" />
-      <path d={OBS_APP_FILL}  fill="url(#h1AppGrad)" />
-      <path d={OBS_REST_FILL} fill="url(#h1RestGrad)" />
-      <path d={OBS_REC_FILL}  fill="url(#h1RecGrad)" />
-      <path d={OBS_APP_LINE}  fill="none" stroke="#5ba4f5" strokeWidth="2" />
-      <path d={OBS_REST_LINE} fill="none" stroke="#ffbc42" strokeWidth="1.5" />
-      <path d={OBS_REC_LINE}  fill="none" stroke="#ff7a4d" strokeWidth="2" />
-
-      <line x1="0" y1={axisY} x2={OW} y2={axisY} stroke="#232640" strokeWidth="1" />
-
-      <line x1={appX}  y1={OBASE - 74} x2={appX}  y2={axisY + 8} stroke="#5ba4f5" strokeWidth="1" opacity="0.4" />
-      <line x1={restX} y1={OBASE - 38} x2={restX} y2={axisY + 8} stroke="#ffbc42" strokeWidth="1" opacity="0.35" />
-      <line x1={recX}  y1={OBASE - 82} x2={recX}  y2={axisY + 8} stroke="#ff7a4d" strokeWidth="1" opacity="0.4" />
-
-      <text x={appX}  y={axisY + 22} textAnchor="middle" fill="#5ba4f5" fontSize="12" fontWeight="600">Approaching gas</text>
-      <text x={appX}  y={axisY + 36} textAnchor="middle" fill="#8ab4d8" fontSize="10">moving toward us</text>
-
-      <text x={restX} y={axisY + 22} textAnchor="middle" fill="#c8a872" fontSize="11">rest frequency</text>
-      <text x={restX} y={axisY + 36} textAnchor="middle" fill="#9b9ece" fontSize="10" fontFamily="ui-monospace,monospace">1420.4 MHz</text>
-
-      <text x={recX}  y={axisY + 22} textAnchor="middle" fill="#ff7a4d" fontSize="12" fontWeight="600">Receding gas</text>
-      <text x={recX}  y={axisY + 36} textAnchor="middle" fill="#cc8c6e" fontSize="10">moving away from us</text>
     </svg>
   );
 }
@@ -866,36 +1054,142 @@ interface Props {
   status: QueueStatus | null;
   joining: boolean;
   joinError: string | null;
+  /** Seconds left on the rate-limit cooldown after a 429, or null if not
+   *  rate-limited. Drives the disabled-button countdown UX. */
+  joinRateLimitedSec?: number | null;
   siteKey: string | null;
   turnstileEnabled: boolean;
-  onJoin: (token: string | null) => Promise<void>;
+  betaPasswordEnabled: boolean;
+  onJoin: (token: string | null, betaPassword: string | null) => Promise<void>;
   hasControl: boolean;
   onContinue: () => void;
+  loading?: boolean;
 }
 
 export function QueuePage({
-  status, joining, joinError, siteKey, turnstileEnabled, onJoin, hasControl, onContinue,
+  status, joining, joinError, joinRateLimitedSec = null,
+  siteKey, turnstileEnabled, betaPasswordEnabled, onJoin, hasControl, onContinue, loading = false,
 }: Props) {
+  const rateLimited = joinRateLimitedSec != null && joinRateLimitedSec > 0;
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [betaPassword, setBetaPassword] = useState('');
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const widgetRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
   const autoJoinedTokenRef = useRef<string | null>(null);
+  const misleadingButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [misleadingPopover, setMisleadingPopover] = useState<{
+    left: number;
+    top: number;
+    placement: 'above' | 'below';
+    open: boolean;
+  } | null>(null);
   const inQueue = (status?.position ?? -1) >= 0;
+  const passwordRequired = betaPasswordEnabled && !betaPassword.trim();
+  const waitingForCaptcha = turnstileEnabled && !captchaToken;
+  const joinDisabled = joining || rateLimited || passwordRequired || waitingForCaptcha;
+
+  const submitHeaderJoin = (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    if (joinDisabled) return;
+    void onJoin(captchaToken, betaPasswordEnabled ? betaPassword : null);
+  };
+
+  const positionMisleadingPopover = () => {
+    const trigger = misleadingButtonRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const popoverWidth = Math.min(
+      MISLEADING_POPOVER_WIDTH,
+      viewportWidth - MISLEADING_POPOVER_MARGIN * 2,
+    );
+    const halfWidth = popoverWidth / 2;
+    const maxLeft = Math.max(
+      MISLEADING_POPOVER_MARGIN + halfWidth,
+      viewportWidth - MISLEADING_POPOVER_MARGIN - halfWidth,
+    );
+    const left = clamp(
+      rect.left + rect.width / 2,
+      MISLEADING_POPOVER_MARGIN + halfWidth,
+      maxLeft,
+    );
+    const roomAbove = rect.top - MISLEADING_POPOVER_MARGIN;
+    const roomBelow = viewportHeight - rect.bottom - MISLEADING_POPOVER_MARGIN;
+    const placement = roomAbove > roomBelow && roomAbove >= MISLEADING_POPOVER_HEIGHT ? 'above' : 'below';
+    const preferredTop = placement === 'above'
+      ? rect.top - MISLEADING_POPOVER_GAP - MISLEADING_POPOVER_HEIGHT
+      : rect.bottom + MISLEADING_POPOVER_GAP;
+    const maxTop = Math.max(
+      MISLEADING_POPOVER_MARGIN,
+      viewportHeight - MISLEADING_POPOVER_MARGIN - MISLEADING_POPOVER_HEIGHT,
+    );
+    const top = clamp(
+      preferredTop,
+      MISLEADING_POPOVER_MARGIN,
+      maxTop,
+    );
+    setMisleadingPopover({ left, top, placement, open: true });
+  };
+
+  const hideMisleadingPopover = () => {
+    setMisleadingPopover((current) => current ? { ...current, open: false } : null);
+  };
+
+  useEffect(() => {
+    if (!misleadingPopover?.open) return;
+    window.addEventListener('resize', positionMisleadingPopover);
+    window.addEventListener('scroll', positionMisleadingPopover, true);
+    return () => {
+      window.removeEventListener('resize', positionMisleadingPopover);
+      window.removeEventListener('scroll', positionMisleadingPopover, true);
+    };
+  }, [misleadingPopover]);
+
+  useEffect(() => {
+    const mobileQuery = window.matchMedia('(max-width: 720px)');
+    const viewport = window.visualViewport;
+    const updateCollapsed = () => {
+      setHeaderCollapsed(mobileQuery.matches && window.scrollY > 12);
+      document.documentElement.style.setProperty(
+        '--queue-viewport-top',
+        `${viewport?.offsetTop ?? 0}px`,
+      );
+    };
+
+    updateCollapsed();
+    window.addEventListener('scroll', updateCollapsed, { passive: true });
+    mobileQuery.addEventListener('change', updateCollapsed);
+    viewport?.addEventListener('resize', updateCollapsed);
+    viewport?.addEventListener('scroll', updateCollapsed);
+
+    return () => {
+      window.removeEventListener('scroll', updateCollapsed);
+      mobileQuery.removeEventListener('change', updateCollapsed);
+      viewport?.removeEventListener('resize', updateCollapsed);
+      viewport?.removeEventListener('scroll', updateCollapsed);
+      document.documentElement.style.removeProperty('--queue-viewport-top');
+    };
+  }, []);
 
   useEffect(() => {
     if (!turnstileEnabled) return;
     if (inQueue || joining) return;
     if (!captchaToken) return;
+    if (betaPasswordEnabled && !betaPassword) return;
     if (autoJoinedTokenRef.current === captchaToken) return;
     autoJoinedTokenRef.current = captchaToken;
-    void onJoin(captchaToken);
-  }, [captchaToken, turnstileEnabled, inQueue, joining, onJoin]);
+    void onJoin(captchaToken, betaPasswordEnabled ? betaPassword : null);
+  }, [captchaToken, betaPassword, betaPasswordEnabled, turnstileEnabled, inQueue, joining, onJoin]);
 
   useEffect(() => {
-    if (!joinError || !turnstileEnabled) return;
+    if (!joinError) return;
     autoJoinedTokenRef.current = null;
-    setCaptchaToken(null);
-    if (window.turnstile && widgetIdRef.current) window.turnstile.reset(widgetIdRef.current);
+    if (turnstileEnabled) {
+      setCaptchaToken(null);
+      if (window.turnstile && widgetIdRef.current) window.turnstile.reset(widgetIdRef.current);
+    }
   }, [joinError, turnstileEnabled]);
 
   // Mount the Turnstile widget inline into the queue card. Previously this
@@ -926,100 +1220,212 @@ export function QueuePage({
     }
   }, [inQueue, turnstileEnabled, siteKey]);
 
-  // Non-turnstile flow: nothing to verify, so a plain landing page is fine.
-  if (!inQueue && !turnstileEnabled) {
-    return (
-      <div className="queue-landing">
-        <div className="queue-card">
-          <h1>Radio Telescope</h1>
-          <p>This telescope is shared with other users. Join the queue to take control.</p>
-          <button className="action-button" disabled={joining} onClick={() => void onJoin(null)}>
-            {joining ? 'Joining…' : 'Join queue'}
-          </button>
-          {joinError && <p className="banner banner-error">{joinError}</p>}
-        </div>
-      </div>
-    );
-  }
+  // Progress bar fill: position 1 = front of line (full), larger = further back.
+  // Use queue_length as the denominator so the bar reflects relative standing.
+  const queueLength = status?.queue_length ?? 0;
+  const position = status?.position ?? 0;
+  const progressPct = inQueue && queueLength > 0
+    ? Math.max(6, Math.min(100, ((queueLength - position + 1) / queueLength) * 100))
+    : 0;
 
-  // Turnstile flow + still-joining: render the full waiting page underneath
-  // so the captcha modal opens on top of the same UI the user will see once
-  // they're in the queue, rather than a near-empty landing card.
+  // Keep the animated spectrum quiet while the join verification widget is active.
+  const animationsPaused = false;
 
   return (
     <div className="queue-waiting">
-      <header className="queue-header">
+      <header className={`queue-header${headerCollapsed ? ' queue-header-collapsed' : ''}`}>
         <div className="queue-header-inner">
           <div className="queue-header-title">
-            <h1>{inQueue ? 'You are in the queue' : 'Joining the queue'}</h1>
+            <h1>
+              {loading
+                ? 'Loading queue'
+                : inQueue
+                ? 'You are in the queue'
+                : 'Titan Observatory Demo'}
+            </h1>
             <p className="queue-header-sub">
-              {inQueue
-                ? "Hold tight — you'll get control when it's your turn."
-                : 'Complete the quick verification to take your place in line.'}
+              {loading
+                ? "While the telescope checks your place, scroll on to learn what you'll be observing."
+                : inQueue
+                ? "While you wait, scroll on to learn what you'll be observing."
+                : (
+                    <>
+                      The telescope is currently under construction.{' '}
+                      Interested in helping us test?
+                    </>
+                  )}
+            </p>
+            {!loading && !inQueue && (
+              <a
+                className="queue-access-link"
+                href="https://forms.gle/qPtCGmJdvtG6W8Ky6"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Apply for access
+              </a>
+            )}
+            <p className="queue-content-disclaimer">
+              All content is researched and written by humans :)
             </p>
           </div>
-          <div className="queue-header-status">
-            <span className="queue-header-label">Position</span>
-            <strong className="queue-header-position">
-              {inQueue ? `#${status!.position}` : '—'}
-            </strong>
-            {inQueue && status!.queue_length > 0 && (
-              <span className="queue-header-waiting">{status!.queue_length} waiting</span>
+          <div className={`queue-header-status${!inQueue ? ' queue-header-status-login' : ''}`}>
+            {!inQueue && (
+              <form className="queue-header-join" onSubmit={submitHeaderJoin}>
+                {betaPasswordEnabled && (
+                  <div className="beta-password-field queue-header-password">
+                    <label htmlFor="beta-pw-header">Testing access</label>
+                    <input
+                      id="beta-pw-header"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="Password"
+                      value={betaPassword}
+                      onChange={(e) => setBetaPassword(e.target.value)}
+                    />
+                  </div>
+                )}
+                {turnstileEnabled && (
+                  <div className="queue-header-turnstile">
+                    <div className="cf-turnstile" ref={widgetRef} />
+                  </div>
+                )}
+                <button className="action-button queue-header-cta" type="submit" disabled={joinDisabled}>
+                  {joining
+                    ? 'Joining...'
+                    : rateLimited
+                      ? `Try again in ${joinRateLimitedSec}s`
+                      : 'Join queue'}
+                </button>
+                <p className={`queue-status-line${joinError || rateLimited ? ' queue-status-line-error' : ''}`}>
+                  {rateLimited
+                    ? `You're trying too fast - try again in ${joinRateLimitedSec}s.`
+                    : joinError
+                    }
+                </p>
+              </form>
+            )}
+            <div className="queue-header-status-row">
+              <span className="queue-header-label">Position</span>
+              <strong className="queue-header-position">
+                {inQueue ? `#${position}` : '—'}
+              </strong>
+              {inQueue && queueLength > 0 && (
+                <span className="queue-header-waiting">of {queueLength}</span>
+              )}
+            </div>
+            {inQueue && queueLength > 0 && (
+              <div className="queue-progress" aria-hidden="true">
+                <div className="queue-progress-fill" style={{ width: `${progressPct}%` }} />
+              </div>
+            )}
+            {inQueue && hasControl && (
+              <button className="action-button queue-header-cta" onClick={onContinue}>
+                Continue to telescope →
+              </button>
             )}
           </div>
-          {inQueue && hasControl && (
-            <button className="action-button" onClick={onContinue}>
-              Continue to telescope
-            </button>
-          )}
         </div>
       </header>
 
       <main className="h1-page">
 
         {/* ── Hero ──────────────────────────────────────────────────────────── */}
-        <section className="h1-hero">
+        <section className="h1-hero" id="h1-intro-section">
           <div className="h1-hero-inner">
             <div className="h1-hero-text">
-              <span className="h1-eyebrow">While you wait</span>
-              <h2 className="h1-hero-title">The 21-cm Hydrogen Line</h2>
-              <p className="h1-hero-sub">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+              <span className="h1-eyebrow">What is it?</span>
+              <h2 className="h1-hero-title">The Hydrogen Line</h2>
+              <p className="h1-hero-sub">Found at around 1420.4 MHz, the hydrogen line is a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. Its discovery and use in early days of radio astronomy unlocked an entirely new set of tools for exploring the universe, allowing us to see through thick clouds of dust, measure the velocity and structure of nearby hydrogen, and, for the first time, learn what our own Milky Way galaxy looked like.</p>
             </div>
             <div className="h1-hero-visual">
-              <HeroSpectrum />
+              <HeroSpectrum paused={animationsPaused} />
               <p className="h1-visual-caption">
-                Neutral hydrogen 1420.4 MHz emission, looking outward through the galactic disk
-                (l = 110°, b = 0°). The local-arm peak sits at rest frequency; the Perseus-arm
-                peak is Doppler-shifted ~50 km/s to the blue. LAB all-sky survey, Kalberla et al. 2005.
+                Hydrogen line profile looking outward through the galactic disk
+                (l = 65°, b = 0°). LAB all-sky survey, Kalberla et al. 2005.
               </p>
             </div>
           </div>
         </section>
 
         {/* ── Spin-flip section ─────────────────────────────────────────────── */}
-        <section className="h1-spinflip">
+        <section className="h1-spinflip" id="h1-spinflip-section">
+          <StarsBackground />
           <div className="h1-spinflip-inner">
             <div className="h1-spinflip-text">
+              <span className="h1-eyebrow">What causes it?</span>
               <h2 className="h1-section-heading">The spin-flip transition</h2>
-              <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
-              <p className="h1-section-body">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+              <p className="h1-section-body">
+                Neutral hydrogen consists of one proton and one electron, each with a quantum property known as spin. The term "spin" here is a bit{' '}
+                <button
+                  ref={misleadingButtonRef}
+                  className="spectrum-doppler-term h1-misleading-highlight"
+                  type="button"
+                  aria-label="Show why the spin analogy is misleading"
+                  aria-expanded={misleadingPopover?.open ? 'true' : 'false'}
+                  onMouseEnter={positionMisleadingPopover}
+                  onFocus={positionMisleadingPopover}
+                  onMouseLeave={hideMisleadingPopover}
+                  onBlur={hideMisleadingPopover}
+                  onClick={positionMisleadingPopover}
+                >
+                  misleading
+                  <span
+                    className={`h1-misleading-popover h1-misleading-popover-${misleadingPopover?.placement ?? 'below'}${misleadingPopover?.open ? ' h1-misleading-popover-open' : ''}`}
+                    role="tooltip"
+                    style={misleadingPopover ? { left: misleadingPopover.left, top: misleadingPopover.top } : undefined}
+                  >
+                    <img src="/Screenshot%202026-05-18%20202822.png" alt="Electron spin explained: imagine a ball that's rotating, except it's not a ball and it's not rotating." />
+                  </span>
+                </button>{' '}
+                to say the least, so for this analogy, we'll simply represent it's two possible states: "up" and "down". When the proton and electron spins are parallel, pointing in the same direction, the atom has a slightly higher energy level than when the spins are anti-parallel.
+              </p>
+              <p className="h1-section-body">
+                Very rarely, a hydrogen atom in the higher-energy parallel configuration transitions, or “flips,” into the lower-energy anti-parallel configuration. Because energy is conserved, the atom cannot simply lose that extra energy. It must carry the energy away somehow, and in this case it is released as a radio photon at 1420.4 MHz, corresponding to a wavelength of about 21 centimeters.
+              </p>
+              <p className="h1-section-body">Although any individual spin-flip transition is exceptionally rare, neutral hydrogen is so abundant in the galaxy that the combined signal is constant and measurable, even with a home-built radio telescope!</p>
             </div>
-            <div className="h1-spinflip-visual">
-              {/* Animation goes here */}
-            </div>
+            <div className="h1-spinflip-visual" />
           </div>
         </section>
-
+        
+        {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}
+        <section className="h1-spinflip h1-spinflip-alt h1-discovery-section" id="h1-history-section">
+          <div className="h1-spinflip-inner">
+            <div className="h1-spinflip-text">
+              <span className="h1-eyebrow">How was it discovered?</span>
+              <h2 className="h1-section-heading">Science at its best</h2>
+              <p className="h1-section-body">In the years after radio waves were first detected from space in 1931, radio astronomy was mostly a way of measuring continuum emission, giving us a general "brightness" of a source, but not much else. While the power of spectral lines was well-known in visible-light astronomy, it's application to the radio end of the spectrum was not immediately investigated due to the unique skillset required, sitting awkwardly between RF engineering and astronomy- two very different worlds.</p>
+              <p className="h1-section-body">By the 1950s, thanks to the likes of </p>
+              <p className="h1-section-body">Doc Ewen, after noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
+            </div>
+            <figure className="h1-ewen-figure">
+              <img
+                src="/ewen.jpg"
+                alt="Doc Ewen inspecting patchwork inside the horn antenna"
+                className="h1-ewen-image"
+              />
+              <figcaption className="h1-ewen-caption">
+                <blockquote>
+                  After one year, parts of the copper skin had cracked and peeled away from the plywood. I purchased fifty feet of rope from a local hardware store, tied one end around my waist and the other to the lower section of the antenna mount. With a large soldering iron, solder, and a bristle brush I went over the side, four floors up, and slid into the horn. About an hour later, I managed to climb out of the horn back on to the parapet. This picture of me inspecting the patchwork was taken about two days later. The line was detected within the next few weeks.
+                </blockquote>
+                <cite>Doc Ewen</cite>
+              </figcaption>
+            </figure>
+          </div>
+        </section>
+        
         {/* ── Doppler section ───────────────────────────────────────────────── */}
         <section className="h1-doppler" id="h1-doppler-section">
           <div className="h1-doppler-inner">
             <div className="h1-doppler-text">
+              <span className="h1-eyebrow">How do we use it?</span>
               <h2 className="h1-section-heading">The Doppler Effect</h2>
-              <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.</p>
-              <p className="h1-section-body">Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est qui dolorem ipsum quia dolor sit amet.</p>
+              <p className="h1-section-body"></p>
+              <p className="h1-section-body"></p>
             </div>
             <div className="h1-doppler-visual">
-              <DopplerAnimation />
+              <DopplerAnimation paused={animationsPaused} />
               <p className="h1-visual-caption">
                 The relative velocity of hydrogen gas along our line of sight shifts the observed frequency: approaching gas is blueshifted, receding gas is redshifted.
               </p>
@@ -1027,42 +1433,31 @@ export function QueuePage({
           </div>
         </section>
 
-        {/* ── Observation section ───────────────────────────────────────────── */}
-        <section className="h1-observe">
-          <div className="h1-observe-inner">
-            <h2 className="h1-section-heading">What you'll see in the spectrum</h2>
-            <p className="h1-section-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident.</p>
-            <div className="h1-observe-visual">
-              <ObservationSpectrum />
+        <section className="h1-spinflip h1-spinflip-alt h1-jansky-section" id="h1-history-section">
+          <div className="h1-spinflip-inner">
+            <div className="h1-spinflip-text">
+              <span className="h1-eyebrow">More lore</span>
+              <h2 className="h1-section-heading">The beginning of radio astronomy</h2>
+              <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl G. Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun. However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun.</p>
+              <p className="h1-section-body">Recognizing that this puzzle had left his domain of RF engineering, Janksky met with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
+              <p className="h1-section-body">The early days of radio astronomy were not quite as revolutionary as one might expect when opening a new window to the universe. In the 20 years after the discovery of radio waves from space, amatuer radio operators like Grote Reber , and by the end of the 40s we started discovering "radio stars," or discrete signals that were not . However, observations were still broadband, and radio astronomy was </p>
             </div>
-            <p className="h1-visual-caption">
-              Multiple peaks appear when the beam passes through gas clouds moving at different radial velocities — each peak is a separate arm of the galaxy
-            </p>
+            <figure className="h1-jansky-figure">
+              <img
+                src="/Jansky.jpg"
+                alt="Karl Jansky's rotating directional radio antenna array"
+                className="h1-jansky-image"
+              />
+              <figcaption className="h1-jansky-caption">
+                Karl Jansky, working at Bell Telephone Laboratories in Holmdel, NJ, built this antenna to receive radio waves at a frequency of 20.5 MHz (wavelength about 14.5 meters). It was mounted on a turntable that allowed it to rotate in any direction, earning it the name "Jansky's merry-go-round".
+              </figcaption>
+            </figure>
           </div>
         </section>
 
 
       </main>
 
-      {!inQueue && turnstileEnabled && (
-        <div className="captcha-modal-overlay">
-          <div className="captcha-modal">
-            <div className="captcha-modal-header">
-              <h2>Verify to join</h2>
-            </div>
-            <p className="captcha-modal-body">Complete the check below to join the queue.</p>
-            <div className="cf-turnstile" ref={widgetRef} />
-            <p className="queue-status-line">
-              {joining
-                ? 'Joining…'
-                : captchaToken
-                  ? 'Verified — joining queue…'
-                  : 'Waiting for verification…'}
-            </p>
-            {joinError && <p className="banner banner-error">{joinError}</p>}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -34,13 +34,14 @@ def read_session_token(request: Request | WebSocket) -> str | None:
 
 def write_session_token(response, request: Request, token: str) -> None:
     cfg = request.app.state.config.queue
+    server_cfg = request.app.state.config.server
     signed = _serializer(request).dumps(token)
     response.set_cookie(
         key=cfg.cookie_name,
         value=signed,
         max_age=60 * 60 * 24,  # 1 day
         httponly=True,
-        secure=request.url.scheme == "https",
+        secure=server_cfg.public_exposure or request.url.scheme == "https",
         samesite="lax",
         path="/",
     )
@@ -66,7 +67,28 @@ def is_lan_admin(request: Request | WebSocket) -> bool:
 
 def client_ip(request: Request | WebSocket) -> str | None:
     client = request.client
-    return client.host if client else None
+    peer = client.host if client else None
+    cfg = request.app.state.config.server
+    if not cfg.public_exposure or peer is None:
+        return peer
+
+    trusted = set(cfg.trusted_proxies)
+    if peer not in trusted and not _is_loopback(peer):
+        return peer
+
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if not forwarded_for:
+        # In public mode, a trusted proxy connection without X-Forwarded-For
+        # should not inherit the proxy/loopback address as a LAN admin.
+        return None
+    return forwarded_for.split(",", 1)[0].strip() or None
+
+
+def _is_loopback(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip).is_loopback
+    except ValueError:
+        return False
 
 
 def queue_service(request: Request | WebSocket) -> QueueService:

@@ -11,7 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from itsdangerous import BadSignature, URLSafeSerializer
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -21,7 +21,28 @@ from radiotelescope.api.dependencies import client_ip
 logger = logging.getLogger("radiotelescope.auth")
 
 _COOKIE_NAME = "rt_auth"
-_EXEMPT_PATHS = frozenset({"/login", "/api/auth/login", "/api/auth/logout"})
+_EXEMPT_PATHS = frozenset({
+    "/login",
+    "/api/auth/login",
+    "/api/auth/logout",
+    # The SPA root and queue bootstrap/join must be reachable before the user
+    # has an auth cookie so the inline password form can load and submit.
+    "/",
+    "/api/queue/config",
+    "/api/queue/join",
+})
+_EXEMPT_PREFIXES = ("/assets/",)
+_EXEMPT_STATIC_SUFFIXES = (
+    ".css",
+    ".gif",
+    ".ico",
+    ".jpg",
+    ".jpeg",
+    ".js",
+    ".png",
+    ".svg",
+    ".webp",
+)
 _MAX_IP_RECORDS = 10_000
 
 
@@ -67,6 +88,18 @@ class AuthManager:
 
     def make_cookie_value(self) -> str:
         return self._ser.dumps(secrets.token_hex(32))
+
+    def set_auth_cookie(self, response: "Response", *, is_secure: bool) -> None:
+        """Attach a signed auth cookie to a FastAPI Response."""
+        response.set_cookie(
+            key=_COOKIE_NAME,
+            value=self.make_cookie_value(),
+            max_age=30 * 24 * 60 * 60,  # 30 days
+            httponly=True,
+            secure=is_secure,
+            samesite="lax",
+            path="/",
+        )
 
     # ── Password check ───────────────────────────────────────────────────────
 
@@ -150,7 +183,11 @@ class PasswordAuthMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in _EXEMPT_PATHS:
+        if (
+            path in _EXEMPT_PATHS
+            or any(path.startswith(p) for p in _EXEMPT_PREFIXES)
+            or (scope["type"] == "http" and path.lower().endswith(_EXEMPT_STATIC_SUFFIXES))
+        ):
             await self.app(scope, receive, send)
             return
 
@@ -167,7 +204,7 @@ class PasswordAuthMiddleware:
 
         accept = headers.get(b"accept", b"").decode("latin-1")
         if "text/html" in accept:
-            await _redirect(send, b"/login")
+            await _redirect(send, b"/")
         else:
             body = b'{"detail":"Authentication required"}'
             await _http_response(send, 401, b"application/json", body)
@@ -309,7 +346,7 @@ async def login_page(request: Request) -> HTMLResponse | RedirectResponse:
     auth: AuthManager = request.app.state.auth
     if not auth.enabled:
         return RedirectResponse("/")
-    return HTMLResponse(_login_html())
+    return RedirectResponse("/")
 
 
 @router.post("/api/auth/login", include_in_schema=False, response_model=None)
@@ -328,12 +365,13 @@ async def do_login(request: Request, password: str = Form(...)) -> HTMLResponse 
         auth.record_success(ip)
         logger.info("Auth: successful login from %s", ip)
         resp = RedirectResponse(url="/", status_code=303)
+        server_cfg = request.app.state.config.server
         resp.set_cookie(
             key=_COOKIE_NAME,
             value=auth.make_cookie_value(),
             max_age=30 * 24 * 60 * 60,  # 30 days
             httponly=True,
-            secure=request.url.scheme == "https",
+            secure=server_cfg.public_exposure or request.url.scheme == "https",
             samesite="lax",
             path="/",
         )
@@ -349,6 +387,6 @@ async def do_login(request: Request, password: str = Form(...)) -> HTMLResponse 
 
 @router.post("/api/auth/logout", include_in_schema=False)
 async def do_logout() -> RedirectResponse:
-    resp = RedirectResponse(url="/login", status_code=303)
+    resp = RedirectResponse(url="/", status_code=303)
     resp.delete_cookie(_COOKIE_NAME, path="/")
     return resp

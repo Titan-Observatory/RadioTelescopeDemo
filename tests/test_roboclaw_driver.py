@@ -10,7 +10,6 @@ from radiotelescope.hardware.roboclaw import (
     ACK,
     COMMANDS,
     SerialRoboClaw,
-    SimulatedRoboClaw,
     command_registry,
     crc16,
 )
@@ -160,12 +159,14 @@ def test_command_registry_excludes_major_configuration_commands():
 
 
 def test_simulator_updates_motion_and_snapshot():
-    sim = SimulatedRoboClaw(RoboClawConfig(connect_mode="simulated"))
+    from tests.fake_roboclaw import SimulatedRoboClaw
+
+    sim = SimulatedRoboClaw(RoboClawConfig(connect_mode="auto"))
 
     result = sim.execute("forward_m1", {"speed": 30})
     snapshot = sim.snapshot()
 
     assert result.ok
-    assert snapshot.connection.mode == "simulated"
+    assert snapshot.connection.mode == "disconnected"
     assert snapshot.motors["m1"].pwm is not None
     assert snapshot.firmware

@@ -154,6 +154,16 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
   const [baseline, setBaseline] = useState<Baseline | null>(null);
   const [dopplerOpen, setDopplerOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [waterfallDropdown, setWaterfallDropdown] = useState(false);
+  const [waterfallOpen, setWaterfallOpen] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 640px)');
+    const sync = () => setWaterfallDropdown(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
 
   // Baseline subtraction is what makes the H I line pop above the bandpass.
   // Only apply when the cached baseline matches the current FFT layout —
@@ -412,10 +422,9 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
     <section className="spectrum-section">
       <header className="spectrum-head">
         <h2 className="panel-header head-amber">
-          Hydrogen line observation
+          The Hydrogen Line
         </h2>
         <div className="spectrum-status">
-          {baseline && baselineApplies && <span className="spectrum-tag">baseline subtracted</span>}
           {baseline && !baselineApplies && <span className="spectrum-tag spectrum-tag-warn">baseline mismatched</span>}
           {!connected && <span className="spectrum-disconnected">offline</span>}
           {onStartGuided && (
@@ -426,7 +435,7 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
               disabled={!connected || !frame}
               title={!connected || !frame ? 'Waiting for SDR…' : 'Walk through a hydrogen-line observation step by step'}
             >
-              <Sparkles size={12} /> Guided observation
+              <Sparkles size={12} /> Guided Observation
             </button>
           )}
         </div>
@@ -435,9 +444,8 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
       <div className="spectrum-observation-panel" aria-label="Hydrogen line observation guide">
         <div className="spectrum-observation-primary">
           <p>
-            Neutral hydrogen emits radio energy at <strong>1420.4058 MHz</strong>. Observe several
-            different spots in the sky and compare where the received line appears relative to the H I
-            marker. Gas moving toward or away from the telescope shifts the signal slightly by the{' '}
+            Neutral hydrogen in the Milky Way emits radio energy at <strong>1420.4 MHz</strong>. This panel shows a live spectrum from the SDR, with a vertical
+            marker at that reference frequency. Gas moving toward or away from the telescope shifts the signal slightly by the{' '}
             <span className="spectrum-doppler-wrap">
               <button
                 type="button"
@@ -456,7 +464,7 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
                 </span>
               )}
             </span>
-            . Look for a narrow bump in the yellow trace that persists as a vertical feature in the waterfall.
+            . By observing several points along the galactic plane, you can see the motion and distribution of the hydrogen gas in our own Milky Way galaxy. 
           </p>
           {dopplerOpen && (
             <div className="spectrum-doppler-popup" id="spectrum-doppler-popup" role="status">
@@ -506,6 +514,9 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
       </div>
 
       <div className="spectrum-chart-wrap">
+        {baseline && baselineApplies && (
+          <div className="spectrum-chart-note">Baseline subtracted</div>
+        )}
         {hydrogenGuide && (
           <div
             className="spectrum-hydrogen-guide"
@@ -523,7 +534,20 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
           </div>
         )}
         <div className="spectrum-chart" ref={chartRef} />
-        <canvas className="spectrum-waterfall" ref={waterfallCanvasRef} />
+        <details
+          className="spectrum-waterfall-dropdown"
+          open={!waterfallDropdown || waterfallOpen}
+          onToggle={(event) => {
+            if (waterfallDropdown) {
+              setWaterfallOpen(event.currentTarget.open);
+            }
+          }}
+        >
+          <summary className="spectrum-waterfall-summary">
+            <span>Waterfall</span>
+          </summary>
+          <canvas className="spectrum-waterfall" ref={waterfallCanvasRef} />
+        </details>
         {chartEmptyMessage && <div className="spectrum-chart-empty">{chartEmptyMessage}</div>}
       </div>
 

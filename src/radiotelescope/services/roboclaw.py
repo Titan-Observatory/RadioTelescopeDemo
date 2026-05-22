@@ -44,6 +44,10 @@ class RoboClawService:
         self._stored_m1_qpps: int | None = None
         self._stored_m2_qpps: int | None = None
         self._position_target: PositionTarget | None = None
+        self._jog_sequences: dict[str, int] = {}
+        self._active_jog: tuple[str, int] | None = None
+        self._jog_watchdog_task: asyncio.Task | None = None
+        self._io_lock = asyncio.Lock()
 
     @property
     def client(self) -> RoboClawClient:
@@ -72,11 +76,67 @@ class RoboClawService:
             return
         self._position_target = PositionTarget(m1=m1, m2=m2)
 
+    async def execute(self, command_id: str, args: dict[str, int | bool] | None = None):
+        async with self._io_lock:
+            return await asyncio.to_thread(self._client.execute, command_id, args or {})
+
+    async def stop_all(self):
+        async with self._io_lock:
+            return await asyncio.to_thread(self._client.stop_all)
+
+    async def snapshot(self) -> RoboClawTelemetry:
+        async with self._io_lock:
+            return await asyncio.to_thread(self._client.snapshot)
+
+    def accept_jog_sequence(self, token: str, seq: int) -> bool:
+        """Record a jog sequence if it is newer than any prior packet."""
+        latest = self._jog_sequences.get(token, -1)
+        if seq <= latest:
+            return False
+        if token not in self._jog_sequences and len(self._jog_sequences) >= 256:
+            self._jog_sequences.pop(next(iter(self._jog_sequences)))
+        self._jog_sequences[token] = seq
+        return True
+
+    def is_current_jog_sequence(self, token: str, seq: int) -> bool:
+        return self._jog_sequences.get(token) == seq
+
+    def arm_jog_watchdog(self, token: str, seq: int, timeout_s: float) -> None:
+        self._active_jog = (token, seq)
+        if self._jog_watchdog_task is not None:
+            self._jog_watchdog_task.cancel()
+        self._jog_watchdog_task = asyncio.create_task(self._expire_jog_after(token, seq, timeout_s))
+
+    def clear_jog_watchdog(self, token: str, seq: int) -> None:
+        if self._active_jog is not None and self._active_jog[0] == token and self._active_jog[1] <= seq:
+            self._active_jog = None
+        if self._jog_watchdog_task is not None and self._active_jog is None:
+            self._jog_watchdog_task.cancel()
+            self._jog_watchdog_task = None
+
+    def can_stop_active_jog(self, token: str, seq: int) -> bool:
+        return self._active_jog is not None and self._active_jog[0] == token and self._active_jog[1] <= seq
+
+    async def _expire_jog_after(self, token: str, seq: int, timeout_s: float) -> None:
+        try:
+            await asyncio.sleep(timeout_s)
+            if self._active_jog != (token, seq):
+                return
+            self._active_jog = None
+            result = await self.stop_all()
+            failed = [item.error or item.command_id for item in result.values() if not item.ok]
+            if failed:
+                logger.warning("Failed to stop expired jog %s/%s: %s", token, seq, "; ".join(failed))
+            else:
+                logger.warning("Stopped motors after jog heartbeat timeout token=%s seq=%s", token, seq)
+        except asyncio.CancelledError:
+            pass
+
     async def refresh_stored_qpps(self) -> None:
         """Read each axis's velocity-PID QPPS from the controller and cache it."""
         try:
-            m1 = await asyncio.to_thread(self._client.execute, "read_m1_velocity_pid", {})
-            m2 = await asyncio.to_thread(self._client.execute, "read_m2_velocity_pid", {})
+            m1 = await self.execute("read_m1_velocity_pid", {})
+            m2 = await self.execute("read_m2_velocity_pid", {})
         except Exception as exc:
             logger.warning("Could not read stored QPPS from controller: %s", exc)
             return
@@ -87,6 +147,13 @@ class RoboClawService:
         logger.info("Stored QPPS read from controller: m1=%s m2=%s", self._stored_m1_qpps, self._stored_m2_qpps)
 
     async def stop(self) -> None:
+        if self._jog_watchdog_task is not None:
+            self._jog_watchdog_task.cancel()
+            try:
+                await self._jog_watchdog_task
+            except asyncio.CancelledError:
+                pass
+            self._jog_watchdog_task = None
         if self._task:
             self._task.cancel()
             try:
@@ -122,7 +189,7 @@ class RoboClawService:
 
     async def refresh(self) -> RoboClawTelemetry:
         """Take a fresh hardware snapshot, update cached state, and notify subscribers."""
-        snap = await asyncio.to_thread(self._client.snapshot)
+        snap = await self.snapshot()
         self._tick_times.append(time.monotonic())
         updates: dict = {"poll": self._poll_stats()}
 
@@ -165,7 +232,7 @@ class RoboClawService:
             return
 
         self._position_target = None
-        result = await asyncio.to_thread(self._client.stop_all)
+        result = await self.stop_all()
         failed = [item.error or item.command_id for item in result.values() if not item.ok]
         if failed:
             logger.warning("Failed to stop after reaching target %s: %s", target, "; ".join(failed))

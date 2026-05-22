@@ -45,6 +45,36 @@ async def test_queue_full_raises():
         await queue.join("3.3.3.3")
 
 
+async def test_queue_limits_repeated_sessions_per_ip():
+    from radiotelescope.services.queue import QueueRateLimitedError
+
+    queue = QueueService(
+        max_session_seconds=60,
+        idle_timeout_seconds=30,
+        max_queue_size=10,
+        max_sessions_per_ip=1,
+        join_cooldown_seconds=0,
+    )
+    await queue.join("1.1.1.1")
+    with pytest.raises(QueueRateLimitedError):
+        await queue.join("1.1.1.1")
+
+
+async def test_queue_join_cooldown_limits_bursts():
+    from radiotelescope.services.queue import QueueRateLimitedError
+
+    queue = QueueService(
+        max_session_seconds=60,
+        idle_timeout_seconds=30,
+        max_queue_size=10,
+        max_sessions_per_ip=10,
+        join_cooldown_seconds=5,
+    )
+    await queue.join("1.1.1.1")
+    with pytest.raises(QueueRateLimitedError):
+        await queue.join("1.1.1.1")
+
+
 async def test_queue_lease_expires_on_idle(monkeypatch):
     queue = QueueService(max_session_seconds=60, idle_timeout_seconds=1, max_queue_size=10)
     a = await queue.join("1.1.1.1")
@@ -94,6 +124,8 @@ def _config_with_queue(simulated_config_path):
 enabled = true
 max_session_seconds = 600
 idle_timeout_seconds = 60
+max_sessions_per_ip = 10
+join_cooldown_seconds = 0
 cookie_secret = "test-secret-test-secret"
 cookie_name = "rt_session"
 
@@ -104,6 +136,23 @@ secret_key = ""
 """
     simulated_config_path.write_text(text, encoding="utf-8")
     return simulated_config_path
+
+
+def _config_with_beta_auth(simulated_config_path):
+    cfg = _config_with_queue(simulated_config_path)
+    password_file = cfg.with_name("passwords.txt")
+    password_file.write_text("let-me-in\n", encoding="utf-8")
+    text = cfg.read_text(encoding="utf-8")
+    text += f"""
+[auth]
+enabled = true
+passwords_file = "{password_file.as_posix()}"
+secret_key = "test-auth-secret-test-auth-secret"
+max_attempts = 5
+lockout_minutes = 1
+"""
+    cfg.write_text(text, encoding="utf-8")
+    return cfg
 
 
 def test_control_endpoint_requires_lease(simulated_config_path):
@@ -129,6 +178,28 @@ def test_join_then_command_succeeds(simulated_config_path):
             "/api/roboclaw/commands/forward_m1", json={"args": {"speed": 20}}
         )
         assert cmd.status_code == 200
+
+
+def test_beta_auth_blocks_api_until_password_join(simulated_config_path):
+    cfg = _config_with_beta_auth(simulated_config_path)
+    with TestClient(create_app(cfg)) as client:
+        config = client.get("/api/queue/config")
+        assert config.status_code == 200
+        assert config.json()["beta_password_enabled"] is True
+
+        blocked = client.get("/api/roboclaw/status")
+        assert blocked.status_code == 401
+        assert blocked.json()["detail"] == "Authentication required"
+
+        rejected = client.post("/api/queue/join", json={"beta_password": "wrong"})
+        assert rejected.status_code == 403
+
+        joined = client.post("/api/queue/join", json={"beta_password": "let-me-in"})
+        assert joined.status_code == 200
+        assert joined.json()["is_active"] is True
+
+        allowed = client.get("/api/roboclaw/status")
+        assert allowed.status_code == 200
 
 
 def test_lan_admin_bypasses_queue(simulated_config_path):

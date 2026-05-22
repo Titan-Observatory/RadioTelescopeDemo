@@ -36,9 +36,17 @@ _RECONNECT_DELAY_S = 2.0
 
 
 class SpectrumBridge(Broadcaster[dict]):
-    """Subscribes to the gateway-server's ``/ws/spectrum`` and re-publishes."""
+    """Subscribes to the gateway-server's ``/ws/spectrum`` and re-publishes.
+
+    Lazy lifecycle: the upstream WebSocket is only held open while at least
+    one local browser is subscribed. Otherwise the bridge would keep a
+    standing subscription on the Pi, which forces the Pi to keep the Airspy
+    open even when nobody is watching — defeating the lazy-SDR behaviour
+    upstream.
+    """
 
     name = "spectrum-bridge"
+    idle_close_delay_s: float = 5.0
 
     def __init__(self, hardware_cfg: HardwareConfig) -> None:
         super().__init__()
@@ -46,6 +54,9 @@ class SpectrumBridge(Broadcaster[dict]):
         self._task: asyncio.Task[None] | None = None
         self._latest: dict | None = None
         self._connected: bool = False
+        self._lifecycle_lock = asyncio.Lock()
+        self._idle_close_task: asyncio.Task[None] | None = None
+        self._shutting_down: bool = False
 
     @property
     def latest(self) -> dict | None:
@@ -66,15 +77,60 @@ class SpectrumBridge(Broadcaster[dict]):
         q = super().subscribe(maxsize)
         if self._latest is not None:
             q.put_nowait(self._latest)
+        if not self._shutting_down:
+            asyncio.create_task(self._ensure_running(), name=f"{self.name}-open")
         return q
 
+    def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
+        super().unsubscribe(q)
+        if self.subscriber_count == 0 and self._task is not None and not self._shutting_down:
+            if self._idle_close_task is None or self._idle_close_task.done():
+                self._idle_close_task = asyncio.create_task(
+                    self._close_after_idle(), name=f"{self.name}-idle-close",
+                )
+
     async def start(self) -> None:
-        if self._task is not None:
-            return
-        self._task = asyncio.create_task(self._safe_run(), name=self.name)
-        logger.info("%s started against %s", self.name, self.upstream_url)
+        # Lazy: don't dial the gateway until a local browser subscribes.
+        logger.info("%s ready (lazy — will connect to %s on first subscriber)", self.name, self.upstream_url)
 
     async def stop(self) -> None:
+        self._shutting_down = True
+        await self._cancel_idle_close()
+        async with self._lifecycle_lock:
+            await self._cancel_task_locked()
+        logger.info("%s stopped", self.name)
+
+    async def _ensure_running(self) -> None:
+        await self._cancel_idle_close()
+        async with self._lifecycle_lock:
+            if self._task is not None or self._shutting_down or self.subscriber_count == 0:
+                return
+            self._task = asyncio.create_task(self._safe_run(), name=self.name)
+            logger.info("%s opened upstream connection to %s", self.name, self.upstream_url)
+
+    async def _close_after_idle(self) -> None:
+        try:
+            await asyncio.sleep(self.idle_close_delay_s)
+        except asyncio.CancelledError:
+            return
+        async with self._lifecycle_lock:
+            if self.subscriber_count > 0 or self._task is None or self._shutting_down:
+                return
+            await self._cancel_task_locked()
+            logger.info("%s closed upstream connection (idle, no subscribers)", self.name)
+
+    async def _cancel_idle_close(self) -> None:
+        task = self._idle_close_task
+        self._idle_close_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _cancel_task_locked(self) -> None:
         task = self._task
         self._task = None
         if task is None:
@@ -84,7 +140,7 @@ class SpectrumBridge(Broadcaster[dict]):
             await task
         except asyncio.CancelledError:
             pass
-        logger.info("%s stopped", self.name)
+        self._connected = False
 
     async def _safe_run(self) -> None:
         try:

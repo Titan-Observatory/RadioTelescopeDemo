@@ -8,3 +8,5 @@ __pycache__/
 # tracked; copy it to `config.toml` on first run and edit there.
 config.toml
 spectrum_baseline.json
+events.json
+passwords.txt

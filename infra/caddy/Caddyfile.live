@@ -1,0 +1,65 @@
+# Caddy config — LIVE mode.
+#
+# Serves the live SPA bundle (frontend/dist/ rsync'd to /srv/telescope on
+# the caddy host) and reverse-proxies /api/* and /ws/* to the Pi running
+# the FastAPI backend.
+#
+# nginx terminates TLS in front of this; caddy listens on plain HTTP on
+# the LAN interface only.
+
+:8080 {
+    bind 10.0.27.10  # caddy host's LAN IP — do not bind to 0.0.0.0
+
+    root * /srv/telescope
+    encode zstd gzip
+
+    @api path /api/*
+    @ws  path /ws/*
+
+    # Pass the original client IP and scheme down to the Pi so the backend's
+    # `trusted_proxies` allowlist + rate limiter see the real remote.
+    reverse_proxy @api http://pi.lan:8000 {
+        header_up X-Real-IP       {http.request.remote.host}
+        header_up X-Forwarded-For {http.request.remote.host}
+        header_up X-Forwarded-Proto https
+    }
+
+    reverse_proxy @ws http://pi.lan:8000 {
+        header_up X-Real-IP       {http.request.remote.host}
+        header_up X-Forwarded-For {http.request.remote.host}
+        header_up X-Forwarded-Proto https
+        # Long-lived telemetry/spectrum streams: don't time out mid-session.
+        transport http {
+            read_timeout 1h
+            write_timeout 1h
+        }
+    }
+
+    # SPA fallback: any non-/api, non-/ws path falls through to index.html for
+    # client-side routing.
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
+
+    header /assets/* Cache-Control "public, max-age=31536000, immutable"
+    header / Cache-Control "no-cache"
+
+    header {
+        # CSP allows Turnstile (Cloudflare CAPTCHA), Google Fonts, and the
+        # Titan Observatory logo. WS connections back to same-origin.
+        Content-Security-Policy "default-src 'self'; img-src 'self' https://titanobservatory.org data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        Strict-Transport-Security "max-age=63072000; includeSubDomains"
+    }
+
+    log {
+        output file /var/log/caddy/telescope-access.log {
+            roll_size 50mb
+            roll_keep 5
+        }
+        format json
+    }
+}

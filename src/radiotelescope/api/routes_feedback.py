@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
+
+from radiotelescope.api.log_files import append_jsonl_with_rotation
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["feedback"])
@@ -29,7 +30,6 @@ async def submit_feedback(body: FeedbackRequest, request: Request) -> dict[str, 
         "message": body.message,
     }
     async with _write_lock:
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry) + "\n")
+        append_jsonl_with_rotation(log_path, entry, request.app.state.config.feedback_log_max_bytes)
     logger.info("Feedback recorded: rating=%d", body.rating)
     return {"ok": True}

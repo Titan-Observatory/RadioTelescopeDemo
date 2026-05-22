@@ -23,8 +23,9 @@ from radiotelescope.api import (
 from radiotelescope.api.auth import AuthManager, PasswordAuthMiddleware
 from radiotelescope.api.auth import router as auth_router
 from radiotelescope.api.client_allowlist import ClientAllowlistMiddleware
+from radiotelescope.api.rate_limit import RateLimitMiddleware
 from radiotelescope.api.security_headers import SecurityHeadersMiddleware
-from radiotelescope.config import load_config
+from radiotelescope.config import load_config, public_exposure_errors
 from radiotelescope.hardware.remote import RemoteRoboClawClient
 from radiotelescope.hardware.roboclaw import make_client
 from radiotelescope.hardware.sdr import SDRReceiver
@@ -59,6 +60,8 @@ async def lifespan(app: FastAPI):
         max_session_seconds=cfg.queue.max_session_seconds,
         idle_timeout_seconds=cfg.queue.idle_timeout_seconds,
         max_queue_size=cfg.queue.max_queue_size,
+        max_sessions_per_ip=cfg.queue.max_sessions_per_ip,
+        join_cooldown_seconds=cfg.queue.join_cooldown_seconds,
     )
     app.state.queue_service = queue
 
@@ -101,6 +104,10 @@ async def lifespan(app: FastAPI):
 
 def create_app(config_path: str | Path = "config.toml") -> FastAPI:
     cfg = load_config(config_path)
+    exposure_errors = public_exposure_errors(cfg)
+    if exposure_errors:
+        details = "; ".join(exposure_errors)
+        raise RuntimeError(f"Unsafe public exposure configuration: {details}")
     mode = cfg.hardware.mode
 
     logging.basicConfig(
@@ -121,6 +128,7 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
     app.state.auth = auth
 
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RateLimitMiddleware, config=cfg.rate_limit)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cfg.server.cors_origins,

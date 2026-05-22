@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-ConnectionMode = Literal["serial", "simulated", "error"]
+ConnectionMode = Literal["serial", "disconnected", "error"]
 LnaState = Literal["on", "off", "unknown", "fault"]
 ArgType = Literal["u8", "u16", "s16", "u32", "s32", "bool"]
 
@@ -103,6 +103,22 @@ class CommandInfo(BaseModel):
 
 class CommandRequest(BaseModel):
     args: dict[str, int | bool] = Field(default_factory=dict)
+
+
+class JogRequest(BaseModel):
+    token: str = Field(min_length=8, max_length=80)
+    seq: int = Field(ge=0)
+    direction: Literal["west", "east", "up", "down"]
+    speed: int = Field(ge=0, le=127)
+
+
+class JogStopRequest(BaseModel):
+    token: str = Field(min_length=8, max_length=80)
+    seq: int = Field(ge=0)
+
+
+class ElevationHomeRequest(BaseModel):
+    speed: int = Field(default=108, ge=1, le=127)
 
 
 class AltAzPoint(BaseModel):

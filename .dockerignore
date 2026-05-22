@@ -1,0 +1,29 @@
+# Tell Docker which files to skip when building the image.
+# Excluding these keeps the build context small and fast.
+
+# Python cache and build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local config and secrets (never bake these into the image)
+config.toml
+passwords.txt
+*.env
+infra/secrets*.env
+
+# Frontend build output and dependencies
+# (node_modules is rebuilt inside the image; dist is produced there too)
+frontend/node_modules/
+frontend/dist/
+frontend/dist-static/
+
+# Dev/test/infra files that aren't needed to run the app
+tests/
+infra/
+scripts/
+*.jsonl
+motion.jsonl
+.git/
+.github/

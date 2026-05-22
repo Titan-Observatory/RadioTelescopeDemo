@@ -13,7 +13,7 @@ from radiotelescope.api.dependencies import (
     read_session_token,
     write_session_token,
 )
-from radiotelescope.services.queue import QueueFullError, QueueStatus
+from radiotelescope.services.queue import QueueFullError, QueueRateLimitedError, QueueStatus
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["queue"])
@@ -23,6 +23,7 @@ TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverif
 
 class JoinRequest(BaseModel):
     turnstile_token: str | None = None
+    beta_password: str | None = None
 
 
 class QueueConfigResponse(BaseModel):
@@ -31,6 +32,7 @@ class QueueConfigResponse(BaseModel):
     turnstile_enabled: bool
     max_session_seconds: int
     idle_timeout_seconds: int
+    beta_password_enabled: bool
 
 
 @router.get("/api/queue/config", response_model=QueueConfigResponse)
@@ -42,6 +44,7 @@ async def queue_config(request: Request) -> QueueConfigResponse:
         turnstile_site_key=cfg.turnstile.site_key,
         max_session_seconds=cfg.queue.max_session_seconds,
         idle_timeout_seconds=cfg.queue.idle_timeout_seconds,
+        beta_password_enabled=cfg.auth.enabled,
     )
 
 
@@ -55,6 +58,8 @@ async def queue_status(request: Request) -> QueueStatus:
 async def queue_join(body: JoinRequest, request: Request, response: Response) -> QueueStatus:
     cfg = request.app.state.config
     queue = queue_service(request)
+    auth = request.app.state.auth
+    ip = client_ip(request) or "unknown"
 
     if cfg.turnstile.enabled and cfg.turnstile.secret_key:
         if not body.turnstile_token:
@@ -66,12 +71,31 @@ async def queue_join(body: JoinRequest, request: Request, response: Response) ->
         ):
             raise HTTPException(403, "Captcha verification failed")
 
+    if auth.enabled:
+        if auth.is_locked(ip):
+            raise HTTPException(429, "Too many failed attempts. Try again later.")
+        if not body.beta_password:
+            raise HTTPException(400, "Beta access password required")
+        if not auth.check_password(body.beta_password):
+            locked = auth.record_failure(ip)
+            if locked:
+                raise HTTPException(
+                    429,
+                    f"Too many failed attempts. Try again in {auth.lockout_seconds // 60} minutes.",
+                )
+            raise HTTPException(403, "Incorrect password")
+        auth.record_success(ip)
+        is_secure = cfg.server.public_exposure or request.url.scheme == "https"
+        auth.set_auth_cookie(response, is_secure=is_secure)
+
     existing = read_session_token(request)
     if existing is not None and await queue.rejoin(existing, client_ip(request) or ""):
         return queue.status_for(existing)
 
     try:
-        token = await queue.join(client_ip(request) or "unknown")
+        token = await queue.join(ip)
+    except QueueRateLimitedError as exc:
+        raise HTTPException(429, str(exc)) from exc
     except QueueFullError as exc:
         raise HTTPException(503, str(exc)) from exc
 

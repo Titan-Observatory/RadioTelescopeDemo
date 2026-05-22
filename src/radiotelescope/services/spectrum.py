@@ -127,6 +127,10 @@ class SpectrumService(SDRDriverTask[SpectrumFrame]):
         cfg = self._cfg
         publish_interval = 1.0 / cfg.publish_rate_hz
         last_publish = 0.0
+        # Each fresh open is a new integration: the prior EMA was built from
+        # samples that may be minutes or hours old and almost certainly at a
+        # different ambient noise level. Start clean.
+        self.reset_integration()
         async for iq in self._rx.stream():
             if iq.size < cfg.fft_size:
                 continue

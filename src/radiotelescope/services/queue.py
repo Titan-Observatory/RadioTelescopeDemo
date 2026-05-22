@@ -47,13 +47,18 @@ class QueueService:
         max_session_seconds: int,
         idle_timeout_seconds: int,
         max_queue_size: int,
+        max_sessions_per_ip: int = 3,
+        join_cooldown_seconds: int = 5,
     ) -> None:
         self.max_session_seconds = max_session_seconds
         self.idle_timeout_seconds = idle_timeout_seconds
         self.max_queue_size = max_queue_size
+        self.max_sessions_per_ip = max_sessions_per_ip
+        self.join_cooldown_seconds = join_cooldown_seconds
 
         self._sessions: dict[str, _Session] = {}
         self._queue: deque[str] = deque()
+        self._last_join_by_ip: dict[str, float] = {}
         self._active: str | None = None
         self._active_lease_started_at: float | None = None
         self._active_last_command_at: float | None = None
@@ -86,14 +91,25 @@ class QueueService:
     async def join(self, ip: str) -> str:
         """Create a session and append it to the queue. Returns the session token."""
         async with self._lock:
+            now = time.monotonic()
+            last_join = self._last_join_by_ip.get(ip)
+            if (
+                last_join is not None
+                and self.join_cooldown_seconds > 0
+                and (now - last_join) < self.join_cooldown_seconds
+            ):
+                raise QueueRateLimitedError("Please wait before joining again.")
+            current_from_ip = sum(1 for session in self._sessions.values() if session.ip == ip)
+            if current_from_ip >= self.max_sessions_per_ip:
+                raise QueueRateLimitedError("Too many active queue sessions from this address.")
             if len(self._queue) + (1 if self._active else 0) >= self.max_queue_size:
                 raise QueueFullError("Queue is full, please try again later.")
             token = secrets.token_urlsafe(24)
-            now = time.monotonic()
             self._sessions[token] = _Session(
                 token=token, ip=ip, joined_at=now, last_seen_at=now,
             )
             self._queue.append(token)
+            self._last_join_by_ip[ip] = now
             self._promote_if_idle()
         await self._broadcast()
         return token
@@ -280,4 +296,8 @@ class QueueService:
 
 
 class QueueFullError(Exception):
+    pass
+
+
+class QueueRateLimitedError(Exception):
     pass

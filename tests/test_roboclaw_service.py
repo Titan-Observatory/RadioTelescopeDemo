@@ -14,7 +14,7 @@ class FakeRoboClaw:
         self._m2_encoder = m2_encoder
         self.stop_count = 0
         self.connection = ConnectionStatus(
-            mode="simulated",
+            mode="disconnected",
             port="SIM",
             baudrate=38400,
             address=128,

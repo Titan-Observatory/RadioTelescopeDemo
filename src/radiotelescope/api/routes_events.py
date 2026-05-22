@@ -12,6 +12,8 @@ from typing import Any
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
+from radiotelescope.api.log_files import append_jsonl_with_rotation
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
 
@@ -74,7 +76,6 @@ async def submit_event(body: EventRequest, request: Request) -> Response:
         "props": body.props,
     }
     async with _write_lock:
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, default=str) + "\n")
+        append_jsonl_with_rotation(log_path, entry, request.app.state.config.events_log_max_bytes)
     # 204 keeps sendBeacon happy and avoids parsing a response body on the client.
     return Response(status_code=204)

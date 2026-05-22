@@ -87,19 +87,31 @@ fps = 15
 label = "Cam A"
 
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8000
+# For public exposure, set this to your exact HTTPS origin, not "*".
+# Example: cors_origins = ["https://telescope.example.org"]
 cors_origins = ["*"]
 allowed_clients = ["127.0.0.1", "::1", "10.0.27.1", "10.0.27.2", "10.0.207.217"]
 # IPs of reverse proxies whose X-Forwarded-For / CF-Connecting-IP headers we trust.
 # When the Pi sits behind a local nginx, this should typically be just loopback.
 trusted_proxies = ["127.0.0.1", "::1"]
 
+[rate_limit]
+enabled = true
+queue_join_per_minute = 10
+feedback_per_minute = 5
+events_per_minute = 120
+camera_stream_per_minute = 12
+websocket_connect_per_minute = 30
+
 [queue]
 enabled = false
 max_session_seconds = 600   # 10 min hard cap on a control lease
 idle_timeout_seconds = 60   # release the lease after 60 s of no commands
 max_queue_size = 100
+max_sessions_per_ip = 3
+join_cooldown_seconds = 5
 # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
 cookie_secret = "CHANGE-ME-generate-with-secrets.token_urlsafe-32"
 cookie_name = "rt_session"

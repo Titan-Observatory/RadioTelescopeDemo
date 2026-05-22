@@ -38,6 +38,25 @@ npm run dev
 
 Open `http://localhost:5173/`. For a production build, run `npm run build`; the FastAPI app serves `frontend/dist` from `/`.
 
+## Internet Exposure
+
+The app has a public-view/queued-control model: visitors may see the live
+dashboard, but mutating control endpoints require the active queue lease.
+Operator endpoints such as homing and sync remain LAN-admin-only.
+
+For an internet-facing deployment:
+
+- Run the public TLS endpoint at nginx/Caddy and forward
+  `X-Forwarded-For` plus `X-Forwarded-Proto` to the FastAPI process.
+- Set `[server].trusted_proxies` to only the immediate reverse proxy IPs.
+- Set `[server].cors_origins` to the exact HTTPS origin, not `["*"]`.
+- Set `[queue].enabled = true`, configure production Turnstile keys, and
+  replace all `CHANGE-ME` secrets.
+- Keep a `gateway-server` Pi reachable only from the web host on the LAN.
+
+When `[server].host` is `0.0.0.0` or `::` and `lan_only = false`, startup
+fails if the public safety settings above are incomplete.
+
 ## Configuration
 
 ```toml
