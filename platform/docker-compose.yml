@@ -1,0 +1,43 @@
+# Coolify points at this compose file (or just the Dockerfile directly).
+#
+# Topology assumption: this container runs on a Coolify host on your LAN;
+# the rt-hardware service lives separately on the Pi at HARDWARE_URL.
+# This compose does NOT bundle the hardware container — Coolify never sees
+# /dev/ttyACM0.
+
+services:
+  platform:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Where the Pi's rt-hardware service is reachable on the LAN.
+      HARDWARE_URL: "${HARDWARE_URL:-http://10.0.27.5:8001}"
+      # Secrets — set these in Coolify's env-var UI.
+      RT_QUEUE_COOKIE_SECRET: "${RT_QUEUE_COOKIE_SECRET}"
+      RT_TURNSTILE_SITE_KEY: "${RT_TURNSTILE_SITE_KEY:-}"
+      RT_TURNSTILE_SECRET_KEY: "${RT_TURNSTILE_SECRET_KEY:-}"
+      RT_TURNSTILE_ENABLED: "${RT_TURNSTILE_ENABLED:-true}"
+      RT_AUTH_ENABLED: "${RT_AUTH_ENABLED:-false}"
+      RT_AUTH_SECRET_KEY: "${RT_AUTH_SECRET_KEY:-unused-when-auth-disabled-1234567890}"
+      RT_BETA_PASSWORDS: "${RT_BETA_PASSWORDS:-}"
+      # Public-exposure knobs.
+      RT_CORS_ORIGIN: "${RT_CORS_ORIGIN:-https://telescope.example.com}"
+      RT_TRUSTED_PROXIES: "${RT_TRUSTED_PROXIES:-127.0.0.1}"
+      RT_LAN_ONLY: "${RT_LAN_ONLY:-false}"
+      RT_LOG_LEVEL: "${RT_LOG_LEVEL:-INFO}"
+      RT_SDR_BRIDGE_ENABLED: "${RT_SDR_BRIDGE_ENABLED:-true}"
+    volumes:
+      # Persistent state — survives container recreations. Coolify creates
+      # the named volume automatically.
+      - platform_state:/app/state
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/queue/status', timeout=2).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  platform_state:

@@ -1,14 +1,13 @@
-"""Spectrum proxy for gateway-client mode.
+"""Spectrum proxy.
 
-The Pi runs ``SpectrumService`` (FFT/EMA/baseline) and is the source of truth
-for everything spectrum-related. From the host's perspective the front-end
-calls the same ``/api/spectrum/*`` URLs it always has; we just forward the
-HTTP calls and bridge ``/ws/spectrum`` through ``SpectrumBridge``.
+The hardware service runs ``SpectrumService`` (FFT / EMA / baseline) and is
+the source of truth for everything spectrum-related. The platform forwards
+the HTTP calls and bridges ``/ws/spectrum`` through ``SpectrumBridge``.
 
-Auth: ``require_control`` still gates mutations on this side, so an
-anonymous LAN client can't punch through the proxy to flip the LNA or
-clobber the baseline. The Pi itself runs without auth — see plan
-``make-it-a-hardware-precious-swan.md``.
+Auth: ``require_control`` still gates mutations here, so an anonymous LAN
+client can't punch through the proxy to flip the LNA or clobber the
+baseline. The hardware service itself is unauthenticated; protect it at the
+network layer (Docker internal network, firewall).
 """
 from __future__ import annotations
 

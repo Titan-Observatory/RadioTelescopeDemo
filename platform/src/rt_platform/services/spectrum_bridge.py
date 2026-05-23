@@ -1,17 +1,16 @@
-"""Host-side relay of spectrum frames from a gateway-server.
+"""Platform-side relay of spectrum frames from the hardware service.
 
-In ``gateway-client`` mode the Pi runs the full ``SpectrumService`` (FFT,
-EMA, baseline persistence) and exposes ``/ws/spectrum``. This bridge opens a
-single upstream WebSocket to that endpoint, decodes JSON frames, and fans
-them out to local browser subscribers using the same drop-oldest pubsub the
-in-process service uses. Browsers see an identical wire format, so the
-front-end has no idea the spectrum was produced on another box.
+The hardware service runs the full ``SpectrumService`` (FFT, EMA, baseline
+persistence) and exposes ``/ws/spectrum``. This bridge opens a single
+upstream WebSocket to that endpoint, decodes JSON frames, and fans them out
+to browser subscribers using the same drop-oldest pubsub the in-process
+service uses. Browsers see an identical wire format.
 
 The bridge intentionally does *not* mirror the full ``SpectrumService``
 surface (baseline capture, reconnect, LNA toggle, status). Those endpoints
-are proxied via HTTP straight to the gateway-server — see
-``routes_spectrum_proxy``. Keeping bridge logic confined to the data path
-avoids two sources of truth for things like the saved baseline.
+are proxied via HTTP — see ``routes_spectrum``. Keeping bridge logic
+confined to the data path avoids two sources of truth for things like the
+saved baseline.
 """
 from __future__ import annotations
 
@@ -35,7 +34,7 @@ _RECONNECT_DELAY_S = 2.0
 
 
 class SpectrumBridge(Broadcaster[dict]):
-    """Subscribes to the gateway-server's ``/ws/spectrum`` and re-publishes.
+    """Subscribes to the hardware service's ``/ws/spectrum`` and re-publishes.
 
     Lazy lifecycle: the upstream WebSocket is only held open while at least
     one local browser is subscribed. Otherwise the bridge would keep a

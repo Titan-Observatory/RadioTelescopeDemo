@@ -1,0 +1,38 @@
+# Pi-side compose. Run on the Raspberry Pi itself — NOT in Coolify.
+#
+# Coolify lives on a separate LAN host and only runs rt-platform. This
+# compose exists so the Pi can keep the hardware service in Docker if you
+# don't want to use the systemd unit at infra/systemd/rt-hardware.service.
+#
+# Usage on the Pi:
+#   cp config.example.toml config.toml
+#   # edit config.toml: observer lat/lon, mount calibration, etc.
+#   docker compose up -d
+
+services:
+  hardware:
+    build: .
+    restart: unless-stopped
+    # USB serial pass-through for the RoboClaw.
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+    # Airspy SDR needs USB access; the simplest robust setup is privileged.
+    # If you'd rather, replace this with explicit `devices:` lines for the
+    # Airspy USB bus path. The Pi is LAN-only, so the blast radius is small.
+    privileged: true
+    ports:
+      # Bind to the Pi's LAN interface so the Coolify host can reach it.
+      # Replace 0.0.0.0 with the Pi's LAN IP if you want belt-and-braces.
+      - "8001:8001"
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - hardware_state:/app/state
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/api/health', timeout=2).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  hardware_state:

@@ -1,11 +1,11 @@
 """Shared lifecycle scaffolding for SDR-driven services.
 
-``SpectrumService`` (computes FFTs from an attached SDR in ``local`` /
-``gateway-server`` modes) uses this base for its start/stop/reconnect/loop
-plumbing. Subclasses only own their data path (``_run``).
+``SpectrumService`` (computes FFTs from the attached SDR) uses this base for
+its start/stop/reconnect/loop plumbing. Subclasses only own their data path
+(``_run``).
 
 The receiver passed in must implement the minimal ``open() / close() /
-.mode`` surface from :class:`radiotelescope.hardware.sdr.SDRReceiver`.
+.mode`` surface from :class:`rt_hardware.hardware.sdr.SDRReceiver`.
 """
 from __future__ import annotations
 

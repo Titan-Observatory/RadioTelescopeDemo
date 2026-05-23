@@ -1,0 +1,48 @@
+# Coolify-friendly platform config. All values flow from env vars set in
+# Coolify's UI; the ${VAR:-default} syntax is expanded at load time by
+# rt_platform.config.load_config.
+#
+# The HARDWARE_URL env var is consumed directly (config.py reads it from
+# the environment and overrides whatever is in the TOML).
+hardware_url = "${HARDWARE_URL:-http://10.0.27.5:8001}"
+sdr_bridge_enabled = ${RT_SDR_BRIDGE_ENABLED:-true}
+feedback_log_path = "state/feedback.jsonl"
+events_log_path = "state/events.jsonl"
+motion_log_path = "state/motion.jsonl"
+
+[general]
+log_level = "${RT_LOG_LEVEL:-INFO}"
+
+[server]
+host = "0.0.0.0"
+port = 8000
+cors_origins = ["${RT_CORS_ORIGIN:-https://telescope.example.com}"]
+allowed_clients = []
+trusted_proxies = ["${RT_TRUSTED_PROXIES:-127.0.0.1}"]
+lan_only = ${RT_LAN_ONLY:-false}
+
+[rate_limit]
+enabled = true
+
+[queue]
+enabled = true
+max_session_seconds = 600
+idle_timeout_seconds = 60
+max_queue_size = 100
+cookie_secret = "${RT_QUEUE_COOKIE_SECRET:-change-me-in-coolify}"
+cookie_name = "rt_session"
+max_sessions_per_ip = 3
+join_cooldown_seconds = 5
+
+[auth]
+enabled = ${RT_AUTH_ENABLED:-false}
+passwords_file = "passwords.txt"
+secret_key = "${RT_AUTH_SECRET_KEY:-unused-when-auth-disabled-1234567890}"
+max_attempts = 5
+lockout_minutes = 15
+
+[turnstile]
+enabled = ${RT_TURNSTILE_ENABLED:-true}
+site_key = "${RT_TURNSTILE_SITE_KEY:-}"
+secret_key = "${RT_TURNSTILE_SECRET_KEY:-}"
+

@@ -1,0 +1,41 @@
+[Unit]
+Description=Radio telescope platform service (UI, queue, auth, hardware proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=telescope
+Group=telescope
+WorkingDirectory=/opt/radiotelescope/platform
+
+# Production secrets (queue cookie secret, Turnstile keys, auth secret_key,
+# etc.) live here at mode 0600. Generated once during bootstrap. The config
+# file references them as ${RT_QUEUE_COOKIE_SECRET:-...} etc.
+EnvironmentFile=/etc/radiotelescope/secrets.env
+
+ExecStart=/opt/radiotelescope/platform/.venv/bin/rt-platform -c /etc/radiotelescope/platform.toml
+
+Restart=on-failure
+RestartSec=2s
+StartLimitIntervalSec=60s
+StartLimitBurst=3
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log/radiotelescope /var/lib/radiotelescope
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rt-platform
+
+[Install]
+WantedBy=multi-user.target

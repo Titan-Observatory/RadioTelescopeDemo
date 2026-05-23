@@ -1,17 +1,25 @@
+# All-in-one stack. Use this only when both services live on the same box
+# (e.g. running Coolify *on the Pi*, or a dev laptop with the RoboClaw
+# plugged in). For the typical deployment — Coolify on a LAN host + Pi
+# separately — use:
+#
+#   platform/docker-compose.yml   (deploy in Coolify, points at the Pi over LAN)
+#   hardware/docker-compose.yml   (run directly on the Pi)
+#
+# This compose file is the convenience option for the single-host case.
+
 services:
   hardware:
     build: ./hardware
     restart: unless-stopped
-    # The RoboClaw USB serial device. Override or comment out for hosts
-    # without the hardware plugged in (use docker-compose.dev.yml).
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
+    privileged: true   # Airspy USB; see hardware/docker-compose.yml note
     volumes:
       - ./hardware/config.toml:/app/config.toml:ro
       - hardware_state:/app/state
     networks:
       - internal
-    # Not published on a host port — only the platform reaches it.
 
   platform:
     build: ./platform
@@ -19,10 +27,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - HARDWARE_URL=http://hardware:8001
+      HARDWARE_URL: "http://hardware:8001"
+      RT_QUEUE_COOKIE_SECRET: "${RT_QUEUE_COOKIE_SECRET:-change-me-in-env}"
+      RT_TURNSTILE_SITE_KEY: "${RT_TURNSTILE_SITE_KEY:-}"
+      RT_TURNSTILE_SECRET_KEY: "${RT_TURNSTILE_SECRET_KEY:-}"
+      RT_TURNSTILE_ENABLED: "${RT_TURNSTILE_ENABLED:-false}"
+      RT_AUTH_ENABLED: "${RT_AUTH_ENABLED:-false}"
+      RT_LAN_ONLY: "${RT_LAN_ONLY:-true}"
+      RT_CORS_ORIGIN: "${RT_CORS_ORIGIN:-http://localhost:8000}"
     volumes:
-      - ./platform/config.toml:/app/config.toml:ro
-      - ./platform/passwords.txt:/app/passwords.txt:ro
       - platform_state:/app/state
     depends_on:
       - hardware

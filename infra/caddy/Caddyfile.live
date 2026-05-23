@@ -1,8 +1,9 @@
-# Caddy config — LIVE mode.
+# Caddy config for the public deploy.
 #
-# Serves the live SPA bundle (frontend/dist/ rsync'd to /srv/telescope on
-# the caddy host) and reverse-proxies /api/* and /ws/* to the Pi running
-# the FastAPI backend.
+# Caddy is a pure reverse-proxy in front of rt-platform; the platform service
+# serves its own SPA bundle from /. We forward /api/*, /ws/*, AND the SPA
+# routes to it, so the only thing Caddy does is TLS termination + headers +
+# logging + cache hints for /assets/*.
 #
 # SSL is terminated upstream (Cloudflare or similar); nginx plain-HTTP-proxies
 # to this. Caddy listens on plain HTTP on the LAN interface only.
@@ -10,40 +11,25 @@
 :8080 {
     bind 10.0.27.10  # caddy host's LAN IP — do not bind to 0.0.0.0
 
-    root * /srv/telescope
     encode zstd gzip
 
-    @api path /api/*
-    @ws  path /ws/*
-
-    # Pass the original client IP and scheme down to the Pi so the backend's
+    # Pass the original client IP and scheme down to rt-platform so its
     # `trusted_proxies` allowlist + rate limiter see the real remote.
-    reverse_proxy @api http://pi.lan:8000 {
+    reverse_proxy http://platform.lan:8000 {
         header_up X-Real-IP       {http.request.remote.host}
         header_up X-Forwarded-For {http.request.remote.host}
         header_up X-Forwarded-Proto https
-    }
-
-    reverse_proxy @ws http://pi.lan:8000 {
-        header_up X-Real-IP       {http.request.remote.host}
-        header_up X-Forwarded-For {http.request.remote.host}
-        header_up X-Forwarded-Proto https
-        # Long-lived telemetry/spectrum streams: don't time out mid-session.
+        # Long-lived telemetry/spectrum WS streams: don't time out mid-session.
         transport http {
             read_timeout 1h
             write_timeout 1h
         }
     }
 
-    # SPA fallback: any non-/api, non-/ws path falls through to index.html for
-    # client-side routing.
-    handle {
-        try_files {path} /index.html
-        file_server
-    }
-
+    # The platform already emits cache headers for its own bundle, but
+    # Caddy's pass-through is a fine place to belt-and-braces the asset
+    # bucket if the upstream forgets.
     header /assets/* Cache-Control "public, max-age=31536000, immutable"
-    header / Cache-Control "no-cache"
 
     header {
         # CSP allows Turnstile (Cloudflare CAPTCHA), Google Fonts, and the

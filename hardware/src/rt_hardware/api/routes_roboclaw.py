@@ -441,8 +441,7 @@ async def home_altitude(request: Request):
     if not result.ok:
         raise HTTPException(400, detail=f"Failed to zero altitude encoder: {result.error}")
     # Force a fresh snapshot so the encoder readout updates immediately rather
-    # than waiting up to one telemetry poll (≈200 ms locally, twice that in
-    # gateway-client mode).
+    # than waiting up to one telemetry poll (≈200 ms).
     await service.refresh()
     return {"status": "ok", "message": "Altitude encoder zeroed at current position"}
 

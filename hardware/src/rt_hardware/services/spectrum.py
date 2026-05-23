@@ -20,8 +20,11 @@ from rt_hardware.hardware.sdr import SDRReceiver
 from rt_hardware.services._sdr_task import SDRDriverTask
 
 # Baseline cache lives next to where the server was launched so it survives
-# restarts. Small JSON file — a couple thousand floats.
-BASELINE_CACHE = Path("spectrum_baseline.json")
+# restarts. Small JSON file — a couple thousand floats. Override the
+# directory with RT_STATE_DIR when running in a container so the file lands
+# on a mounted volume rather than the ephemeral container FS.
+import os as _os
+BASELINE_CACHE = Path(_os.environ.get("RT_STATE_DIR", ".")) / "spectrum_baseline.json"
 
 logger = logging.getLogger(__name__)
 

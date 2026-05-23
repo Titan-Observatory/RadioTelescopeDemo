@@ -1,9 +1,8 @@
-"""Camera proxy for gateway-client mode.
+"""Camera proxy.
 
-The camera stays plugged into the Pi. When this process is the web UI host,
-we expose the same `/api/camera/*` URLs the frontend already uses but pipe
-them through to the Pi. Browser-side code never has to know the camera
-isn't local.
+The camera is plugged into the hardware host. The platform exposes the same
+`/api/camera/*` URLs the frontend already uses and pipes them through to the
+hardware service. Browser-side code never has to know the camera isn't local.
 """
 from __future__ import annotations
 
