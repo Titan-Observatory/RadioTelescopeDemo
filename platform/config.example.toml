@@ -1,5 +1,13 @@
 # Example platform service config — copy to config.toml and edit.
 
+# URL of the rt-hardware service. In Docker Compose use the service name;
+# in a bare-metal LAN deployment, the Pi's IP and port.
+hardware_url = "http://hardware:8001"
+
+feedback_log_path = "feedback.jsonl"
+events_log_path = "events.jsonl"
+motion_log_path = "motion.jsonl"
+
 [general]
 log_level = "INFO"
 
@@ -35,11 +43,3 @@ lockout_minutes = 15
 enabled = true
 site_key = ""
 secret_key = ""
-
-# URL of the rt-hardware service. In Docker Compose use the service name;
-# in a bare-metal LAN deployment, the Pi's IP and port.
-hardware_url = "http://hardware:8001"
-
-feedback_log_path = "feedback.jsonl"
-events_log_path = "events.jsonl"
-motion_log_path = "motion.jsonl"

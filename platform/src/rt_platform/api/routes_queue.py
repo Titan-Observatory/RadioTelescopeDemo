@@ -38,9 +38,14 @@ class QueueConfigResponse(BaseModel):
 @router.get("/api/queue/config", response_model=QueueConfigResponse)
 async def queue_config(request: Request) -> QueueConfigResponse:
     cfg = request.app.state.config
+    turnstile_required = (
+        cfg.turnstile.enabled
+        and bool(cfg.turnstile.site_key)
+        and bool(cfg.turnstile.secret_key)
+    )
     return QueueConfigResponse(
         enabled=cfg.queue.enabled,
-        turnstile_enabled=cfg.turnstile.enabled,
+        turnstile_enabled=turnstile_required,
         turnstile_site_key=cfg.turnstile.site_key,
         max_session_seconds=cfg.queue.max_session_seconds,
         idle_timeout_seconds=cfg.queue.idle_timeout_seconds,
