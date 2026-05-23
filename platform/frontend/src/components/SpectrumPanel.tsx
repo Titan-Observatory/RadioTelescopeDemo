@@ -394,6 +394,23 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
     : !frame
       ? 'Waiting for first spectrum frame from SDR service.'
       : null;
+  const integrationStats = useMemo(() => {
+    if (!frame) return null;
+    const bins = frame.freqs_mhz.length;
+    const binHz = bins > 0 ? (frame.sample_rate_mhz * 1e6) / bins : 0;
+    const frameHz = frame.frame_duration_s > 0 ? 1 / frame.frame_duration_s : 0;
+    // The EMA window saturates once frames_seen ≥ integration_frames; before
+    // that, the effective window is whatever has actually been accumulated.
+    const effectiveFrames = Math.min(frame.frames_seen, frame.integration_frames);
+    return {
+      windowSeconds: frame.integration_seconds,
+      effectiveFrames,
+      targetFrames: frame.integration_frames,
+      saturated: frame.frames_seen >= frame.integration_frames,
+      binHz,
+      frameHz,
+    };
+  }, [frame]);
   const hydrogenGuide = useMemo(() => {
     if (!frame || frame.freqs_mhz.length < 2) return null;
     const min = frame.freqs_mhz[0];
@@ -550,6 +567,39 @@ export function SpectrumPanel({ onStartGuided }: SpectrumPanelProps = {}) {
         </details>
         {chartEmptyMessage && <div className="spectrum-chart-empty">{chartEmptyMessage}</div>}
       </div>
+
+      {integrationStats && (
+        <dl className="spectrum-stats" aria-label="Integration statistics">
+          <div className="spectrum-stat">
+            <dt>Integration</dt>
+            <dd>
+              <span className="spectrum-stat-value">{integrationStats.windowSeconds.toFixed(2)} s</span>
+              <span className="spectrum-stat-sub">
+                {integrationStats.effectiveFrames}/{integrationStats.targetFrames} frames
+                {!integrationStats.saturated && ' (filling)'}
+              </span>
+            </dd>
+          </div>
+          <div className="spectrum-stat">
+            <dt>Frame rate</dt>
+            <dd>
+              <span className="spectrum-stat-value">{integrationStats.frameHz.toFixed(1)} Hz</span>
+              <span className="spectrum-stat-sub">
+                {(integrationStats.frameHz > 0 ? 1000 / integrationStats.frameHz : 0).toFixed(1)} ms/FFT
+              </span>
+            </dd>
+          </div>
+          <div className="spectrum-stat">
+            <dt>Bin width</dt>
+            <dd>
+              <span className="spectrum-stat-value">{integrationStats.binHz.toFixed(0)} Hz</span>
+              <span className="spectrum-stat-sub">
+                {(integrationStats.binHz / 1420.4058e6 * 299792.458).toFixed(2)} km/s
+              </span>
+            </dd>
+          </div>
+        </dl>
+      )}
 
       <BaselineWizard
         open={wizardOpen}

@@ -43,21 +43,17 @@ async def lifespan(app: FastAPI):
     )
     app.state.queue_service = queue
 
-    bridge: SpectrumBridge | None = None
-    if cfg.sdr_bridge_enabled:
-        ws_base = _http_to_ws(cfg.hardware_url)
-        bridge = SpectrumBridge(ws_base)
-        app.state.spectrum_bridge = bridge
+    ws_base = _http_to_ws(cfg.hardware_url)
+    bridge = SpectrumBridge(ws_base)
+    app.state.spectrum_bridge = bridge
 
     await queue.start()
-    if bridge is not None:
-        await bridge.start()
+    await bridge.start()
 
     logger.info("rt-platform started (hardware_url=%s)", cfg.hardware_url)
     yield
 
-    if bridge is not None:
-        await bridge.stop()
+    await bridge.stop()
     await queue.stop()
     logger.info("rt-platform shut down")
 

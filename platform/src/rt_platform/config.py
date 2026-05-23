@@ -72,10 +72,6 @@ class AppConfig(BaseModel):
     # in compose deployments; an IP/host in bare-metal LAN deployments.
     hardware_url: str = "http://hardware:8001"
 
-    # Enable the spectrum WS bridge (Pi's /ws/spectrum → browser fanout). When
-    # disabled, the spectrum routes still proxy HTTP but no WS data flows.
-    sdr_bridge_enabled: bool = True
-
     feedback_log_path: str = "feedback.jsonl"
     feedback_log_max_bytes: int = Field(default=1_048_576, ge=1)
     events_log_path: str = "events.jsonl"

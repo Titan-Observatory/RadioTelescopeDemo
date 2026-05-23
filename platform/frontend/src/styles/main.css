@@ -940,6 +940,46 @@ input:focus-visible {
 
 .spectrum-counter { font-variant-numeric: tabular-nums; }
 
+.spectrum-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--panel-border, #262a44);
+  border-radius: 6px;
+  background: rgba(16, 18, 30, 0.4);
+}
+.spectrum-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.spectrum-stat dt {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint, #6f719a);
+  margin: 0 0 2px;
+}
+.spectrum-stat dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+}
+.spectrum-stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg, #eaebf5);
+  line-height: 1.1;
+}
+.spectrum-stat-sub {
+  font-size: 11px;
+  color: var(--fg-faint, #6f719a);
+  line-height: 1.2;
+}
+
 .spectrum-chart-wrap {
   --plot-left: 52px;
   --plot-right: 18px;

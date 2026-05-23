@@ -1,6 +1,5 @@
 # Dev platform config — LAN-only, no Turnstile, simple secrets.
 hardware_url = "http://hardware:8001"
-sdr_bridge_enabled = false
 
 [general]
 log_level = "INFO"

@@ -48,8 +48,27 @@ label = "Cam A"
 [sdr]
 enabled = true
 center_freq_hz = 1.4204e9
+# Airspy Mini supports 3 Msps and 6 Msps only. 3 Msps (±1.5 MHz) covers
+# the full galactic H I velocity spread with headroom.
 sample_rate_hz = 3.0e6
-fft_size = 2048
+# Frequency resolution = sample_rate / fft_size. 8192 → 366 Hz bins, which
+# resolves H I cloud velocity components (~5–50 km/s ≈ 24–240 kHz wide)
+# across ~80+ bins instead of ~20. Per-bin noise is unchanged by fft_size
+# (single-FFT B·τ = 1 always); only integration_frames affects per-bin σ.
+# Pi 4 handles 8192-pt NumPy FFTs comfortably at 5 Hz publish rate.
+fft_size = 8192
+# Airspy "linearity" gain index (0-21, not dB). Leave unset to enable AGC,
+# but AGC chases signal and ruins spectroscopy — fix it for the H I line.
+# With a Sawbird H1+ (~40 dB pre-gain) feeding the Airspy Mini, 12-14 keeps
+# the ADC well below clipping while preserving SNR on the line.
+gain_db = 14
+# Set true if the Sawbird is powered through the Airspy's bias tee rather
+# than a separate 5 V injector.
 lna_bias_tee_enabled = false
-integration_frames = 32
+# EMA window length in frames. Per-bin σ ≈ 1/√(2N-1) of single-FFT noise.
+# At ~8 ms/frame on the Pi, N=256 gives a ~2 s rolling window and σ ≈ 0.20
+# dB per bin — clean enough that the H I line (≈2-4 dB above the bandpass)
+# stands out crisply against the noise floor. Not snappy enough to track
+# the line live while slewing; meant for stationary observation.
+integration_frames = 256
 publish_rate_hz = 5.0

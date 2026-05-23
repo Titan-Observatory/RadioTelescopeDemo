@@ -27,7 +27,6 @@ services:
       RT_TRUSTED_PROXIES: "${RT_TRUSTED_PROXIES:-127.0.0.1}"
       RT_LAN_ONLY: "${RT_LAN_ONLY:-false}"
       RT_LOG_LEVEL: "${RT_LOG_LEVEL:-INFO}"
-      RT_SDR_BRIDGE_ENABLED: "${RT_SDR_BRIDGE_ENABLED:-true}"
     volumes:
       # Persistent state — survives container recreations. Coolify creates
       # the named volume automatically.

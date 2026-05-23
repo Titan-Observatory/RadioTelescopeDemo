@@ -12,7 +12,6 @@ def platform_config_path(tmp_path: Path) -> Path:
     path.write_text(
         """
 hardware_url = "http://127.0.0.1:65535"  # unreachable on purpose; tests must not depend on a live backend
-sdr_bridge_enabled = false
 
 [general]
 log_level = "DEBUG"

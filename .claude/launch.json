@@ -6,14 +6,14 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--port", "5173"],
       "port": 5173,
-      "cwd": "frontend"
+      "cwd": "platform/frontend"
     },
     {
       "name": "frontend-static-preview",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "preview", "--outDir", "dist-static", "--port", "4173"],
       "port": 4173,
-      "cwd": "frontend"
+      "cwd": "platform/frontend"
     }
   ]
 }

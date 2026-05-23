@@ -5,7 +5,6 @@
 # The HARDWARE_URL env var is consumed directly (config.py reads it from
 # the environment and overrides whatever is in the TOML).
 hardware_url = "${HARDWARE_URL:-http://10.0.27.5:8001}"
-sdr_bridge_enabled = ${RT_SDR_BRIDGE_ENABLED:-true}
 feedback_log_path = "state/feedback.jsonl"
 events_log_path = "state/events.jsonl"
 motion_log_path = "state/motion.jsonl"
@@ -45,4 +44,3 @@ lockout_minutes = 15
 enabled = ${RT_TURNSTILE_ENABLED:-true}
 site_key = "${RT_TURNSTILE_SITE_KEY:-}"
 secret_key = "${RT_TURNSTILE_SECRET_KEY:-}"
-

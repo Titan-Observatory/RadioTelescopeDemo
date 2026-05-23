@@ -137,11 +137,11 @@ No middleware stack, no frontend serving, no conditional route registration.
 @asynccontextmanager
 async def lifespan(app):
     queue = QueueService(...)
-    bridge = SpectrumBridge(cfg.hardware_url) if cfg.sdr_bridge_enabled else None
+    bridge = SpectrumBridge(cfg.hardware_url)
     await queue.start()
-    if bridge: await bridge.start()
+    await bridge.start()
     yield
-    if bridge: await bridge.stop()
+    await bridge.stop()
     await queue.stop()
 
 def create_app():
