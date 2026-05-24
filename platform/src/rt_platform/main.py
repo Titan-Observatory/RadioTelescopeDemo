@@ -121,8 +121,12 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
 
     @app.get("/rt-env.js", include_in_schema=False)
     async def serve_rt_env_js(request: Request):
-        gtag_id = request.app.state.config.gtag_id
-        public_config = {"gtagId": gtag_id} if gtag_id else {}
+        cfg = request.app.state.config
+        public_config = (
+            {"gtagId": cfg.gtag_id, "gtagDebug": cfg.gtag_debug}
+            if cfg.gtag_id
+            else {}
+        )
         body = (
             f"window.RT_PUBLIC_CONFIG = {json.dumps(public_config)};\n"
             "window.dispatchEvent(new Event('rt-public-config-ready'));\n"

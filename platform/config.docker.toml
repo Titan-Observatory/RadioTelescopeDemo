@@ -5,6 +5,8 @@
 # The HARDWARE_URL env var is consumed directly (config.py reads it from
 # the environment and overrides whatever is in the TOML).
 hardware_url = "${HARDWARE_URL:-http://10.0.27.5:8001}"
+gtag_id = "${GTAG_ID:-}"
+gtag_debug = ${GTAG_DEBUG:-true}
 feedback_log_path = "state/feedback.jsonl"
 events_log_path = "state/events.jsonl"
 motion_log_path = "state/motion.jsonl"

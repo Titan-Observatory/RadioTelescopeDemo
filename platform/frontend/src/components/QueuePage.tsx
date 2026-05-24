@@ -55,7 +55,9 @@ const HERO_PERSEUS_LABEL_Y = HERO_CHART_TOP + HERO_CHART_HEIGHT * 0.31;
 // Mobile: crop dead wings so the peaks fill the screen. x=[70,430] covers all
 // labelled content (Perseus box at x≈87, bracket at x≈392) and clips the
 // low-signal tails. The 1.67× effective zoom makes labels readable at ~12px.
-const HERO_MOBILE_VIEWBOX = `70 ${HERO_CHART_TOP} 360 ${HERO_CHART_BOTTOM - HERO_CHART_TOP}`;
+// Extra 16 units of top padding so the "Why the difference?" annotation box
+// doesn't crowd the chart border on narrow screens.
+const HERO_MOBILE_VIEWBOX = `70 ${HERO_CHART_TOP - 16} 360 ${HERO_CHART_BOTTOM - HERO_CHART_TOP + 16}`;
 const HERO_DESKTOP_VIEWBOX = `0 ${HERO_CHART_TOP} ${HW} ${HERO_CHART_BOTTOM - HERO_CHART_TOP}`;
 
 // LAB hydrogen-line profile supplied for the queue-page example spectrum.
@@ -1407,7 +1409,7 @@ export function QueuePage({
               <span className="h1-eyebrow">How was it discovered?</span>
               <h2 className="h1-section-heading">Science at its best</h2>
               <p className="h1-section-body">
-                In the decades following the first detection of radio waves from space in 1931, radio astronomy was mostly limited to measuring continuum emission, giving us a general "brightness" of a source, but not much else. While the power of{' '}
+                In the decades after radio waves were first detected from space in 1931, radio astronomy was mostly limited to measuring continuum emission. That could reveal a source's general "brightness," but not much else. The power of{' '}
                 <InlineHoverPopover
                   label="spectral lines"
                   ariaLabel="Show what spectral lines are"
@@ -1416,14 +1418,14 @@ export function QueuePage({
                 >
                   <strong>Spectral lines act as fingerprints.</strong>
                   <span>
-                    When atoms or molecules interact with light, their unique structure causes them to absorb and reemit photons at very specific wavelengths. Becuase the laws of physics are universal, we are able to use these highly specific "fingerprints" to identify the chemical composition of materials from anyhwere in the universe! 
+                    When atoms or molecules interact with light, their unique structure causes them to absorb and reemit photons at very specific wavelengths. Because the laws of physics are universal, we can use these highly specific "fingerprints" to identify the chemical composition of material from anywhere in the universe!
                   </span>
                 </InlineHoverPopover>{' '}
-                was well-known in visible-light astronomy, it's application was not immediately investigated due to the time it took to develop both the technical skills and the collaborative framework between fields of RF engineering and astronomy.
+                was already well known in visible-light astronomy, but its application to radio astronomy was not immediately explored. It took time to develop both the technical skills and the collaboration between RF engineering and astronomy needed to pursue it.
               </p>
-              <p className="h1-section-body">By the 1950s, thanks in large part to the efforts of radio engineer Grote Reber, our understanding of radio astronomy had matured enough for more speculative ideas to form. In this case, it would be a paper by Van de Hulst predicting the existence of the 21 cm line emitted by galactic hydrogen. But the discovery wouldnt come from a research team with the latest and greatest technology, instead it would come from a graduate student who built their own telescope sticking out of the fourth floor of the Lyman Lab at Harvard (pictured)</p>
-              <p className="h1-section-body">When Doc Ewen started work on the experiment under the guidance of Purcell, there was little expectation of actually detecting anything, as even Van de Hulst himself expressed doubt that such a signal would be strong enough to detect. However, in science, looking for something and not finding it is still able to teach us something. In this case, they hoped to at least set an upper limit on how strong such a signal must be, if it existed.</p>
-              <p className="h1-section-body">Between working 40 hours a week on Harvards new cycletron, Ewen turned on the modified receiver was turned on for the first time during the Easter weekend in 1951. As Ewen put it: By 3:00 AM on Sunday morning March 25, I was convinced that the line had been detected.</p>
+              <p className="h1-section-body">By the 1950s, thanks in large part to the efforts of radio engineer Grote Reber, radio astronomy had matured enough for more speculative ideas to form. One of those ideas came from a paper by Van de Hulst predicting the existence of the 21 cm line emitted by galactic hydrogen. But the discovery would not come from a research team with the latest technology. It would come from a graduate student who built his own telescope, sticking out of the fourth floor of Harvard's Lyman Lab (pictured).</p>
+              <p className="h1-section-body">When Doc Ewen began the experiment under Purcell's guidance, there was little expectation of actually detecting anything. Even Van de Hulst had expressed doubt that the signal would be strong enough to observe. Still, in science, looking for something and not finding it still teaches us something. In this case, they hoped to at least set an upper limit on how strong the signal could be, if it did exist.</p>
+              <p className="h1-section-body">While working 40 hours a week on Harvard's new cyclotron, Ewen turned on the modified receiver for the first time during Easter weekend in 1951. As Ewen put it: "By 3:00 AM on Sunday morning March 25, I was convinced that the line had been detected."</p>
             </div>
             <figure className="h1-ewen-figure">
               <img

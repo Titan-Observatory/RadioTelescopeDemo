@@ -26,6 +26,7 @@ declare global {
   interface Window {
     RT_PUBLIC_CONFIG?: {
       gtagId?: string;
+      gtagDebug?: boolean;
     };
     dataLayer?: unknown[];
     gtag?: Gtag;
@@ -38,6 +39,7 @@ function initGtag() {
   const gtagId = window.RT_PUBLIC_CONFIG?.gtagId?.trim() ?? '';
   if (!gtagId || gtagId === loadedGtagId) return;
   loadedGtagId = gtagId;
+  const gtagDebug = window.RT_PUBLIC_CONFIG?.gtagDebug ?? true;
 
   window.dataLayer = window.dataLayer ?? [];
   window.gtag = window.gtag ?? function gtag(...args: Parameters<Gtag>) {
@@ -52,6 +54,7 @@ function initGtag() {
   window.gtag('js', new Date());
   window.gtag('config', gtagId, {
     page_path: window.location.pathname,
+    debug_mode: gtagDebug,
   });
 }
 
@@ -108,6 +111,7 @@ export function track(event: string, props: Record<string, unknown> = {}) {
   window.gtag?.('event', event, {
     page_path: payload.page_path,
     device_class: payload.device_class,
+    debug_mode: window.RT_PUBLIC_CONFIG?.gtagDebug ?? true,
     is_active_controller: payload.is_active_controller,
     queue_position: payload.queue_position,
     ...props,

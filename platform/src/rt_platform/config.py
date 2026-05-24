@@ -73,6 +73,7 @@ class AppConfig(BaseModel):
     hardware_url: str = "http://hardware:8001"
 
     gtag_id: str = ""
+    gtag_debug: bool = True
 
     feedback_log_path: str = "feedback.jsonl"
     feedback_log_max_bytes: int = Field(default=1_048_576, ge=1)
@@ -121,7 +122,18 @@ def load_config(path: Path | str = "config.toml") -> AppConfig:
         raw["hardware_url"] = os.environ["HARDWARE_URL"]
     if "GTAG_ID" in os.environ:
         raw["gtag_id"] = os.environ["GTAG_ID"]
+    if "GTAG_DEBUG" in os.environ:
+        raw["gtag_debug"] = _parse_bool_env("GTAG_DEBUG", os.environ["GTAG_DEBUG"])
     return AppConfig.model_validate(raw)
+
+
+def _parse_bool_env(name: str, value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
 
 
 def public_exposure_errors(cfg: AppConfig) -> list[str]:
