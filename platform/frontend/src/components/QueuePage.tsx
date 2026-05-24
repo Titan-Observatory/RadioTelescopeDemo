@@ -1424,7 +1424,7 @@ export function QueuePage({
               </p>
               <p className="h1-section-body">By the 1950s, thanks in large part to the efforts of radio engineer Grote Reber, radio astronomy had matured enough for more speculative ideas to form. One of those ideas came from a paper by Van de Hulst in 1945 predicting the existence of the 21 cm line emitted by galactic hydrogen. However, the discovery would not come from a research team with the latest technology, but from a graduate student who built his own telescope on a $500 budget, sticking out of the fourth floor of Harvard's Lyman Lab (pictured).</p>
               <p className="h1-section-body">When Doc Ewen began the experiment under Purcell's guidance, there was little expectation of actually detecting anything. Even Van de Hulst had expressed doubt that the signal would be strong enough to observe. Still, in science, looking for something and not finding it still teaches us something. In this case, they hoped to at least set an upper limit on how strong the signal could be, if it did exist.</p>
-              <p className="h1-section-body">While working 40 hours a week on Harvard's new cyclotron, Ewen turned on the modified receiver for the first time during Easter weekend in 1951. As Ewen put it: "By 3:00 AM on Sunday morning March 25, I was convinced that the line had been detected."</p>
+              <p className="h1-section-body">Ewen turned on the receiver after major modifications for the first time during Easter weekend in 1951. As Ewen put it: "By 3:00 AM on Sunday morning March 25, I was convinced that the line had been detected."</p>
             </div>
             <figure className="h1-ewen-figure">
               <img
