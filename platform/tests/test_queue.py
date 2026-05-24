@@ -150,6 +150,37 @@ def test_control_endpoint_requires_lease(platform_config_path):
     assert "active controller" in response.json()["detail"].lower()
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/spectrum/status",
+        "/api/spectrum/baseline",
+        "/api/roboclaw/status",
+        "/api/roboclaw/commands",
+        "/api/telescope/goto",
+        "/api/telescope/config",
+    ],
+)
+def test_live_hardware_reads_require_active_queue_session(platform_config_path, path):
+    """Without a queue lease, live read endpoints must not forward to hardware."""
+    with TestClient(create_app(platform_config_path)) as client:
+        response = client.get(path)
+    assert response.status_code == 403
+    assert "active queue session" in response.json()["detail"].lower()
+
+
+def test_live_hardware_reads_allowed_after_join(platform_config_path):
+    """After joining, live reads may forward; the fake upstream is unreachable."""
+    with TestClient(create_app(platform_config_path)) as client:
+        join = client.post("/api/queue/join", json={"turnstile_token": None})
+        assert join.status_code == 200
+
+        response = client.get("/api/roboclaw/status")
+
+    assert response.status_code == 502
+    assert "gateway unreachable" in response.json()["detail"].lower()
+
+
 def test_queue_config_endpoint(platform_config_path):
     with TestClient(create_app(platform_config_path)) as client:
         response = client.get("/api/queue/config")

@@ -19,7 +19,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSo
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from rt_platform.api.dependencies import require_control
+from rt_platform.api.dependencies import (
+    queue_service,
+    read_session_token,
+    require_active_queue_session,
+    require_control,
+)
 
 logger = logging.getLogger("radiotelescope.spectrum_proxy")
 router = APIRouter(tags=["spectrum-proxy"])
@@ -64,7 +69,7 @@ async def _proxy_json(
     return JSONResponse(body, status_code=r.status_code)
 
 
-@router.get("/api/spectrum/status")
+@router.get("/api/spectrum/status", dependencies=[Depends(require_active_queue_session)])
 async def spectrum_status(request: Request) -> JSONResponse:
     url = _base_url(request) + "/api/spectrum/status"
     try:
@@ -87,7 +92,7 @@ async def spectrum_status(request: Request) -> JSONResponse:
         )
 
 
-@router.get("/api/spectrum/baseline")
+@router.get("/api/spectrum/baseline", dependencies=[Depends(require_active_queue_session)])
 async def get_baseline(request: Request) -> JSONResponse:
     return await _proxy_json("GET", _base_url(request) + "/api/spectrum/baseline")
 
@@ -129,6 +134,11 @@ async def spectrum_ws(ws: WebSocket):
     fans out locally, so we don't open N parallel connections to the Pi.
     """
     await ws.accept()
+    if ws.app.state.config.queue.enabled:
+        token = read_session_token(ws)
+        if not queue_service(ws).is_active(token):
+            await ws.close(code=1008, reason="Active queue session required")
+            return
     bridge = getattr(ws.app.state, "spectrum_bridge", None)
     if bridge is None:
         await ws.close(code=1011)

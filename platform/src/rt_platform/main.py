@@ -33,7 +33,7 @@ logger = logging.getLogger("rt_platform")
 ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 PUBLIC_FILE_CACHE_CONTROL = "public, max-age=2592000"
 INDEX_CACHE_CONTROL = "no-cache"
-RT_ENV_CACHE_CONTROL = "public, max-age=86400, must-revalidate"
+RT_ENV_CACHE_CONTROL = "no-cache"
 
 
 @asynccontextmanager

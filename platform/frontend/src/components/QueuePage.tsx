@@ -1015,23 +1015,33 @@ function DopplerAnimation({ renderTimeSeconds, paused = false }: { renderTimeSec
         strokeWidth="2.5"
         strokeLinejoin="round"
       />
+      <rect
+        x={DA_MINI_CX - 38} y={DA_MINI_BASE_Y + 15}
+        width="76" height="21"
+        rx="4"
+        fill="#251b0d"
+        stroke="#ffbc42"
+        strokeWidth="1"
+        opacity="0.94"
+      />
       <text
-        x={DA_MINI_CX} y={DA_MINI_BASE_Y + 13}
+        x={DA_MINI_CX} y={DA_MINI_BASE_Y + 30}
         textAnchor="middle"
-        fill="#9b9ece"
-        fontSize="14"
+        fill="#ffd37a"
+        fontSize="12"
+        fontWeight="800"
         fontFamily="ui-monospace,monospace"
       >
-        {DA_MINI_REST_LABEL_MHZ.toFixed(1)}
+        {`${DA_MINI_REST_LABEL_MHZ.toFixed(1)} MHz`}
       </text>
       <text
-        x={DA_MINI_LEFT_X + 12} y={DA_MINI_BASE_Y + 27}
+        x={DA_MINI_LEFT_X + 12} y={DA_MINI_BASE_Y + 30}
         fill="#ff7a4d" fontSize="13"
       >
         lower frequency ←
       </text>
       <text
-        x={DA_MINI_LEFT_X + DA_MINI_W - 12} y={DA_MINI_BASE_Y + 27}
+        x={DA_MINI_LEFT_X + DA_MINI_W - 12} y={DA_MINI_BASE_Y + 30}
         textAnchor="end" fill="#5ba4f5" fontSize="13"
       >
         → higher frequency
@@ -1387,6 +1397,38 @@ export function QueuePage({
           </div>
         </section>
 
+        {/* ── Donation banner ───────────────────────────────────────────────── */}
+        <div className="donation-banner">
+          <div className="donation-banner-inner">
+          <div className="donation-banner-body">
+            <p className="donation-banner-headline">We need your help!</p>
+            <p className="donation-banner-sub">
+              We're a small team of passionate volunteers working hard to make the Titan Observatory a reality, but we need more support. If you like what we're doing, please consider donating and help lay the foundation for a first-of-its-kind community radio observatory.
+            </p>
+            <p className="donation-banner-sub donation-banner-sub-cta">
+              <strong>Interested in sponsoring, collaborating, or making an in-kind donation? Send us an email at{' '}
+              <a className="donation-banner-email" href="mailto:contact@titanobservatory.org">contact@titanobservatory.org</a></strong>
+            </p>
+          </div>
+          <div className="donation-banner-actions">
+            <a
+              className="donation-banner-link donation-banner-link-primary"
+              href="https://titanobservatory.org/donate"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Donate
+            </a>
+            <a
+              className="donation-banner-link donation-banner-link-secondary"
+              href="mailto:contact@titanobservatory.org"
+            >
+              Partner with us
+            </a>
+          </div>
+          </div>
+        </div>
+
         {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}
         <section className="h1-spinflip h1-discovery-section" id="h1-history-section">
           <StarsBackground />
@@ -1402,14 +1444,14 @@ export function QueuePage({
                   height={SPECTRAL_LINES_POPOVER_HEIGHT}
                   popoverClassName="h1-spectral-lines-popover"
                 >
-                  <strong>Spectral lines are fingerprints.</strong>
+                  <strong>Spectral lines act as fingerprints.</strong>
                   <span>
-                    Atoms and molecules emit or absorb light at specific frequencies. If you know the original frequency, a shifted line can reveal motion, composition, and physical conditions.
+                    When atoms or molecules interact with light, their unique structure causes them to absorb and reemit photons at very specific wavelengths. Becuase the laws of physics are universal, we are able to use these highly specific "fingerprints" to identify the chemical composition of materials from anyhwere in the universe! 
                   </span>
                 </InlineHoverPopover>{' '}
                 was well-known in visible-light astronomy, it's application was not immediately investigated due to the time it took to develop both the technical skills and the collaborative framework between fields of RF engineering and astronomy.
               </p>
-              <p className="h1-section-body">By the 1950s, thanks in large part to the efforts of radio engineer Grote Reber, </p>
+              <p className="h1-section-body">By the 1950s, thanks in large part to the efforts of radio engineer Grote Reber, our understanding of radio astronomy had matured enough for more speculative ideas to form. In this case, it would be the possibility of detecting the hyperfine transition of hydrogen in the Milky Way.</p>
               <p className="h1-section-body">Doc Ewen, after noticing an unanticipated shift in the observed frequency relative to the rest frequency of hydrogen, called the Harvard Observatory asking for the radial velocity correction for an observation at that time of that location in the sky. When asked why he needed the information, Ewen explained that he was attempting to detect the hyperfine transition of hydrogen in space, and needed to calculate the doppler shift. After a moment of silence, there was a click as the Observatory disconnected the call.</p>
             </div>
             <figure className="h1-ewen-figure">

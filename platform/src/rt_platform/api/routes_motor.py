@@ -27,7 +27,13 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
-from rt_platform.api.dependencies import require_control, require_lan_admin
+from rt_platform.api.dependencies import (
+    queue_service,
+    read_session_token,
+    require_active_queue_session,
+    require_control,
+    require_lan_admin,
+)
 from rt_platform.api.log_files import append_jsonl_with_rotation
 
 logger = logging.getLogger("rt_platform.motor_proxy")
@@ -117,27 +123,27 @@ async def _forward(
 # ─── Read-only endpoints (no queue gate) ──────────────────────────────────
 
 
-@router.get("/api/health")
+@router.get("/api/health", dependencies=[Depends(require_active_queue_session)])
 async def health(request: Request) -> JSONResponse:
     return await _forward("GET", request, "/api/health", timeout_s=3.0)
 
 
-@router.get("/api/roboclaw/status")
+@router.get("/api/roboclaw/status", dependencies=[Depends(require_active_queue_session)])
 async def status(request: Request) -> JSONResponse:
     return await _forward("GET", request, "/api/roboclaw/status", timeout_s=3.0)
 
 
-@router.get("/api/roboclaw/commands")
+@router.get("/api/roboclaw/commands", dependencies=[Depends(require_active_queue_session)])
 async def commands(request: Request) -> JSONResponse:
     return await _forward("GET", request, "/api/roboclaw/commands", timeout_s=3.0)
 
 
-@router.get("/api/telescope/goto")
+@router.get("/api/telescope/goto", dependencies=[Depends(require_active_queue_session)])
 async def goto_info(request: Request) -> JSONResponse:
     return await _forward("GET", request, "/api/telescope/goto", timeout_s=3.0)
 
 
-@router.get("/api/telescope/config")
+@router.get("/api/telescope/config", dependencies=[Depends(require_active_queue_session)])
 async def telescope_config(request: Request) -> JSONResponse:
     return await _forward("GET", request, "/api/telescope/config", timeout_s=3.0)
 
@@ -237,6 +243,11 @@ async def home_altitude(request: Request) -> JSONResponse:
 async def roboclaw_ws(ws: WebSocket) -> None:
     """Open one upstream WS to the hardware, relay frames to the browser."""
     await ws.accept()
+    if ws.app.state.config.queue.enabled:
+        token = read_session_token(ws)
+        if not queue_service(ws).is_active(token):
+            await ws.close(code=1008, reason="Active queue session required")
+            return
     upstream_url = _ws_base_url(ws.app) + "/ws/roboclaw"
     import websockets
 
