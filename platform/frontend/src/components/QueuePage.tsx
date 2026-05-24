@@ -423,9 +423,9 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
               opacity="0.72"
             />
             <rect
-              x={midX - 90}
+              x={midX - 85}
               y={linkBoxY}
-              width="180"
+              width="170"
               height="20"
               rx="4"
               fill="#0b1328"
@@ -434,7 +434,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
               opacity="0.88"
             />
             <text
-              x={midX - 9} y={labelY}
+              x={midX - 6} y={labelY}
               textAnchor="middle"
               fill="#d4e5ff" fontSize="13" fontWeight="bold" opacity="0.92"
               fontFamily="ui-monospace,monospace"
@@ -443,7 +443,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
               Why the difference?
             </text>
             <path
-              d={`M ${midX + 58} ${labelY - 5} L ${midX + 65} ${labelY - 5} L ${midX + 65} ${labelY} M ${midX + 65} ${labelY - 5} L ${midX + 56} ${labelY + 2}`}
+              d={`M ${midX + 67} ${labelY - 7} L ${midX + 75} ${labelY - 7} L ${midX + 75} ${labelY - 2} M ${midX + 75} ${labelY - 7} L ${midX + 65} ${labelY}`}
               fill="none"
               stroke="#d4e5ff"
               strokeWidth="1.1"

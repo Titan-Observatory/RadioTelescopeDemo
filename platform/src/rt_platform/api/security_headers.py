@@ -19,7 +19,8 @@ def _build_headers(gtag_inline_hash: str | None = None) -> list[tuple[bytes, byt
     script_src = (
         b"'self' 'wasm-unsafe-eval' "
         b"https://challenges.cloudflare.com "
-        b"https://www.googletagmanager.com"
+        b"https://www.googletagmanager.com "
+        b"https://googleads.g.doubleclick.net"
     )
     if gtag_inline_hash:
         # Allow the specific inline gtag init snippet injected into index.html.
