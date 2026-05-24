@@ -443,7 +443,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
               Why the difference?
             </text>
             <path
-              d={`M ${midX + 73} ${labelY - 5} L ${midX + 80} ${labelY - 5} L ${midX + 80} ${labelY} M ${midX + 80} ${labelY - 5} L ${midX + 71} ${labelY + 2}`}
+              d={`M ${midX + 58} ${labelY - 5} L ${midX + 65} ${labelY - 5} L ${midX + 65} ${labelY} M ${midX + 65} ${labelY - 5} L ${midX + 56} ${labelY + 2}`}
               fill="none"
               stroke="#d4e5ff"
               strokeWidth="1.1"

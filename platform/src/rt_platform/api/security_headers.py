@@ -14,29 +14,41 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 #   frame-src — Turnstile widget iframe
 #   frame-ancestors 'none' — disallow being embedded (clickjacking); also
 #     supersedes X-Frame-Options on all modern browsers
-_HEADERS: list[tuple[bytes, bytes]] = [
-    (b"x-content-type-options", b"nosniff"),
-    (b"x-frame-options", b"DENY"),
-    (b"referrer-policy", b"strict-origin-when-cross-origin"),
-    (
-        b"content-security-policy",
-        b"default-src 'self'; "
-        b"script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://www.googletagmanager.com; "
-        b"style-src 'self' 'unsafe-inline' https:; "
-        b"img-src 'self' data: blob: https:; "
-        b"font-src 'self' data: https:; "
-        b"connect-src 'self' ws: wss: data: https:; "
-        b"worker-src 'self' blob:; "
-        b"frame-src https://challenges.cloudflare.com; "
-        b"frame-ancestors 'none'; "
-        b"form-action 'self'",
-    ),
-]
+def _build_headers(gtag_inline_hash: str | None = None) -> list[tuple[bytes, bytes]]:
+    """Build the security header list, optionally allowing an inline gtag script by hash."""
+    script_src = (
+        b"'self' 'wasm-unsafe-eval' "
+        b"https://challenges.cloudflare.com "
+        b"https://www.googletagmanager.com"
+    )
+    if gtag_inline_hash:
+        # Allow the specific inline gtag init snippet injected into index.html.
+        # A hash is safe: only that exact script content is permitted, nothing else.
+        script_src += b" " + gtag_inline_hash.encode()
+    return [
+        (b"x-content-type-options", b"nosniff"),
+        (b"x-frame-options", b"DENY"),
+        (b"referrer-policy", b"strict-origin-when-cross-origin"),
+        (
+            b"content-security-policy",
+            b"default-src 'self'; "
+            b"script-src " + script_src + b"; "
+            b"style-src 'self' 'unsafe-inline' https:; "
+            b"img-src 'self' data: blob: https:; "
+            b"font-src 'self' data: https:; "
+            b"connect-src 'self' ws: wss: data: https:; "
+            b"worker-src 'self' blob:; "
+            b"frame-src https://challenges.cloudflare.com; "
+            b"frame-ancestors 'none'; "
+            b"form-action 'self'",
+        ),
+    ]
 
 
 class SecurityHeadersMiddleware:
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, gtag_inline_hash: str | None = None) -> None:
         self.app = app
+        self._headers = _build_headers(gtag_inline_hash)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -46,7 +58,7 @@ class SecurityHeadersMiddleware:
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 existing = list(message.get("headers", []))
-                message = {**message, "headers": existing + _HEADERS}
+                message = {**message, "headers": existing + self._headers}
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

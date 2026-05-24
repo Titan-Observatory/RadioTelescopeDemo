@@ -30,6 +30,8 @@ declare global {
     };
     dataLayer?: unknown[];
     gtag?: Gtag;
+    /** Set by the inline gtag snippet injected server-side into index.html. */
+    _gtagReady?: boolean;
   }
 }
 
@@ -39,6 +41,14 @@ function initGtag() {
   const gtagId = window.RT_PUBLIC_CONFIG?.gtagId?.trim() ?? '';
   if (!gtagId || gtagId === loadedGtagId) return;
   loadedGtagId = gtagId;
+
+  // The server injects the full standard gtag snippet into index.html and sets
+  // window._gtagReady = true.  If that ran, gtag('config') already fired — skip
+  // here to avoid a duplicate page_view event.
+  if (window._gtagReady) return;
+
+  // Fallback: dynamic initialization for Vite dev server or a deployment where
+  // the HTML was served before GTAG_ID was set in the environment.
   const gtagDebug = window.RT_PUBLIC_CONFIG?.gtagDebug ?? false;
 
   window.dataLayer = window.dataLayer ?? [];
@@ -46,12 +56,8 @@ function initGtag() {
     window.dataLayer?.push(args);
   };
 
-  // The server injects <script async src="gtag.js?id=..."> into index.html so
-  // the browser starts fetching gtag.js before any JS runs.  Only create the
-  // script element dynamically when it wasn't already injected (e.g. Vite dev
-  // server, or a deployment without a gtag_id at build time).
   const alreadyInjected = !!document.querySelector(
-    `script[src*="googletagmanager.com/gtag/js"]`,
+    'script[src*="googletagmanager.com/gtag/js"]',
   );
   if (!alreadyInjected) {
     const script = document.createElement('script');
@@ -60,8 +66,6 @@ function initGtag() {
     document.head.appendChild(script);
   }
 
-  // These dataLayer pushes must always run — gtag.js (whether pre-injected or
-  // dynamically created above) will process them when it loads.
   window.gtag('js', new Date());
   window.gtag('config', gtagId, {
     page_path: window.location.pathname,
