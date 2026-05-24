@@ -17,6 +17,7 @@
     "aladin-lite": "^3.8.2",
     "driver.js": "^1.4.0",
     "echarts": "^5.6.0",
+    "gsap": "^3.15.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

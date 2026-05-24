@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { HydrogenAtomDepiction } from './HydrogenAtom';
 import type { FormEvent } from 'react';
 import { Cloud } from 'lucide-react';
 
@@ -626,7 +627,8 @@ const DA_MINI_MHZ_PER_PX =
   DA_DOPPLER_DF_AT_VMAX_MHZ / DA_MINI_HALF_RANGE;
 const daFreqToX = (mhz: number) =>
   DA_MINI_CX + (mhz - H1_REST_MHZ) / DA_MINI_MHZ_PER_PX;
-const DA_MINI_FREQ_LABELS_MHZ = [1420.2, 1420.3, 1420.4, 1420.5, 1420.6];
+const DA_MINI_GRID_MHZ = [1420.2, 1420.3, H1_REST_MHZ, 1420.5, 1420.6];
+const DA_MINI_REST_LABEL_MHZ = 1420.4;
 
 const dopplerColor = (vFrac: number): string => {
   // vFrac in approx [-V_MAX/C, +V_MAX/C]; positive = approaching (blueshift).
@@ -987,8 +989,7 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
           />
         );
       })}
-      {/* Vertical gridlines aligned to the frequency-axis tick labels. */}
-      {DA_MINI_FREQ_LABELS_MHZ.map((mhz) => (
+      {DA_MINI_GRID_MHZ.map((mhz) => (
         <line
           key={mhz}
           x1={daFreqToX(mhz)} y1={DA_MINI_PLOT_TOP_Y}
@@ -1016,33 +1017,26 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
         strokeWidth="2.5"
         strokeLinejoin="round"
       />
-      {/* Frequency tick labels along the axis. */}
-      {DA_MINI_FREQ_LABELS_MHZ.map((mhz) => {
-        const isRest = Math.abs(mhz - 1420.4) < 0.001;
-        return (
-          <text
-            key={mhz}
-            x={daFreqToX(mhz)} y={DA_MINI_BASE_Y + 13}
-            textAnchor="middle"
-            fill={isRest ? '#9b9ece' : '#6f719a'}
-            fontSize={isRest ? 11 : 9}
-            fontFamily="ui-monospace,monospace"
-          >
-            {mhz.toFixed(1)}
-          </text>
-        );
-      })}
+      <text
+        x={DA_MINI_CX} y={DA_MINI_BASE_Y + 13}
+        textAnchor="middle"
+        fill="#9b9ece"
+        fontSize="11"
+        fontFamily="ui-monospace,monospace"
+      >
+        {DA_MINI_REST_LABEL_MHZ.toFixed(1)}
+      </text>
       <text
         x={DA_MINI_LEFT_X + 12} y={DA_MINI_BASE_Y + 27}
         fill="#ff7a4d" fontSize="10"
       >
-        redshift ←
+        lower frequency ←
       </text>
       <text
         x={DA_MINI_LEFT_X + DA_MINI_W - 12} y={DA_MINI_BASE_Y + 27}
         textAnchor="end" fill="#5ba4f5" fontSize="10"
       >
-        → blueshift
+        → higher frequency
       </text>
     </svg>
   );
@@ -1380,8 +1374,10 @@ export function QueuePage({
             <div className="h1-doppler-text">
               <span className="h1-eyebrow">How do we use it?</span>
               <h2 className="h1-section-heading">The Doppler Effect</h2>
-              <p className="h1-section-body">You may be familiar with the Doppler effect from the classic example of an ambulance siren as it approaches and then moves away from you, but did you know the same thing happens to light?</p>
-              <p className="h1-section-body">It's too subtle to notice in everyday life, but it's a fundamental principle in astronomy. </p>
+              <p className="h1-section-body">You may be familiar with the Doppler effect as it relates to sound, but did you know the same thing happens to light? It's far too subtle to notice in everyday life, but it's one of the most foundational tools in all of astronomy.</p>
+              <p className="h1-section-body">In the same way that an approaching ambulance siren sounds higher in pitch as it gets closer and lower as it moves away, electromagnetic waves shift in frequency based on the relative motion between the source and the observer.</p>
+              <p className="h1-section-body">The obvious challenge with this method is that to tell how much a frequency has shifted, you first need to know the original frequency. How do you do that for something on the other side of the Milky Way? This is where the power of spectral lines becomes clear.</p>
+              <p className="h1-section-body">Since we can measure the exact frequency of light emitted by hydrogen in a controlled lab, and because every hydrogen atom in the universe is identical, we can use that reference frequency to measure the relative velocity of hydrogen across the Milky Way.</p>
             </div>
             <div className="h1-doppler-visual">
               <DopplerAnimation paused={animationsPaused} />
@@ -1427,8 +1423,13 @@ export function QueuePage({
               </p>
               <p className="h1-section-body">Although any individual spin-flip transition is exceptionally rare, neutral hydrogen is so abundant in the galaxy that the combined signal is constant and measurable, even with a home-built radio telescope!</p>
             </div>
-            <div className="h1-spinflip-visual">
-              <HydrogenAtomDepiction paused={animationsPaused} />
+            <div className="h1-spinflip-visual-wrap">
+              <div className="h1-spinflip-visual">
+                <HydrogenAtomDepiction paused={animationsPaused} />
+              </div>
+              <p className="h1-visual-caption">
+                In neutral hydrogen, a rare flip from parallel to anti-parallel spin releases a 1420.4 MHz radio photon: the 21 cm hydrogen line.
+              </p>
             </div>
           </div>
         </section>
@@ -1458,214 +1459,5 @@ export function QueuePage({
       </main>
 
     </div>
-  );
-}
-
-function HydrogenAtomDepiction({ paused }: { paused?: boolean }) {
-  // The hyperfine spin-flip: electron spin rotates parallel <-> anti-parallel
-  // relative to the proton. flipCount drives a per-flip CSS animation that
-  // vibrates the arrow harder and harder, flashes, then snaps it through to
-  // the new orientation — much more "quantum event" than a smooth rotate.
-  const [flipCount, setFlipCount] = useState(0);
-  useEffect(() => {
-    if (paused) return;
-    const id = window.setInterval(() => setFlipCount((c) => c + 1), 3200);
-    return () => window.clearInterval(id);
-  }, [paused]);
-  // Even count = parallel (both up); odd = anti-parallel (electron down).
-  const electronUp = flipCount % 2 === 0;
-  return (
-    <div className="hydrogen-atom hydrogen-atom-turbulence" aria-hidden data-paused={paused || undefined}>
-      <div className="hydrogen-atom-particle">
-        <span className="hydrogen-atom-arrow is-up">↑</span>
-        <FuzzyParticle kind="proton" />
-        <span className="hydrogen-atom-label">proton</span>
-      </div>
-      <div className="hydrogen-atom-particle">
-        {/* The key remounts the span every flip, restarting the keyframe
-            animation from the start. The class picks which direction it
-            ends up pointing once the animation settles. */}
-        <span
-          key={flipCount}
-          className={`hydrogen-atom-arrow ${electronUp ? 'flip-to-up' : 'flip-to-down'}`}
-        >↑</span>
-        <FuzzyParticle kind="electron" />
-        <span className="hydrogen-atom-label">electron</span>
-      </div>
-    </div>
-  );
-}
-
-function FuzzyParticle({ kind }: { kind: 'proton' | 'electron' }) {
-  if (kind === 'proton') return <ProtonSwarm />;
-  return <ElectronCloud />;
-}
-
-function ProtonSwarm() {
-  // Three small circles inside an SVG with a "goo" filter — feGaussianBlur
-  // blurs each disc into a soft halo, then feColorMatrix snaps alpha to a
-  // hard threshold so neighbouring halos fuse into one continuous blob and
-  // split apart again as the circles drift. That's the metaball effect.
-  // SMIL animates cx/cy on each circle so they breathe in and out of a
-  // shared centre, staying compact.
-  return (
-    <span className="fuzzy fuzzy-proton fuzzy-goo">
-      <svg viewBox="0 0 100 100" width="100%" height="100%">
-        <defs>
-          <radialGradient id="fuzzy-proton-grad">
-            <stop offset="0%" stopColor="#ffe6a8" />
-            <stop offset="55%" stopColor="#ffbc42" />
-            <stop offset="100%" stopColor="#c5530a" />
-          </radialGradient>
-          <filter id="goo-proton" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="5" />
-            {/* The 18 / -7 contrast on the alpha channel is what snaps the
-                blurred edges back into a hard silhouette: where two blobs
-                overlap, alpha sums past the threshold and they fuse. */}
-            <feColorMatrix
-              values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7"
-            />
-          </filter>
-        </defs>
-        <g filter="url(#goo-proton)" fill="url(#fuzzy-proton-grad)">
-          {/* Lissajous-style drift: cx and cy on different periods, plus a
-              negative `begin` to offset starting phase, so each blob traces a
-              non-degenerate loop instead of a straight diagonal. */}
-          <circle r="15" cx="50" cy="50">
-            <animate attributeName="cx" dur="0.9s"  begin="0s"     values="50;60;44;52;50" repeatCount="indefinite" />
-            <animate attributeName="cy" dur="1.3s"  begin="-0.3s"  values="50;44;56;47;50" repeatCount="indefinite" />
-          </circle>
-          <circle r="14" cx="50" cy="50">
-            <animate attributeName="cx" dur="1.1s"  begin="-0.4s"  values="50;42;56;48;50" repeatCount="indefinite" />
-            <animate attributeName="cy" dur="0.75s" begin="0s"     values="50;57;44;55;50" repeatCount="indefinite" />
-          </circle>
-          <circle r="13" cx="50" cy="50">
-            <animate attributeName="cx" dur="0.6s"  begin="-0.15s" values="50;53;45;58;50" repeatCount="indefinite" />
-            <animate attributeName="cy" dur="0.95s" begin="-0.5s"  values="50;47;59;43;50" repeatCount="indefinite" />
-          </circle>
-          <circle r="12" cx="50" cy="50">
-            <animate attributeName="cx" dur="1.4s"  begin="-0.6s"  values="50;46;54;42;50" repeatCount="indefinite" />
-            <animate attributeName="cy" dur="0.7s"  begin="-0.2s"  values="50;54;43;58;50" repeatCount="indefinite" />
-          </circle>
-        </g>
-      </svg>
-    </span>
-  );
-}
-
-function ElectronCloud() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const SIZE = 200;
-    canvas.width  = SIZE;
-    canvas.height = SIZE;
-    const cx = SIZE / 2;
-    const cy = SIZE / 2;
-
-    const sigma = SIZE * 0.15;
-    const N = 950;
-
-    // Each slot is a "probability event". When it turns on it samples a brand
-    // new position from the Gaussian — so the cloud is genuinely probabilistic
-    // rather than fixed dots blinking in place.
-    const maxR = sigma * 2.7; // hard cutoff — no dots beyond 2.7σ
-    function gaussSample(): [number, number] {
-      let x: number, y: number;
-      do {
-        const u1 = Math.max(1e-9, Math.random());
-        const mag = Math.sqrt(-2 * Math.log(u1)) * sigma;
-        const ang = 2 * Math.PI * Math.random();
-        x = cx + mag * Math.cos(ang);
-        y = cy + mag * Math.sin(ang);
-      } while (Math.hypot(x - cx, y - cy) > maxR);
-      return [x, y];
-    }
-
-    type Dot = {
-      x: number; y: number; r: number;
-      on: boolean; ttl: number; onDur: number; offDur: number;
-    };
-
-    const dots: Dot[] = [];
-    for (let i = 0; i < N; i++) {
-      const [x, y] = gaussSample();
-      const onDur  = 1 + Math.floor(Math.random() * 4);
-      const offDur = 1 + Math.floor(Math.random() * 5);
-      const startOn = Math.random() < 0.45;
-      dots.push({
-        x, y,
-        r:    Math.random() < 0.15 ? 2.1 : 1.3,
-        on:   startOn,
-        ttl:  1 + Math.floor(Math.random() * (startOn ? onDur : offDur)),
-        onDur,
-        offDur,
-      });
-    }
-
-    const FRAME_MS = 1000 / 30;
-    let raf = 0;
-    let lastTime = 0;
-
-    function draw(now: number) {
-      raf = requestAnimationFrame(draw);
-      if (now - lastTime < FRAME_MS) return;
-      lastTime = now;
-
-      const ctx = canvas!.getContext('2d');
-      if (!ctx) return;
-      ctx.clearRect(0, 0, SIZE, SIZE);
-
-      // Update all dots first, accumulating centroid of visible ones.
-      let visCount = 0, sumX = 0, sumY = 0;
-      for (const d of dots) {
-        if (--d.ttl <= 0) {
-          d.on = !d.on;
-          d.ttl = d.on ? d.onDur : d.offDur;
-          if (d.on) [d.x, d.y] = gaussSample();
-        }
-        if (d.on) { visCount++; sumX += d.x; sumY += d.y; }
-      }
-
-      // Background radial gradient centred on the live dot centroid.
-      // Brightness scales with how many dots are currently visible so the
-      // glow reacts to the flickering — more dots on = stronger halo.
-      const gcx = visCount > 0 ? sumX / visCount : cx;
-      const gcy = visCount > 0 ? sumY / visCount : cy;
-      const intensity = visCount / (N * 0.45); // normalised around expected ~45 % on
-      const peak = Math.min(0.82, intensity * 0.70);
-      const grad = ctx.createRadialGradient(gcx, gcy, 0, cx, cy, SIZE * 0.50);
-      grad.addColorStop(0,    `rgba(100, 160, 255, ${peak})`);
-      grad.addColorStop(0.30, `rgba(55,  105, 230, ${(peak * 0.72).toFixed(3)})`);
-      grad.addColorStop(0.60, `rgba(25,  55,  185, ${(peak * 0.38).toFixed(3)})`);
-      grad.addColorStop(1,    'rgba(10,  25,  90,  0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, SIZE, SIZE);
-
-      // Draw dots on top — opacity tapers toward the cutoff radius.
-      for (const d of dots) {
-        if (d.on) {
-          const dist = Math.hypot(d.x - cx, d.y - cy);
-          const fade = Math.pow(1 - dist / maxR, 1.8); // smooth falloff
-          ctx.beginPath();
-          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(195, 220, 255, ${(0.58 * fade).toFixed(3)})`;
-          ctx.fill();
-        }
-      }
-    }
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  return (
-    <span className="fuzzy fuzzy-electron">
-      {/* CSS blur smears adjacent dots together slightly, giving the
-          impression of a soft cloud rather than isolated specks. */}
-      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%', filter: 'blur(1.2px)' }} />
-    </span>
   );
 }

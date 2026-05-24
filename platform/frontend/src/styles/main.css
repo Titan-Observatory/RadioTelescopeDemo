@@ -1189,73 +1189,86 @@ input:focus-visible {
 
 /* ── Hydrogen-atom spin-flip depiction ────────────────────────────────── */
 .hydrogen-atom {
+  --proton-x: calc(50% - 100px);
+  --electron-x: calc(50% + 100px);
+  position: relative;
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 60px;
-  padding: 16px;
+  overflow: hidden;
 }
 .hydrogen-atom-particle {
-  position: relative;
+  position: absolute;
+  top: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+}
+.hydrogen-atom-particle:nth-of-type(1) {
+  left: var(--proton-x);
+}
+.hydrogen-atom-particle:nth-of-type(2) {
+  left: var(--electron-x);
+}
+
+.hydrogen-atom-title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  translate: -50% calc(-50% + 90px);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: rgba(198, 206, 255, 0.86);
+  text-shadow: 0 0 10px rgba(124, 145, 255, 0.26);
+  pointer-events: none;
+}
+
+/* Flip vibration + flash are handled entirely by GSAP (see HydrogenAtom.tsx
+ * FLIP constant). Only base appearance lives here. */
+.hydrogen-spin-readout {
+  position: absolute;
+  top: calc(50% + 38px);
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  translate: -50% 0;
+  pointer-events: none;
+}
+.hydrogen-spin-readout-proton {
+  left: var(--proton-x);
+}
+.hydrogen-spin-readout-electron {
+  left: var(--electron-x);
 }
 .hydrogen-atom-arrow {
-  font-size: 48px;
+  position: static;
+  font-size: 52px;
   line-height: 1;
-  color: #ffd479;
-  text-shadow: 0 0 6px rgba(255, 188, 66, 0.7);
-  transform: rotate(0deg);
+  color: #f3d48a;
+  text-shadow: 0 0 9px rgba(243, 190, 101, 0.66), 0 0 18px rgba(243, 190, 101, 0.28);
   transform-origin: 50% 50%;
-  will-change: transform, filter;
-}
-.hydrogen-atom-arrow.is-up { transform: rotate(0deg); }
-/* Spin-flip event: vibrate with rising amplitude, flash white, then snap
- * instantly to the new orientation (steps(1) holds the rotation flat until
- * the discrete jump). The arrow scales up + brightens during the flash so
- * the moment of "flip" reads as an event, not a rotation. */
-.hydrogen-atom-arrow.flip-to-down {
-  animation: arrow-flip-down 0.55s linear forwards;
-}
-.hydrogen-atom-arrow.flip-to-up {
-  animation: arrow-flip-up 0.55s linear forwards;
-}
-@keyframes arrow-flip-down {
-  0%   { transform: rotate(0deg)   scale(1);   filter: none; }
-  20%  { transform: rotate(-2deg)  scale(1); }
-  35%  { transform: rotate(3deg)   scale(1); }
-  48%  { transform: rotate(-5deg)  scale(1.03); }
-  60%  { transform: rotate(6deg)   scale(1.05); }
-  70%  { transform: rotate(-8deg)  scale(1.08); }
-  78%  { transform: rotate(9deg)   scale(1.1); }
-  85%  { transform: rotate(-11deg) scale(1.12); filter: brightness(1.4) drop-shadow(0 0 6px rgba(255, 230, 168, 0.6)); }
-  /* steps(1, end) holds rotate(0deg) flat through 92%, then jumps to 180 */
-  88%  { transform: rotate(0deg)   scale(1.4); filter: brightness(3) drop-shadow(0 0 16px #fff); animation-timing-function: steps(1, end); }
-  92%  { transform: rotate(180deg) scale(1.4); filter: brightness(3) drop-shadow(0 0 16px #fff); }
-  100% { transform: rotate(180deg) scale(1);   filter: none; }
-}
-@keyframes arrow-flip-up {
-  0%   { transform: rotate(180deg) scale(1);   filter: none; }
-  20%  { transform: rotate(182deg) scale(1); }
-  35%  { transform: rotate(177deg) scale(1); }
-  48%  { transform: rotate(185deg) scale(1.03); }
-  60%  { transform: rotate(174deg) scale(1.05); }
-  70%  { transform: rotate(188deg) scale(1.08); }
-  78%  { transform: rotate(171deg) scale(1.1); }
-  85%  { transform: rotate(191deg) scale(1.12); filter: brightness(1.4) drop-shadow(0 0 6px rgba(255, 230, 168, 0.6)); }
-  88%  { transform: rotate(180deg) scale(1.4); filter: brightness(3) drop-shadow(0 0 16px #fff); animation-timing-function: steps(1, end); }
-  92%  { transform: rotate(360deg) scale(1.4); filter: brightness(3) drop-shadow(0 0 16px #fff); }
-  100% { transform: rotate(360deg) scale(1);   filter: none; }
+  opacity: 0; /* initial hide — GSAP animates opacity, no style= prop in JSX */
 }
 .hydrogen-atom-label {
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  position: static;
+  margin-top: 4px;
+  min-width: max-content;
+  color: #aebaff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1;
   text-transform: uppercase;
-  color: var(--fg-muted);
+  white-space: nowrap;
+  text-shadow: 0 0 8px rgba(124, 145, 255, 0.26);
+  opacity: 0; /* initial hide — GSAP owns opacity; no style= prop in JSX */
 }
 
 /* Proton: a small, tight cluster of jittering dots (a localised but
@@ -1263,8 +1276,15 @@ input:focus-visible {
  * cloud filling most of the cell. Both animate on a sub-second cadence so
  * they read as actively jittery, not slowly breathing. */
 .fuzzy { position: relative; display: block; }
-.fuzzy-proton   { width: 50px;  height: 50px; }
-.fuzzy-electron { width: 200px; height: 200px; }
+.fuzzy-proton {
+  width: 56px;
+  height: 56px;
+  opacity: 0.88;
+  filter: saturate(0.95) brightness(0.98) drop-shadow(0 0 10px rgba(232, 74, 74, 0.28));
+}
+.fuzzy-electron { width: 320px; height: 320px; }
+
+.hydrogen-atom-particle:nth-of-type(1) { z-index: 1; }
 .fuzzy-goo svg  { display: block; overflow: visible; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2896,9 +2916,15 @@ h2.panel-header {
 
 .h1-spinflip-visual {
   aspect-ratio: 4 / 3;
+  max-width: 100%;
+  overflow: hidden;
   border-radius: var(--r-md);
   border: 1px solid var(--hairline);
   background: var(--bg);
+}
+
+.h1-spinflip-visual-wrap {
+  width: 100%;
 }
 
 .h1-ewen-figure {
@@ -2980,15 +3006,21 @@ h2.panel-header {
 }
 
 .h1-doppler-inner {
-  max-width: 1180px;
+  max-width: 1060px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.35fr);
-  gap: clamp(36px, 5vw, 72px);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(34px, 4vw, 56px);
   align-items: start;
 }
 
 .h1-doppler-text { padding-top: 8px; }
+
+.h1-doppler-visual {
+  width: 100%;
+  max-width: 620px;
+  justify-self: end;
+}
 
 /* Observation section */
 .h1-observe {
@@ -3176,6 +3208,7 @@ h2.panel-header {
   .h1-hero-inner,
   .h1-spinflip-inner,
   .h1-spinflip-alt .h1-spinflip-inner,
+  .h1-discovery-section .h1-spinflip-inner,
   .h1-doppler-inner { grid-template-columns: 1fr; gap: 28px; }
 
   .h1-hero { padding: 48px 16px 40px; }
@@ -3194,6 +3227,34 @@ h2.panel-header {
     width: 100%;
     max-width: 100%;
     align-self: center;
+  }
+  .h1-spinflip-visual-wrap {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .h1-spinflip-visual {
+    width: 100%;
+  }
+  .hydrogen-atom {
+    --proton-x: calc(50% - 68px);
+    --electron-x: calc(50% + 68px);
+  }
+  .fuzzy-electron {
+    width: 260px;
+    height: 260px;
+  }
+  .fuzzy-proton {
+    width: 48px;
+    height: 48px;
+  }
+  .hydrogen-spin-readout {
+    top: calc(50% + 28px);
+  }
+  .hydrogen-atom-arrow {
+    font-size: 44px;
+  }
+  .hydrogen-atom-label {
+    font-size: 11px;
   }
 
   .h1-observe { padding-left: 16px; padding-right: 16px; }
