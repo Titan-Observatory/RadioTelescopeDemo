@@ -73,7 +73,7 @@ class AppConfig(BaseModel):
     hardware_url: str = "http://hardware:8001"
 
     gtag_id: str = ""
-    gtag_debug: bool = True
+    gtag_debug: bool = False
 
     feedback_log_path: str = "feedback.jsonl"
     feedback_log_max_bytes: int = Field(default=1_048_576, ge=1)
