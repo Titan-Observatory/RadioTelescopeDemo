@@ -151,6 +151,41 @@ class AuthManager:
             self._records[ip].attempts = 0
             self._records[ip].locked_until = 0.0
 
+    # ── Auth event logging ───────────────────────────────────────────────────
+
+    def log_attempt(
+        self,
+        *,
+        ip_hash: str | None,
+        result: str,
+        password: str | None,
+        session_id: str | None,
+        log_path: "Path",
+        max_bytes: int,
+    ) -> None:
+        """Write one auth event to JSONL and push to Loki (fire-and-forget)."""
+        from rt_platform.api.log_files import append_jsonl_with_rotation, utc_now_iso
+        from rt_platform import loki
+
+        entry: dict = {
+            "ts": utc_now_iso(),
+            "result": result,
+            "ip_hash": ip_hash,
+            "session_id": session_id,
+        }
+        # Include the password only while auth is enabled — if auth is later
+        # disabled the call sites guard on auth.enabled and never reach here,
+        # but this provides belt-and-suspenders suppression just in case.
+        if self.enabled and password is not None:
+            entry["password"] = password
+
+        try:
+            append_jsonl_with_rotation(log_path, entry, max_bytes)
+        except Exception as exc:
+            logger.warning("Auth: failed to write auth_events.jsonl: %s", exc)
+
+        loki.push("rt_auth", entry)
+
 
 def _load_passwords(path: Path) -> set[str]:
     if not path.exists():

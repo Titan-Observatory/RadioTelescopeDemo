@@ -14,6 +14,8 @@ services:
     environment:
       # Where the Pi's rt-hardware service is reachable on the LAN.
       HARDWARE_URL: "${HARDWARE_URL:-http://10.0.27.5:8001}"
+      # Loki endpoint for behavior tracking. Leave empty to disable.
+      LOKI_URL: "${LOKI_URL:-}"
       # Secrets — set these in Coolify's env-var UI.
       RT_QUEUE_COOKIE_SECRET: "${RT_QUEUE_COOKIE_SECRET}"
       RT_TURNSTILE_SITE_KEY: "${RT_TURNSTILE_SITE_KEY:-}"

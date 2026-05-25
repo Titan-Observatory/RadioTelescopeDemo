@@ -3,12 +3,15 @@
 # URL of the rt-hardware service. In Docker Compose use the service name;
 # in a bare-metal LAN deployment, the Pi's IP and port.
 hardware_url = "http://hardware:8001"
+
+loki_url = "10.0.10.107:3100"
+
 gtag_id = ""
-gtag_debug = true
 
 feedback_log_path = "feedback.jsonl"
 events_log_path = "events.jsonl"
 motion_log_path = "motion.jsonl"
+auth_log_path = "auth_events.jsonl"
 
 [general]
 log_level = "INFO"

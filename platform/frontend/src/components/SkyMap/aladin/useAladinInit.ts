@@ -5,7 +5,7 @@
 import type { AladinCatalog, AladinInstance, AladinStatic, GraphicOverlay } from 'aladin-lite';
 import { type Dispatch, type RefObject, type SetStateAction, useEffect, useRef } from 'react';
 
-import { altAzToRaDec, isInsideTriangle, raDecToAltAz } from '../../../lib/astro';
+import { altAzToRaDec, isInsidePolygon, raDecToAltAz } from '../../../lib/astro';
 import type { RaDecTarget, RoboClawTelemetry, TelescopeConfig } from '../../../types';
 import { HYDROGEN_SURVEY_ID, type SurveyId } from '../spectrum/surveys';
 import { DEFAULT_HORIZON_VIEW, initialHorizonRotationDeg } from './orientation';
@@ -273,8 +273,8 @@ export function useAladinInit(opts: UseAladinInitOptions) {
             onNoticeRef.current?.('Selected point is below the horizon.');
             return;
           }
-          if (currentConfig.pointing_limit_altaz.length === 3 &&
-              !isInsideTriangle(altAz, currentConfig.pointing_limit_altaz)) {
+          if (currentConfig.pointing_limit_altaz.length >= 3 &&
+              !isInsidePolygon(altAz, currentConfig.pointing_limit_altaz)) {
             clearPendingTarget();
             onNoticeRef.current?.('Selected target is outside configured pointing limits.');
             return;

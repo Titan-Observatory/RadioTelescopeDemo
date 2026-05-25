@@ -125,7 +125,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
     if (!ready || !limitOverlayRef.current) return;
 
     limitOverlayRef.current.removeAll();
-    if (config && config.pointing_limit_altaz.length === 3) {
+    if (config && config.pointing_limit_altaz.length >= 3) {
       const date = telemetry?.timestamp != null
         ? new Date(telemetry.timestamp * 1000)
         : new Date();

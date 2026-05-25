@@ -97,7 +97,6 @@ function ControlUI({ queue }: ControlUIProps) {
                 jog={motion.jog}
                 stopJog={motion.stopJog}
                 gotoAltAz={motion.gotoAltAz}
-                homeElevation={motion.homeElevation}
                 targetAz={map.targetAz}
                 targetAlt={map.targetAlt}
                 setTargetAz={map.setTargetAz}

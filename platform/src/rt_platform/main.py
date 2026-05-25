@@ -27,6 +27,7 @@ from rt_platform.api.client_allowlist import ClientAllowlistMiddleware
 from rt_platform.api.rate_limit import RateLimitMiddleware
 from rt_platform.api.security_headers import SecurityHeadersMiddleware
 from rt_platform.config import load_config, public_exposure_errors
+from rt_platform.loki import configure as configure_loki
 from rt_platform.services.queue import QueueService
 from rt_platform.services.spectrum_bridge import SpectrumBridge
 
@@ -85,6 +86,8 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
         level=getattr(logging, cfg.general.log_level),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
+
+    configure_loki(cfg.loki_url)
 
     app = FastAPI(title="RT Platform", lifespan=lifespan)
     app.state.config = cfg

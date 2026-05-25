@@ -72,6 +72,9 @@ class AppConfig(BaseModel):
     # in compose deployments; an IP/host in bare-metal LAN deployments.
     hardware_url: str = "http://hardware:8001"
 
+    # Loki push endpoint. Empty string disables all Loki pushes.
+    loki_url: str = ""
+
     gtag_id: str = ""
     gtag_debug: bool = False
 
@@ -81,6 +84,8 @@ class AppConfig(BaseModel):
     events_log_max_bytes: int = Field(default=5_242_880, ge=1)
     motion_log_path: str = "motion.jsonl"
     motion_log_max_bytes: int = Field(default=5_242_880, ge=1)
+    auth_log_path: str = "auth_events.jsonl"
+    auth_log_max_bytes: int = Field(default=5_242_880, ge=1)
 
 
 _ENV_VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
@@ -120,6 +125,8 @@ def load_config(path: Path | str = "config.toml") -> AppConfig:
     # deployment.
     if "HARDWARE_URL" in os.environ:
         raw["hardware_url"] = os.environ["HARDWARE_URL"]
+    if "LOKI_URL" in os.environ:
+        raw["loki_url"] = os.environ["LOKI_URL"]
     if "GTAG_ID" in os.environ:
         raw["gtag_id"] = os.environ["GTAG_ID"]
     if "GTAG_DEBUG" in os.environ:

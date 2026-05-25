@@ -35,6 +35,7 @@ from rt_platform.api.dependencies import (
     require_lan_admin,
 )
 from rt_platform.api.log_files import append_jsonl_with_rotation
+from rt_platform import loki
 
 logger = logging.getLogger("rt_platform.motor_proxy")
 router = APIRouter(tags=["motor-proxy"])
@@ -96,6 +97,7 @@ async def _audit_motion(
     try:
         async with _motion_audit_lock:
             await asyncio.to_thread(append_jsonl_with_rotation, log_path, entry, max_bytes)
+        loki.push("rt_motion", entry)
     except Exception:
         pass
 

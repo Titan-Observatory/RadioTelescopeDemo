@@ -80,8 +80,8 @@ class MountConfig(BaseModel):
     @field_validator("pointing_limit_altaz")
     @classmethod
     def validate_pointing_limit_altaz(cls, value: list[AltAzLimitPoint]) -> list[AltAzLimitPoint]:
-        if len(value) not in (0, 3):
-            raise ValueError("pointing_limit_altaz must be empty or contain exactly 3 alt/az points")
+        if len(value) != 0 and len(value) < 3:
+            raise ValueError("pointing_limit_altaz must be empty or contain at least 3 alt/az points")
         return value
 
 

@@ -107,20 +107,10 @@ export function LightSpectrumSurveySelector({
     });
   }, [hoverLogFreq, activeSurvey, animatedFocusLogFreq]);
 
-  const activeDef = surveyDefinition(activeSurvey);
   const hydrogenMarkerLeft = `calc(32px + ${logFreqToRatio(HYDROGEN_LOG_FREQ) * 100}% - ${logFreqToRatio(HYDROGEN_LOG_FREQ) * 44}px)`;
 
   return (
     <div id="skymap-spectrum-selector" className={`skymap-spectrum-selector${disabled ? ' disabled' : ''}`}>
-      <p className="skymap-spectrum-capability">
-        This telescope is only capable of observing at the 21cm hydrogen line. Surveys in other wavelengths of light are available for exploration.
-      </p>
-      <div className="skymap-spectrum-chart-shell">
-        <div className="skymap-spectrum-chart" ref={chartHostRef} role="button" aria-label="Select sky survey by frequency" />
-        <div className="skymap-hydrogen-line-marker" style={{ left: hydrogenMarkerLeft }} aria-hidden="true">
-          <span>21cm</span>
-        </div>
-      </div>
       <div className="skymap-survey-list" role="radiogroup" aria-label="Survey presets">
         {SURVEYS.map((survey) => (
           <button
@@ -137,7 +127,12 @@ export function LightSpectrumSurveySelector({
           </button>
         ))}
       </div>
-      <p className="skymap-spectrum-desc">{activeDef.description}</p>
+      <div className="skymap-spectrum-chart-shell">
+        <div className="skymap-spectrum-chart" ref={chartHostRef} role="button" aria-label="Select sky survey by frequency" />
+        <div className="skymap-hydrogen-line-marker" style={{ left: hydrogenMarkerLeft }} aria-hidden="true">
+          <span>21cm</span>
+        </div>
+      </div>
     </div>
   );
 }

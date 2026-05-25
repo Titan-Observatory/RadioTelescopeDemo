@@ -31,24 +31,22 @@ def unwrap_azimuth(azimuth_deg: float, reference_deg: float) -> float:
     return azimuth_deg
 
 
-def point_in_triangle(
+def point_in_polygon(
     point: tuple[float, float],
-    triangle: Sequence[tuple[float, float]],
-    epsilon: float = 1e-9,
+    polygon: Sequence[tuple[float, float]],
 ) -> bool:
-    """True if ``point`` is inside the 2-D triangle (half-plane sign test)."""
+    """Ray-casting point-in-polygon test for an arbitrary N-vertex polygon."""
     px, py = point
-    (ax, ay), (bx, by), (cx, cy) = triangle
+    n = len(polygon)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
 
-    def sign(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> float:
-        return (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3)
 
-    d1 = sign(px, py, ax, ay, bx, by)
-    d2 = sign(px, py, bx, by, cx, cy)
-    d3 = sign(px, py, cx, cy, ax, ay)
-    has_negative = d1 < -epsilon or d2 < -epsilon or d3 < -epsilon
-    has_positive = d1 > epsilon or d2 > epsilon or d3 > epsilon
-    return not (has_negative and has_positive)
-
-
-__all__ = ("normalise_azimuth", "unwrap_azimuth", "point_in_triangle")
+__all__ = ("normalise_azimuth", "unwrap_azimuth", "point_in_polygon")

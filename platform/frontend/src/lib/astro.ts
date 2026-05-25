@@ -24,31 +24,29 @@ export function unwrapDeg(deg: number, reference: number): number {
   return value;
 }
 
-/** Half-plane sign test for point-in-triangle (matches the Python copy). */
-export function isInsideTriangle(point: AltAzPoint, triangle: AltAzPoint[]): boolean {
-  if (triangle.length !== 3) return true;
+/** Ray-casting point-in-polygon test (matches the Python copy in geometry.py). */
+export function isInsidePolygon(point: AltAzPoint, polygon: AltAzPoint[]): boolean {
+  if (polygon.length < 3) return true;
 
-  const reference = triangle[0].azimuth_deg;
+  const reference = polygon[0].azimuth_deg;
   const px = unwrapDeg(point.azimuth_deg, reference);
   const py = point.altitude_deg;
-  const vertices = triangle.map((vertex) => ({
-    x: unwrapDeg(vertex.azimuth_deg, reference),
-    y: vertex.altitude_deg,
+  const verts = polygon.map((v) => ({
+    x: unwrapDeg(v.azimuth_deg, reference),
+    y: v.altitude_deg,
   }));
-  const [a, b, c] = vertices;
 
-  const sign = (
-    x1: number, y1: number,
-    x2: number, y2: number,
-    x3: number, y3: number,
-  ) => (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3);
-
-  const d1 = sign(px, py, a.x, a.y, b.x, b.y);
-  const d2 = sign(px, py, b.x, b.y, c.x, c.y);
-  const d3 = sign(px, py, c.x, c.y, a.x, a.y);
-  const hasNegative = d1 < -1e-9 || d2 < -1e-9 || d3 < -1e-9;
-  const hasPositive = d1 > 1e-9 || d2 > 1e-9 || d3 > 1e-9;
-  return !(hasNegative && hasPositive);
+  let inside = false;
+  let j = verts.length - 1;
+  for (let i = 0; i < verts.length; i++) {
+    const { x: xi, y: yi } = verts[i];
+    const { x: xj, y: yj } = verts[j];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+    j = i;
+  }
+  return inside;
 }
 
 export function julianDay(date: Date): number {

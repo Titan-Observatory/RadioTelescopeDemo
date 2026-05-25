@@ -5,7 +5,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
-from rt_hardware.geometry import normalise_azimuth, point_in_triangle, unwrap_azimuth
+from rt_hardware.geometry import normalise_azimuth, point_in_polygon, unwrap_azimuth
 from rt_hardware.hardware.roboclaw import COMMANDS, OPERATOR_COMMAND_IDS, command_registry
 from rt_hardware.models.state import (
     AltAzRequest,
@@ -50,12 +50,12 @@ def _inside_pointing_limits(altitude_deg: float, azimuth_deg: float, request: Re
         return True
 
     reference = limits[0].azimuth_deg
-    triangle = [
+    polygon = [
         (unwrap_azimuth(p.azimuth_deg, reference), p.altitude_deg)
         for p in limits
     ]
     point = (unwrap_azimuth(normalise_azimuth(azimuth_deg), reference), altitude_deg)
-    return point_in_triangle(point, triangle)
+    return point_in_polygon(point, polygon)
 
 
 def _resolve(override: int | None, stored: int | None, default: int) -> int:

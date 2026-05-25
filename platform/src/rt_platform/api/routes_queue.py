@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -13,6 +14,7 @@ from rt_platform.api.dependencies import (
     read_session_token,
     write_session_token,
 )
+from rt_platform.api.log_files import hash_ip
 from rt_platform.services.queue import QueueFullError, QueueRateLimitedError, QueueStatus
 
 logger = logging.getLogger(__name__)
@@ -76,13 +78,22 @@ async def queue_join(body: JoinRequest, request: Request, response: Response) ->
         ):
             raise HTTPException(403, "Captcha verification failed")
 
+    _auth_password: str | None = None
     if auth.enabled:
+        _auth_log_kw = dict(
+            log_path=Path(cfg.auth_log_path),
+            max_bytes=cfg.auth_log_max_bytes,
+            ip_hash=hash_ip(ip),
+        )
         if auth.is_locked(ip):
+            auth.log_attempt(result="locked", password=None, session_id=None, **_auth_log_kw)
             raise HTTPException(429, "Too many failed attempts. Try again later.")
         if not body.beta_password:
             raise HTTPException(400, "Beta access password required")
         if not auth.check_password(body.beta_password):
             locked = auth.record_failure(ip)
+            result = "locked" if locked else "failure"
+            auth.log_attempt(result=result, password=body.beta_password, session_id=None, **_auth_log_kw)
             if locked:
                 raise HTTPException(
                     429,
@@ -90,11 +101,21 @@ async def queue_join(body: JoinRequest, request: Request, response: Response) ->
                 )
             raise HTTPException(403, "Incorrect password")
         auth.record_success(ip)
+        _auth_password = body.beta_password  # held to log after we have a session token
         is_secure = cfg.server.public_exposure or request.url.scheme == "https"
         auth.set_auth_cookie(response, is_secure=is_secure)
 
     existing = read_session_token(request)
     if existing is not None and await queue.rejoin(existing, client_ip(request) or ""):
+        if auth.enabled and _auth_password is not None:
+            auth.log_attempt(
+                result="success",
+                password=_auth_password,
+                session_id=existing,
+                log_path=Path(cfg.auth_log_path),
+                max_bytes=cfg.auth_log_max_bytes,
+                ip_hash=hash_ip(ip),
+            )
         return queue.status_for(existing)
 
     try:
@@ -103,6 +124,16 @@ async def queue_join(body: JoinRequest, request: Request, response: Response) ->
         raise HTTPException(429, str(exc)) from exc
     except QueueFullError as exc:
         raise HTTPException(503, str(exc)) from exc
+
+    if auth.enabled and _auth_password is not None:
+        auth.log_attempt(
+            result="success",
+            password=_auth_password,
+            session_id=token,
+            log_path=Path(cfg.auth_log_path),
+            max_bytes=cfg.auth_log_max_bytes,
+            ip_hash=hash_ip(ip),
+        )
 
     write_session_token(response, request, token)
     return queue.status_for(token)

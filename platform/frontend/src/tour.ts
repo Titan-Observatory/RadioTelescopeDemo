@@ -164,7 +164,7 @@ export function startTour(source: 'first_visit' | 'button' = 'button') {
           },
         },
         {
-          element: '.target-form',
+          element: '.target-form-overlay',
           popover: {
             title: 'Go to a target',
             description:

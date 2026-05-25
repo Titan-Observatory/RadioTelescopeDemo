@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
 from rt_platform.api.log_files import append_jsonl_with_rotation
+from rt_platform import loki
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
@@ -77,5 +78,6 @@ async def submit_event(body: EventRequest, request: Request) -> Response:
     }
     async with _write_lock:
         append_jsonl_with_rotation(log_path, entry, request.app.state.config.events_log_max_bytes)
+    loki.push("rt_events", entry)
     # 204 keeps sendBeacon happy and avoids parsing a response body on the client.
     return Response(status_code=204)

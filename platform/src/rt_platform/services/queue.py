@@ -67,6 +67,7 @@ class QueueService:
         self._broadcaster: Broadcaster[QueueStatus] = Broadcaster()
         self._broadcaster.default_maxsize = 8
         self._task: asyncio.Task[None] | None = None
+        self._snapshot_task: asyncio.Task[None] | None = None
         self._stopped = False
 
     # ─── lifecycle ───────────────────────────────────────────────────────────
@@ -75,16 +76,19 @@ class QueueService:
         if self._task is None:
             self._stopped = False
             self._task = asyncio.create_task(self._tick_loop(), name="queue-tick")
+            self._snapshot_task = asyncio.create_task(self._snapshot_loop(), name="queue-snapshot")
 
     async def stop(self) -> None:
         self._stopped = True
-        if self._task is not None:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
+        for task in (self._task, self._snapshot_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._task = None
+        self._snapshot_task = None
 
     # ─── public API ──────────────────────────────────────────────────────────
 
@@ -204,7 +208,25 @@ class QueueService:
         )
         self._broadcaster.publish(sentinel)
 
-    # ─── background expiry loop ──────────────────────────────────────────────
+    # ─── background loops ────────────────────────────────────────────────────
+
+    async def _snapshot_loop(self) -> None:
+        from rt_platform.api.log_files import utc_now_iso
+        from rt_platform import loki
+
+        try:
+            while not self._stopped:
+                await asyncio.sleep(30)
+                depth = len(self._sessions)
+                active = self._active is not None
+                loki.push("rt_queue_snapshot", {
+                    "ts": utc_now_iso(),
+                    "depth": depth,
+                    "active": active,
+                    "waiting": max(0, depth - (1 if active else 0)),
+                })
+        except asyncio.CancelledError:
+            raise
 
     async def _tick_loop(self) -> None:
         try:

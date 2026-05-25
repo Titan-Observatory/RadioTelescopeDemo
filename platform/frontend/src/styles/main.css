@@ -794,44 +794,74 @@ input:focus-visible {
 .motion-mode-step:hover { color: var(--fg); }
 .motion-mode-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* GoTo form when it lives inside the floating overlay — stack vertically,
-   inputs span full width, big amber action button anchored at the bottom.
-   The base .target-form is a 3-column horizontal layout used by the older
-   panel-section variant; this override is purely additive. */
+/* GoTo form — 2-column grid (Az | Alt), Slew + Stop span full width below */
 .target-form-overlay {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 10px;
-  border: none;
   background: var(--surface-2);
   border-radius: var(--r-md);
 }
-.target-form-overlay label span {
-  font-size: 11px;
+.goto-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.goto-field > span {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.goto-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.goto-input-row input {
+  flex: 1;
+  height: 38px;
+  font-size: 18px;
   font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  padding-right: 22px;
 }
-.target-form-overlay input {
-  height: 34px;
-  font-size: 13px;
-}
-.target-form-overlay input[type="number"]::-webkit-outer-spin-button,
-.target-form-overlay input[type="number"]::-webkit-inner-spin-button {
+.goto-input-row input[type="number"]::-webkit-outer-spin-button,
+.goto-input-row input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-.target-form-overlay input[type="number"] {
+.goto-input-row input[type="number"] {
   -moz-appearance: textfield;
 }
-.target-form-overlay .action-button {
-  width: 100%;
+.goto-unit {
+  position: absolute;
+  right: 8px;
+  font-size: 12px;
+  color: var(--fg-subtle);
+  pointer-events: none;
+}
+.goto-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
   margin-top: 2px;
 }
-.motion-controls-stop {
-  margin-top: 8px;
+.goto-slew-btn {
+  flex: 1;
 }
+.goto-stop-btn {
+  flex: 0 0 auto;
+  width: 42px;
+  padding: 0;
+  background: rgba(216, 17, 89, 0.18);
+  border-color: rgba(216, 17, 89, 0.45);
+  color: #e8305a;
+}
+.goto-stop-btn:hover { background: rgba(216, 17, 89, 0.28); border-color: rgba(216, 17, 89, 0.65); }
+.goto-stop-btn:active { background: rgba(216, 17, 89, 0.10); }
 
 /* Status panel — always-visible section below the waterfall in the right column */
 .status-side-panel {
@@ -2380,8 +2410,8 @@ h2.panel-header {
 
 .skymap-altaz-chip {
   position: absolute;
-  bottom: 10px;
-  left: 10px;
+  top: 10px;
+  right: 10px;
   z-index: 10;
   display: inline-flex;
   align-items: center;
@@ -3572,14 +3602,6 @@ h2.panel-header {
     pointer-events: auto;
     touch-action: manipulation;
   }
-  .skymap-altaz-chip {
-    bottom: auto;
-    top: 10px;
-    left: auto;
-    right: 10px;
-    z-index: 41;
-  }
-
   .pad-btn { min-height: 52px; }
   .target-form { grid-template-columns: 1fr 1fr; }
   .target-form button[type="submit"] { grid-column: 1 / -1; }
