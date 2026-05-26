@@ -139,7 +139,6 @@ The platform proxies every hardware endpoint — browsers always talk to port 80
 | DELETE | `/api/spectrum/baseline` | control | Clear the saved baseline |
 | POST | `/api/spectrum/reset` | control | Reset EMA integration accumulator |
 | POST | `/api/spectrum/reconnect` | control | Force SDR receiver to close and re-open |
-| POST | `/api/spectrum/lna` | control | Toggle bias-tee LNA (`{"enabled": true/false}`) |
 | WS | `/ws/spectrum` | session | Streamed FFT frames (Hann-windowed, EMA-integrated) |
 
 ### Camera

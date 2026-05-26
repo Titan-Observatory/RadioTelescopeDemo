@@ -7,7 +7,7 @@ to browser subscribers using the same drop-oldest pubsub the in-process
 service uses. Browsers see an identical wire format.
 
 The bridge intentionally does *not* mirror the full ``SpectrumService``
-surface (baseline capture, reconnect, LNA toggle, status). Those endpoints
+surface (baseline capture, reconnect, status). Those endpoints
 are proxied via HTTP — see ``routes_spectrum``. Keeping bridge logic
 confined to the data path avoids two sources of truth for things like the
 saved baseline.

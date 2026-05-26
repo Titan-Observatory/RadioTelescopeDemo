@@ -34,7 +34,7 @@ function ControlUI({ queue }: ControlUIProps) {
   const { trackErrorOnce } = useErrorTracking();
   const liveControlsEnabled = useAfterInitialPaint();
   const { telemetry, setTelemetry } = useTelemetry({ enabled: liveControlsEnabled, onError: trackErrorOnce });
-  const { lnaStatus, lnaChanging, toggleLna } = useLna(liveControlsEnabled);
+  const { lnaStatus } = useLna(liveControlsEnabled);
   const { commands, telescopeConfig } = useBackendCatalog({ enabled: liveControlsEnabled, onError: trackErrorOnce });
   const map = useMapTarget();
   const motion = useMotionCommands(commands, setTelemetry);
@@ -125,8 +125,6 @@ function ControlUI({ queue }: ControlUIProps) {
               telemetry={telemetry}
               config={telescopeConfig}
               lnaStatus={lnaStatus}
-              lnaChanging={lnaChanging}
-              onToggleLna={toggleLna}
             />
           </section>
         </div>

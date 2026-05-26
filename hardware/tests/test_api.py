@@ -94,6 +94,24 @@ def test_spectrum_lna_applied_at_boot(simulated_config_path, monkeypatch):
 # ─── Goto / jog ───────────────────────────────────────────────────────────
 
 
+def test_spectrum_lna_not_touched_at_boot_when_disabled(simulated_config_path, monkeypatch):
+    """Default/off config should not call airspy_gpio just to prove it is off."""
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(list(cmd))
+        raise AssertionError("airspy_gpio should not run when the configured bias tee is off")
+
+    monkeypatch.setattr("rt_hardware.hardware.sdr.subprocess.run", fake_run)
+
+    with TestClient(create_app(simulated_config_path)) as client:
+        status = client.get("/api/spectrum/status")
+
+    assert status.status_code == 200
+    assert status.json()["lna"]["state"] == "off"
+    assert calls == []
+
+
 def test_api_accepts_alt_az_goto(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         response = client.post(

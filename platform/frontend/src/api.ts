@@ -1,4 +1,4 @@
-import type { CommandInfo, CommandResult, LnaStatus, RaDecTarget, RoboClawTelemetry, TelescopeConfig } from './types';
+import type { CommandInfo, CommandResult, RaDecTarget, RoboClawTelemetry, TelescopeConfig } from './types';
 import type { QueueConfig, QueueStatus } from './queue';
 
 export type JogDirection = 'west' | 'east' | 'up' | 'down';
@@ -90,8 +90,6 @@ export const api = {
   homeElevation: (speed: number) =>
     request<{ status: string; message: string }>('POST', '/api/telescope/home/elevation', { speed }),
   stop: () => request<Record<string, CommandResult>>('POST', '/api/roboclaw/stop'),
-  setSpectrumLna: (enabled: boolean) =>
-    request<{ ok: boolean; lna: LnaStatus }>('POST', '/api/spectrum/lna', { enabled }),
   // ─── Queue ────────────────────────────────────────────────────────────
   queueConfig: () => request<QueueConfig>('GET', '/api/queue/config'),
   queueStatus: () => request<QueueStatus>('GET', '/api/queue/status'),

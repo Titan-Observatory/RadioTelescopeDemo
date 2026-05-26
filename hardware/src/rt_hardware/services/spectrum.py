@@ -125,6 +125,8 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         Called once at service startup, before any subprocess is spawned,
         so ``airspy_gpio`` has exclusive USB access to the Airspy.
         """
+        if not self._cfg.lna_bias_tee_enabled:
+            return self._lna.status
         return await self._lna.set(self._cfg.lna_bias_tee_enabled)
 
     # ── Frequency axis ───────────────────────────────────────────────────

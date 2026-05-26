@@ -1,11 +1,7 @@
-// LNA bias-tee status + toggle. Polls every 3 s in the background so the
-// readout stays current when external tools (CLI, deploy scripts) flip the
-// state behind our back.
+// LNA bias-tee status. Polls every 3 s in the background so the readout stays
+// current when the hardware service initializes or external tools inspect it.
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api';
-import { track } from '../analytics';
-import { errorMessage } from './formatters';
 import type { LnaStatus } from '../types';
 
 interface RfStatus {
@@ -14,13 +10,10 @@ interface RfStatus {
 
 export interface UseLnaResult {
   lnaStatus: LnaStatus | null;
-  lnaChanging: boolean;
-  toggleLna: () => Promise<void>;
 }
 
 export function useLna(enabled = true): UseLnaResult {
   const [lnaStatus, setLnaStatus] = useState<LnaStatus | null>(null);
-  const [lnaChanging, setLnaChanging] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -45,26 +38,5 @@ export function useLna(enabled = true): UseLnaResult {
     };
   }, [enabled, refresh]);
 
-  const toggleLna = useCallback(async () => {
-    if (lnaChanging) return;
-    const enabled = lnaStatus?.state !== 'on';
-    setLnaChanging(true);
-    setLnaStatus({
-      state: enabled ? 'on' : 'off',
-      label: enabled ? 'On' : 'Off',
-      detail: enabled ? 'Turning Airspy bias tee on' : 'Turning Airspy bias tee off',
-    });
-    try {
-      const result = await api.setSpectrumLna(enabled);
-      setLnaStatus(result.lna);
-      track('lna_toggled', { enabled, ok: result.ok });
-    } catch (err) {
-      track('lna_toggle_failed', { enabled, message: errorMessage(err).slice(0, 200) });
-      await refresh();
-    } finally {
-      setLnaChanging(false);
-    }
-  }, [lnaChanging, lnaStatus, refresh]);
-
-  return { lnaStatus, lnaChanging, toggleLna };
+  return { lnaStatus };
 }

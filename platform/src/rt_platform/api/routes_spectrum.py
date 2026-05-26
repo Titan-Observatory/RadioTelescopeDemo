@@ -16,8 +16,6 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-
 from rt_platform.api.dependencies import (
     queue_service,
     read_session_token,
@@ -27,10 +25,6 @@ from rt_platform.api.dependencies import (
 
 logger = logging.getLogger("radiotelescope.spectrum_proxy")
 router = APIRouter(tags=["spectrum-proxy"])
-
-
-class LnaToggleRequest(BaseModel):
-    enabled: bool
 
 
 def _hardware(request: Request):
@@ -112,14 +106,6 @@ async def reset_integration(request: Request) -> JSONResponse:
 @router.post("/api/spectrum/reconnect", dependencies=[Depends(require_control)])
 async def reconnect_sdr(request: Request) -> JSONResponse:
     return await _proxy_json("POST", request, "/api/spectrum/reconnect")
-
-
-@router.post("/api/spectrum/lna", dependencies=[Depends(require_control)])
-async def set_spectrum_lna(request: Request, payload: LnaToggleRequest) -> JSONResponse:
-    return await _proxy_json(
-        "POST", request, "/api/spectrum/lna",
-        json_body={"enabled": payload.enabled},
-    )
 
 
 @router.websocket("/ws/spectrum")
