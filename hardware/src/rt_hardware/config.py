@@ -76,6 +76,7 @@ class MountConfig(BaseModel):
     pointing_limit_altaz: list[AltAzLimitPoint] = Field(default_factory=list)
     altitude_calibration: AltitudeCalibrationConfig | None = None
     max_slew_deg_per_command: float = Field(default=45.0, ge=0, le=360)
+    home_elevation_on_boot: bool = False
 
     @field_validator("pointing_limit_altaz")
     @classmethod

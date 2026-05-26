@@ -359,10 +359,20 @@ async def goto_radec(body: RaDecRequest, request: Request):
     )
 
 
-@router.post("/api/telescope/home/elevation")
-async def home_elevation(request: Request, body: ElevationHomeRequest | None = None):
-    """Drive M2 downward until encoder counts stop decreasing, then zero it."""
-    service = _service(request)
+class ElevationHomingError(RuntimeError):
+    """Raised when the elevation homing routine cannot complete."""
+
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+async def perform_elevation_homing(service, speed: int) -> str:
+    """Drive M2 downward until encoder counts stop decreasing, then zero it.
+
+    Raises ElevationHomingError on failure. Reusable from HTTP handlers and
+    the lifespan boot routine.
+    """
     service.set_position_target()
     poll_s = 0.1
     timeout_s = 90.0
@@ -370,10 +380,9 @@ async def home_elevation(request: Request, body: ElevationHomeRequest | None = N
     consecutive_needed = 5
     min_decrease_counts = 1
 
-    speed = body.speed if body is not None else ElevationHomeRequest().speed
     start_result = await service.execute("backward_m2", {"speed": speed})
     if not start_result.ok:
-        raise HTTPException(400, detail=f"Could not start elevation homing: {start_result.error}")
+        raise ElevationHomingError(f"Could not start elevation homing: {start_result.error}")
 
     started_at = time.monotonic()
     deadline = started_at + timeout_s
@@ -385,10 +394,10 @@ async def home_elevation(request: Request, body: ElevationHomeRequest | None = N
             await asyncio.sleep(poll_s)
             encoders = await service.execute("read_encoders", {})
             if not encoders.ok:
-                raise HTTPException(400, detail=f"Could not read elevation encoder: {encoders.error}")
+                raise ElevationHomingError(f"Could not read elevation encoder: {encoders.error}")
             current_encoder = encoders.response.get("m2_encoder")
             if not isinstance(current_encoder, int):
-                raise HTTPException(400, detail="Could not read elevation encoder")
+                raise ElevationHomingError("Could not read elevation encoder")
 
             if previous_encoder is None:
                 previous_encoder = current_encoder
@@ -406,16 +415,30 @@ async def home_elevation(request: Request, body: ElevationHomeRequest | None = N
 
             previous_encoder = current_encoder
         else:
-            raise HTTPException(408, detail=f"Elevation homing timed out after {timeout_s:.0f} s; encoder kept decreasing")
+            raise ElevationHomingError(
+                f"Elevation homing timed out after {timeout_s:.0f} s; encoder kept decreasing",
+                status_code=408,
+            )
     finally:
         await service.execute("forward_m2", {"speed": 0})
 
     zero_result = await service.execute("set_encoder_m2", {"value": 0})
     if not zero_result.ok:
-        raise HTTPException(400, detail=f"Homed but could not zero encoder: {zero_result.error}")
+        raise ElevationHomingError(f"Homed but could not zero encoder: {zero_result.error}")
 
     await service.refresh()
-    return {"status": "ok", "message": "Elevation homed; encoder zeroed where counts stopped decreasing"}
+    return "Elevation homed; encoder zeroed where counts stopped decreasing"
+
+
+@router.post("/api/telescope/home/elevation")
+async def home_elevation(request: Request, body: ElevationHomeRequest | None = None):
+    """Drive M2 downward until encoder counts stop decreasing, then zero it."""
+    speed = body.speed if body is not None else ElevationHomeRequest().speed
+    try:
+        message = await perform_elevation_homing(_service(request), speed)
+    except ElevationHomingError as exc:
+        raise HTTPException(exc.status_code, detail=str(exc)) from exc
+    return {"status": "ok", "message": message}
 
 
 @router.post("/api/telescope/home/azimuth")

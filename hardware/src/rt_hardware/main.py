@@ -9,9 +9,11 @@ from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 
 from rt_hardware.api import routes_camera, routes_roboclaw, routes_spectrum
+from rt_hardware.api.routes_roboclaw import ElevationHomingError, perform_elevation_homing
 from rt_hardware.config import load_config
 from rt_hardware.hardware.roboclaw import make_client
 from rt_hardware.hardware.sdr import SDRReceiver
+from rt_hardware.models.state import ElevationHomeRequest
 from rt_hardware.pointing import compute_fwhm_deg, make_antenna
 from rt_hardware.services.roboclaw import RoboClawService
 from rt_hardware.services.spectrum import SpectrumService
@@ -42,6 +44,21 @@ async def lifespan(app: FastAPI):
         await spectrum.start()
 
     logger.info("rt-hardware started (hardware=%s)", client.connection.mode)
+
+    if cfg.mount.home_elevation_on_boot:
+        if client.connection.mode == "disconnected":
+            logger.info("Skipping boot elevation homing: hardware disconnected")
+        else:
+            speed = ElevationHomeRequest().speed
+            logger.info("Boot sequence: homing elevation axis at speed %d", speed)
+            try:
+                message = await perform_elevation_homing(service, speed)
+                logger.info("Boot homing complete: %s", message)
+            except ElevationHomingError as exc:
+                logger.warning("Boot elevation homing failed: %s", exc)
+            except Exception:
+                logger.exception("Boot elevation homing raised an unexpected error")
+
     yield
 
     if spectrum is not None:
