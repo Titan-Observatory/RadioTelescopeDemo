@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import httpx
 from fastapi import (
     APIRouter,
     Depends,
@@ -43,17 +42,12 @@ router = APIRouter(tags=["motor-proxy"])
 _motion_audit_lock = asyncio.Lock()
 
 
-def _base_url(request: Request) -> str:
-    return request.app.state.config.hardware_url
+def _hardware(request_or_ws) -> "HardwareClient":  # noqa: F821 — forward ref to avoid import cycle
+    return request_or_ws.app.state.hardware_client
 
 
 def _ws_base_url(app) -> str:
-    base = app.state.config.hardware_url
-    if base.startswith("http://"):
-        return "ws://" + base[len("http://"):]
-    if base.startswith("https://"):
-        return "wss://" + base[len("https://"):]
-    return base
+    return app.state.hardware_client.ws_base_url
 
 
 def _session_fingerprint(request: Request) -> str | None:
@@ -110,10 +104,8 @@ async def _forward(
     json_body: dict | None = None,
     timeout_s: float = 10.0,
 ) -> JSONResponse:
-    url = _base_url(request) + path
     try:
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
-            r = await client.request(method, url, json=json_body)
+        r = await _hardware(request).request(method, path, json=json_body, timeout=timeout_s)
     except Exception as exc:
         raise HTTPException(502, f"Hardware gateway unreachable: {exc}") from exc
     try:

@@ -21,14 +21,16 @@ def _base_url(request: Request) -> str:
     return request.app.state.config.hardware_url
 
 
+def _hardware(request: Request):
+    return request.app.state.hardware_client
+
+
 @router.get("/api/camera/status")
 async def camera_status(request: Request) -> JSONResponse:
-    url = _base_url(request) + "/api/camera/status"
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            return JSONResponse(r.json())
+        r = await _hardware(request).request("GET", "/api/camera/status", timeout=3.0)
+        r.raise_for_status()
+        return JSONResponse(r.json())
     except Exception as exc:
         logger.warning("Camera status proxy failed: %s", exc)
         return JSONResponse({"enabled": False, "label": "Cam A"})

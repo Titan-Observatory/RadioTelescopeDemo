@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -34,8 +33,8 @@ class LnaToggleRequest(BaseModel):
     enabled: bool
 
 
-def _base_url(request: Request) -> str:
-    return request.app.state.config.hardware_url
+def _hardware(request: Request):
+    return request.app.state.hardware_client
 
 
 def _bridge(request: Request):
@@ -47,7 +46,8 @@ def _bridge(request: Request):
 
 async def _proxy_json(
     method: str,
-    url: str,
+    request: Request,
+    path: str,
     json_body: dict | None = None,
     timeout_s: float = 5.0,
 ) -> JSONResponse:
@@ -58,8 +58,7 @@ async def _proxy_json(
     error semantics it would in ``local`` mode.
     """
     try:
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
-            r = await client.request(method, url, json=json_body)
+        r = await _hardware(request).request(method, path, json=json_body, timeout=timeout_s)
     except Exception as exc:
         raise HTTPException(502, f"Spectrum gateway unreachable: {exc}") from exc
     try:
@@ -71,12 +70,10 @@ async def _proxy_json(
 
 @router.get("/api/spectrum/status", dependencies=[Depends(require_active_queue_session)])
 async def spectrum_status(request: Request) -> JSONResponse:
-    url = _base_url(request) + "/api/spectrum/status"
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            return JSONResponse(r.json())
+        r = await _hardware(request).request("GET", "/api/spectrum/status", timeout=3.0)
+        r.raise_for_status()
+        return JSONResponse(r.json())
     except Exception as exc:
         # The front-end uses status to drive auto-reconnect — surface the
         # outage as a structured payload rather than a 5xx so it can render.
@@ -94,34 +91,33 @@ async def spectrum_status(request: Request) -> JSONResponse:
 
 @router.get("/api/spectrum/baseline", dependencies=[Depends(require_active_queue_session)])
 async def get_baseline(request: Request) -> JSONResponse:
-    return await _proxy_json("GET", _base_url(request) + "/api/spectrum/baseline")
+    return await _proxy_json("GET", request, "/api/spectrum/baseline")
 
 
 @router.post("/api/spectrum/baseline", dependencies=[Depends(require_control)])
 async def capture_baseline(request: Request) -> JSONResponse:
-    return await _proxy_json("POST", _base_url(request) + "/api/spectrum/baseline")
+    return await _proxy_json("POST", request, "/api/spectrum/baseline")
 
 
 @router.delete("/api/spectrum/baseline", dependencies=[Depends(require_control)])
 async def clear_baseline(request: Request) -> JSONResponse:
-    return await _proxy_json("DELETE", _base_url(request) + "/api/spectrum/baseline")
+    return await _proxy_json("DELETE", request, "/api/spectrum/baseline")
 
 
 @router.post("/api/spectrum/reset", dependencies=[Depends(require_control)])
 async def reset_integration(request: Request) -> JSONResponse:
-    return await _proxy_json("POST", _base_url(request) + "/api/spectrum/reset")
+    return await _proxy_json("POST", request, "/api/spectrum/reset")
 
 
 @router.post("/api/spectrum/reconnect", dependencies=[Depends(require_control)])
 async def reconnect_sdr(request: Request) -> JSONResponse:
-    return await _proxy_json("POST", _base_url(request) + "/api/spectrum/reconnect")
+    return await _proxy_json("POST", request, "/api/spectrum/reconnect")
 
 
 @router.post("/api/spectrum/lna", dependencies=[Depends(require_control)])
 async def set_spectrum_lna(request: Request, payload: LnaToggleRequest) -> JSONResponse:
     return await _proxy_json(
-        "POST",
-        _base_url(request) + "/api/spectrum/lna",
+        "POST", request, "/api/spectrum/lna",
         json_body={"enabled": payload.enabled},
     )
 

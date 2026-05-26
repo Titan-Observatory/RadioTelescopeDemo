@@ -28,6 +28,7 @@ from rt_platform.api.rate_limit import RateLimitMiddleware
 from rt_platform.api.security_headers import SecurityHeadersMiddleware
 from rt_platform.config import load_config, public_exposure_errors
 from rt_platform.loki import configure as configure_loki
+from rt_platform.services.hardware_client import HardwareClient
 from rt_platform.services.queue import QueueService
 from rt_platform.services.spectrum_bridge import SpectrumBridge
 
@@ -52,10 +53,14 @@ async def lifespan(app: FastAPI):
     )
     app.state.queue_service = queue
 
+    hardware = HardwareClient(cfg.hardware_url)
+    app.state.hardware_client = hardware
+
     ws_base = _http_to_ws(cfg.hardware_url)
     bridge = SpectrumBridge(ws_base)
     app.state.spectrum_bridge = bridge
 
+    await hardware.start()
     await queue.start()
     await bridge.start()
 
@@ -64,6 +69,7 @@ async def lifespan(app: FastAPI):
 
     await bridge.stop()
     await queue.stop()
+    await hardware.stop()
     logger.info("rt-platform shut down")
 
 

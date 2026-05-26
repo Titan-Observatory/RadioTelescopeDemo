@@ -27,6 +27,11 @@ function useJog(
   const timerRef = useRef<number | null>(null);
   const tokenRef = useRef<string | null>(null);
   const seqRef = useRef(0);
+  // Drop ticks while the previous request is still in flight so a slow link
+  // (or a hardware that briefly stalls) can't queue up a backlog of jogs.
+  // The hardware-side watchdog tolerates up to 1 s between heartbeats; one
+  // skipped tick is well within that.
+  const inFlightRef = useRef(false);
   const directionRef = useRef(direction);
   const speedRef = useRef(speed);
   const jogRef = useRef(jog);
@@ -56,6 +61,13 @@ function useJog(
     setActive(false);
   }, []);
 
+  const sendTick = useCallback((token: string) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    jogRef.current(directionRef.current, speedRef.current, token, ++seqRef.current)
+      .finally(() => { inFlightRef.current = false; });
+  }, []);
+
   const begin = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return; // left-click only on mouse
     if (timerRef.current != null) return;
@@ -63,15 +75,16 @@ function useJog(
     const token = makeJogToken();
     tokenRef.current = token;
     seqRef.current = 0;
+    inFlightRef.current = false;
     setActive(true);
     onPressRef.current?.();
-    void jogRef.current(directionRef.current, speedRef.current, token, ++seqRef.current);
+    sendTick(token);
     timerRef.current = window.setInterval(() => {
       const currentToken = tokenRef.current;
       if (currentToken == null) return;
-      void jogRef.current(directionRef.current, speedRef.current, currentToken, ++seqRef.current);
+      sendTick(currentToken);
     }, JOG_REPEAT_MS);
-  }, []);
+  }, [sendTick]);
 
   useEffect(() => {
     window.addEventListener('blur', cancelHeartbeatOnly);
