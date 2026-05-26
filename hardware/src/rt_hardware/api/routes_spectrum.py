@@ -36,11 +36,14 @@ async def spectrum_status(request: Request):
         "sample_rate_mhz": cfg.sample_rate_hz / 1e6,
         "fft_size": cfg.fft_size,
         "integration_frames": cfg.integration_frames,
+        "integration_seconds": cfg.integration_seconds,
         "publish_rate_hz": cfg.publish_rate_hz,
         "latest_timestamp": latest_timestamp,
         "latest_frame_age_s": (time.time() - latest_timestamp) if latest_timestamp else None,
         "latest_frames_seen": service.frames_seen,
         "subscriber_count": service.subscriber_count,
+        "pipeline_pid": service.pipeline_pid,
+        "fault_detail": service.fault_detail,
     }
 
 
@@ -70,10 +73,10 @@ async def reset_integration(request: Request):
 
 @router.post("/api/spectrum/reconnect")
 async def reconnect_sdr(request: Request):
-    """Force the SDR receiver to close + re-open without restarting the app."""
+    """Kill + respawn the GNU Radio pipeline subprocess without restarting the app."""
     service = _service(request)
     mode = await service.reconnect()
-    return {"ok": mode not in ("unavailable", "disconnected"), "mode": mode}
+    return {"ok": mode not in ("unavailable", "fault"), "mode": mode}
 
 
 @router.post("/api/spectrum/lna")

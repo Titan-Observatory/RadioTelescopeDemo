@@ -53,9 +53,8 @@ center_freq_hz = 1.4204e9
 sample_rate_hz = 3.0e6
 # Frequency resolution = sample_rate / fft_size. 8192 → 366 Hz bins, which
 # resolves H I cloud velocity components (~5–50 km/s ≈ 24–240 kHz wide)
-# across ~80+ bins instead of ~20. Per-bin noise is unchanged by fft_size
-# (single-FFT B·τ = 1 always); only integration_frames affects per-bin σ.
-# Pi 4 handles 8192-pt NumPy FFTs comfortably at 5 Hz publish rate.
+# across ~80+ bins instead of ~20. The FFT runs in a GNU Radio subprocess
+# (NEON-optimised FFTW) so the choice is no longer bounded by NumPy on the Pi.
 fft_size = 8192
 # Airspy "linearity" gain index (0-21, not dB). Leave unset to enable AGC,
 # but AGC chases signal and ruins spectroscopy — fix it for the H I line.
@@ -65,9 +64,9 @@ gain_db = 14
 # Set true if the Sawbird is powered through the Airspy's bias tee rather
 # than a separate 5 V injector.
 lna_bias_tee_enabled = false
-# EMA window length in frames. Per-bin σ ≈ 1/√(2N-1) of single-FFT noise.
-# N=256 → σ ≈ 0.044 dB per bin — very clean trace. Wall-clock settling
-# depends on actual frame rate (typically 10–15 Hz on a Pi 4 with this
-# SDR config), so ~17–25 s. Lower if you need a snappier rolling window.
-integration_frames = 256
+# Rolling integration window for the displayed trace, in wall-clock seconds.
+# Per-bin σ ≈ 1/√(integration_seconds × bin_bandwidth). 15-30 s is a good
+# starting point for the galactic-plane H I line with a Sawbird-class LNA;
+# go higher for weaker sightlines, lower for snappier display response.
+integration_seconds = 15.0
 publish_rate_hz = 5.0

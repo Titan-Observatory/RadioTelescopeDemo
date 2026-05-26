@@ -12,7 +12,6 @@ from rt_hardware.api import routes_camera, routes_roboclaw, routes_spectrum
 from rt_hardware.api.routes_roboclaw import ElevationHomingError, perform_elevation_homing
 from rt_hardware.config import load_config
 from rt_hardware.hardware.roboclaw import make_client
-from rt_hardware.hardware.sdr import SDRReceiver
 from rt_hardware.models.state import ElevationHomeRequest
 from rt_hardware.pointing import compute_fwhm_deg, make_antenna
 from rt_hardware.services.roboclaw import RoboClawService
@@ -36,7 +35,7 @@ async def lifespan(app: FastAPI):
 
     spectrum: SpectrumService | None = None
     if cfg.sdr.enabled:
-        spectrum = SpectrumService(SDRReceiver(cfg.sdr), cfg.sdr)
+        spectrum = SpectrumService(cfg.sdr, app.state.config_path)
         app.state.spectrum_service = spectrum
 
     await service.start()
@@ -76,6 +75,9 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
 
     app = FastAPI(title="RT Hardware", lifespan=lifespan)
     app.state.config = cfg
+    # The SpectrumService re-loads this path inside the GNU Radio subprocess
+    # so its view of the SDR config matches ours exactly.
+    app.state.config_path = str(Path(config_path).resolve())
 
     app.include_router(routes_roboclaw.router)
     app.include_router(routes_spectrum.router)

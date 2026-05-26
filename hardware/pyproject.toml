@@ -15,10 +15,10 @@ dependencies = [
     "katpoint>=0.10",
     "numpy>=1.26",
     "opencv-python-headless>=4.8",
-    # SoapySDR's Python bindings are installed via the system package
-    # `python3-soapysdr` (with `soapysdr-module-airspy` for the Airspy driver) —
-    # they aren't on PyPI, so they're intentionally NOT listed here. See the
-    # Dockerfile / repo README for the apt install command.
+    "pyzmq>=25.0",
+    # GNU Radio + gr-soapy provide the DSP subprocess (FFT, integrate, ZMQ sink).
+    # Both, along with SoapySDR + the Airspy driver, are installed via apt —
+    # their Python bindings aren't on PyPI. See the Dockerfile / CLAUDE.md.
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,9 @@
 FROM python:3.11-slim
 
-# SoapySDR + Airspy driver come from apt; the Python bindings aren't on PyPI.
+# SoapySDR + Airspy driver and GNU Radio (with gr-soapy) come from apt; their
+# Python bindings aren't on PyPI. GNU Radio is required for the spectrum
+# pipeline subprocess (rt_hardware.sdr_pipeline) which does the FFT in C++
+# rather than Python — see CLAUDE.md.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         airspy \
@@ -8,6 +11,9 @@ RUN apt-get update \
         soapysdr-tools \
         soapysdr-module-airspy \
         libsoapysdr0.8 \
+        gnuradio \
+        gr-soapy \
+        python3-zmq \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

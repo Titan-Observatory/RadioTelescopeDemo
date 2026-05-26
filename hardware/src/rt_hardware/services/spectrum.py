@@ -1,31 +1,40 @@
 """Spectrum service.
 
-Pulls IQ chunks from `SDRReceiver`, computes Hann-windowed FFTs, maintains a
-rolling exponential-moving-average integration, and publishes frames to
-subscribers over an asyncio.Queue (drop-oldest on full).
+Consumes integrated power spectra from a GNU Radio subprocess
+([rt_hardware.sdr_pipeline]) over a ZeroMQ socket, applies a rolling EMA
+for the displayed integration window, and broadcasts the resulting JSON
+frames to WebSocket subscribers.
+
+The DSP (Soapy → FFT → mag² → block-average) runs in GNU Radio because
+Python + asyncio can't sustain 3 Msps on a Pi 3B+. This service owns the
+subprocess lifecycle (lazy spawn on first subscriber, idle-close after
+the last leaves) but does no per-IQ-chunk work itself.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
+import signal
+import subprocess
+import sys
 import time
-from collections import deque
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 
 from rt_hardware.config import SDRConfig
-from rt_hardware.hardware.sdr import SDRReceiver
-from rt_hardware.services._sdr_task import SDRDriverTask
+from rt_hardware.hardware.sdr import LnaController
+from rt_hardware.models.state import LnaStatus
+from rt_hardware.services._pubsub import Broadcaster
 
 # Baseline cache lives next to where the server was launched so it survives
 # restarts. Small JSON file — a couple thousand floats. Override the
 # directory with RT_STATE_DIR when running in a container so the file lands
 # on a mounted volume rather than the ephemeral container FS.
-import os as _os
-BASELINE_CACHE = Path(_os.environ.get("RT_STATE_DIR", ".")) / "spectrum_baseline.json"
+BASELINE_CACHE = Path(os.environ.get("RT_STATE_DIR", ".")) / "spectrum_baseline.json"
 
 logger = logging.getLogger(__name__)
 
@@ -34,32 +43,44 @@ class SpectrumFrame(dict):
     """Plain dict so FastAPI's WebSocket can JSON-encode it cheaply."""
 
 
-class SpectrumService(SDRDriverTask[SpectrumFrame]):
-    name = "spectrum-service"
+class SpectrumService(Broadcaster[SpectrumFrame]):
+    """Subprocess manager + ZMQ consumer for the spectrum pipeline.
 
-    def __init__(self, receiver: SDRReceiver, cfg: SDRConfig) -> None:
-        super().__init__(receiver)
+    Lifecycle mirrors the previous SDRDriverTask-based service: the GNU
+    Radio subprocess is spawned on first subscribe and torn down 5 s after
+    the last unsubscribe, so the dongle stays cool when nobody is watching.
+    """
+
+    name: str = "spectrum-service"
+    idle_close_delay_s: float = 5.0
+    subprocess_start_timeout_s: float = 10.0
+    subprocess_kill_timeout_s: float = 2.0
+    # Backoff schedule when the subprocess dies unexpectedly while subscribers
+    # are still attached. Resets to the first value on every successful run.
+    _backoff_schedule: tuple[float, ...] = (1.0, 2.0, 5.0, 15.0, 30.0)
+
+    def __init__(self, cfg: SDRConfig, config_path: str | Path) -> None:
+        super().__init__()
         self._cfg = cfg
+        self._config_path = str(config_path)
+        self._lna = LnaController(cfg)
+
         self._latest: SpectrumFrame | None = None
         self._integrated: np.ndarray | None = None
         self._frames_seen: int = 0
-        self._window = np.hanning(cfg.fft_size).astype(np.float32)
+        self._publish_period_s: float = 1.0 / max(cfg.publish_rate_hz, 1e-3)
         self._freqs_mhz = self._build_freq_axis()
-        # Wall-clock cadence between FFT iterations. We keep a sliding window
-        # of recent dt's and report the median — an EMA tracked drifts in
-        # real-world conditions (thermal throttling, WS backpressure) makes
-        # the reported integration time grow without bound. Median over ~64
-        # frames is robust to transient stalls and stable in steady state.
-        self._dt_window: deque[float] = deque(maxlen=64)
-        self._frame_period_s: float = cfg.fft_size / cfg.sample_rate_hz
-        self._last_frame_monotonic: float | None = None
 
-    def _build_freq_axis(self) -> np.ndarray:
-        """FFT-shifted frequency axis in MHz, centred on `center_freq_hz`."""
-        bin_hz = self._cfg.sample_rate_hz / self._cfg.fft_size
-        # Standard centred axis: -N/2 .. N/2-1
-        k = np.arange(self._cfg.fft_size, dtype=np.float64) - self._cfg.fft_size / 2.0
-        return ((self._cfg.center_freq_hz + k * bin_hz) / 1e6).astype(np.float32)
+        self._proc: subprocess.Popen[bytes] | None = None
+        self._proc_task: asyncio.Task[None] | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        self._idle_close_task: asyncio.Task[None] | None = None
+        self._lifecycle_lock = asyncio.Lock()
+        self._mode: str = "idle"
+        self._fault_detail: str | None = None
+        self._shutting_down: bool = False
+
+    # ── Read-only properties ─────────────────────────────────────────────
 
     @property
     def latest(self) -> SpectrumFrame | None:
@@ -69,21 +90,92 @@ class SpectrumService(SDRDriverTask[SpectrumFrame]):
     def frames_seen(self) -> int:
         return self._frames_seen
 
+    @property
+    def mode(self) -> str:
+        if self._shutting_down:
+            return "idle"
+        if self.subscriber_count == 0 and self._proc is None:
+            return "idle"
+        return self._mode
+
+    @property
+    def fault_detail(self) -> str | None:
+        return self._fault_detail
+
+    @property
+    def pipeline_pid(self) -> int | None:
+        proc = self._proc
+        return proc.pid if proc is not None and proc.poll() is None else None
+
+    @property
+    def lna_status(self) -> LnaStatus:
+        return self._lna.status
+
+    async def set_lna_bias_tee(self, enabled: bool) -> LnaStatus:
+        return await self._lna.set(enabled)
+
+    # ── Frequency axis ───────────────────────────────────────────────────
+
+    def _build_freq_axis(self) -> np.ndarray:
+        """FFT-shifted frequency axis in MHz, centred on `center_freq_hz`."""
+        bin_hz = self._cfg.sample_rate_hz / self._cfg.fft_size
+        k = np.arange(self._cfg.fft_size, dtype=np.float64) - self._cfg.fft_size / 2.0
+        return ((self._cfg.center_freq_hz + k * bin_hz) / 1e6).astype(np.float32)
+
+    # ── Public lifecycle entry points ────────────────────────────────────
+
+    async def start(self) -> None:
+        # Lazy — subprocess doesn't spawn until someone subscribes.
+        logger.info("%s ready (lazy — pipeline spawns on first subscriber)", self.name)
+
+    async def stop(self) -> None:
+        self._shutting_down = True
+        await self._cancel_idle_close()
+        async with self._lifecycle_lock:
+            await self._kill_subprocess_locked()
+        logger.info("%s stopped", self.name)
+
+    async def reconnect(self) -> str:
+        """Kill and respawn the GNU Radio subprocess.
+
+        Lets the operator power-cycle the dongle or recover from a stuck
+        Soapy state without bouncing uvicorn. If nobody is currently
+        subscribed the subprocess stays down — the next viewer will spawn
+        it lazily.
+        """
+        await self._cancel_idle_close()
+        async with self._lifecycle_lock:
+            await self._kill_subprocess_locked()
+            if self.subscriber_count > 0 and not self._shutting_down:
+                await self._spawn_subprocess_locked()
+        logger.info("%s reconnected (mode=%s)", self.name, self._mode)
+        return self.mode
+
+    # ── Broadcaster subscribe/unsubscribe with subprocess lifecycle ──────
+
     def subscribe(self, maxsize: int | None = None) -> asyncio.Queue[SpectrumFrame]:
-        # Replay the latest frame so a new subscriber doesn't have to wait up
-        # to one publish interval to see anything.
         q = super().subscribe(maxsize)
         if self._latest is not None:
+            # Replay the latest frame so the new subscriber sees something
+            # immediately rather than waiting up to publish_period_s.
             q.put_nowait(self._latest)
+        if not self._shutting_down:
+            asyncio.create_task(self._ensure_running(), name=f"{self.name}-spawn")
         return q
 
-    # ── Baseline capture / load / clear ──────────────────────────────────
-    #
-    # A captured baseline is a single integrated spectrum the user marks as
-    # "reference" — typically a cold-sky / off-source scan. The frontend
-    # subtracts it from the live trace to flatten the bandpass shape so the
-    # 21 cm line stands out. We just store it; the subtraction happens on
-    # the client side.
+    def unsubscribe(self, q: asyncio.Queue[SpectrumFrame]) -> None:
+        super().unsubscribe(q)
+        if self.subscriber_count == 0 and self._proc is not None and not self._shutting_down:
+            if self._idle_close_task is None or self._idle_close_task.done():
+                self._idle_close_task = asyncio.create_task(
+                    self._close_after_idle(), name=f"{self.name}-idle-close",
+                )
+
+    # ── Integration / baseline ───────────────────────────────────────────
+
+    def reset_integration(self) -> None:
+        self._integrated = None
+        self._frames_seen = 0
 
     def capture_baseline(self) -> dict[str, Any] | None:
         latest = self._latest
@@ -118,88 +210,275 @@ class SpectrumService(SDRDriverTask[SpectrumFrame]):
         except Exception:
             logger.exception("Failed to remove baseline cache %s", BASELINE_CACHE)
 
-    # ── Integration controls ─────────────────────────────────────────────
-    #
-    # The rolling EMA window is configured through `sdr.integration_frames`.
-    # The counter and accumulator can be reset together to start a fresh
-    # integration.
+    # ── Subprocess management ────────────────────────────────────────────
 
-    def reset_integration(self) -> None:
-        self._integrated = None
-        self._frames_seen = 0
-        self._last_frame_monotonic = None
-        self._dt_window.clear()
+    async def _ensure_running(self) -> None:
+        await self._cancel_idle_close()
+        async with self._lifecycle_lock:
+            if self._proc is not None or self._shutting_down or self.subscriber_count == 0:
+                return
+            await self._spawn_subprocess_locked()
 
-    async def _run(self) -> None:
-        cfg = self._cfg
-        publish_interval = 1.0 / cfg.publish_rate_hz
-        last_publish = 0.0
-        # Each fresh open is a new integration: the prior EMA was built from
-        # samples that may be minutes or hours old and almost certainly at a
-        # different ambient noise level. Start clean.
-        self.reset_integration()
-        async for iq in self._rx.stream():
-            if iq.size < cfg.fft_size:
+    async def _spawn_subprocess_locked(self) -> None:
+        cmd = [sys.executable, "-m", "rt_hardware.sdr_pipeline", "--config", self._config_path]
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                # Put the child in its own process group so a SIGTERM to the
+                # parent doesn't propagate before we have a chance to drain
+                # the ZMQ socket cleanly.
+                start_new_session=True,
+            )
+        except FileNotFoundError as exc:
+            self._mode = "unavailable"
+            self._fault_detail = f"Could not exec {cmd[0]}: {exc}"
+            logger.error("%s subprocess spawn failed: %s", self.name, exc)
+            return
+        self._proc = proc
+        self._mode = "starting"
+        self._fault_detail = None
+        logger.info("%s spawned pipeline subprocess pid=%d", self.name, proc.pid)
+        self._stderr_task = asyncio.create_task(
+            self._pipe_stderr(proc), name=f"{self.name}-stderr",
+        )
+        self._proc_task = asyncio.create_task(
+            self._consume_zmq(proc), name=f"{self.name}-consume",
+        )
+
+    async def _close_after_idle(self) -> None:
+        try:
+            await asyncio.sleep(self.idle_close_delay_s)
+        except asyncio.CancelledError:
+            return
+        async with self._lifecycle_lock:
+            if self.subscriber_count > 0 or self._proc is None or self._shutting_down:
+                return
+            await self._kill_subprocess_locked()
+            logger.info("%s closed pipeline (idle, no subscribers)", self.name)
+
+    async def _cancel_idle_close(self) -> None:
+        task = self._idle_close_task
+        self._idle_close_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _kill_subprocess_locked(self) -> None:
+        # Cancel the consumer task first so a fresh spawn doesn't race with
+        # a still-running consumer holding the previous ZMQ socket.
+        for attr in ("_proc_task", "_stderr_task"):
+            task: asyncio.Task[None] | None = getattr(self, attr)
+            setattr(self, attr, None)
+            if task is None:
                 continue
-            samples = iq[: cfg.fft_size]
-            spectrum = np.fft.fftshift(np.fft.fft(samples * self._window))
-            power = (spectrum.real ** 2 + spectrum.imag ** 2).astype(np.float32)
-            # Avoid log(0); the FFT magnitudes never quite hit zero in practice
-            # but a floor keeps the y-axis tidy when the gain is low.
-            power = np.maximum(power, 1e-12)
-            alpha = 1.0 / max(cfg.integration_frames, 1)
-            if self._integrated is None:
-                self._integrated = power
-            else:
-                self._integrated = (1.0 - alpha) * self._integrated + alpha * power
-            self._frames_seen += 1
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("%s task %s raised during shutdown", self.name, attr)
+        proc = self._proc
+        self._proc = None
+        self._mode = "idle"
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            proc.terminate()
+            await asyncio.to_thread(proc.wait, self.subprocess_kill_timeout_s)
+        except subprocess.TimeoutExpired:
+            logger.warning("%s subprocess did not exit on SIGTERM; sending SIGKILL", self.name)
+            proc.kill()
+            try:
+                await asyncio.to_thread(proc.wait, self.subprocess_kill_timeout_s)
+            except subprocess.TimeoutExpired:
+                logger.error("%s subprocess refused to die after SIGKILL", self.name)
+        except Exception:
+            logger.exception("%s subprocess termination failed", self.name)
 
-            now = time.monotonic()
-            # Track real FFT cadence so the UI can show wall-clock integration
-            # time honestly. Sliding-window median over ~64 frames — stable
-            # in steady state, robust to transient stalls (which would otherwise
-            # pull an EMA upward and never come back down).
-            if self._last_frame_monotonic is not None:
-                dt = now - self._last_frame_monotonic
-                if 0 < dt < 1.0:
-                    self._dt_window.append(dt)
-                    if self._dt_window:
-                        sorted_dts = sorted(self._dt_window)
-                        mid = len(sorted_dts) // 2
-                        self._frame_period_s = sorted_dts[mid]
-            self._last_frame_monotonic = now
+    async def _pipe_stderr(self, proc: subprocess.Popen[bytes]) -> None:
+        """Forward the subprocess's stderr line-by-line to our logger."""
+        stderr = proc.stderr
+        if stderr is None:
+            return
+        try:
+            while True:
+                line = await asyncio.to_thread(stderr.readline)
+                if not line:
+                    return
+                # The subprocess already formats with timestamps/level; emit
+                # at INFO so they're visible without DEBUG on the parent.
+                logger.info("[pipeline] %s", line.decode("utf-8", errors="replace").rstrip())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("%s stderr pipe failed", self.name)
 
-            if now - last_publish < publish_interval:
-                continue
-            last_publish = now
-            self._publish(self._integrated)
+    # ── ZMQ consumer + EMA ───────────────────────────────────────────────
 
-    def _publish(self, integrated: np.ndarray) -> None:
-        # Convert to dB; subtract median so the trace floats around 0 dB and the
-        # 1420 MHz line stands out without needing a calibrated reference.
-        power_db = 10.0 * np.log10(integrated)
+    async def _consume_zmq(self, proc: subprocess.Popen[bytes]) -> None:
+        """Receive one Float32[fft_size] vector per message and publish frames.
+
+        Implements backoff-with-reset: a clean run drops the backoff index
+        to 0; consecutive crashes step through `_backoff_schedule` so we
+        don't hot-loop on a permanently-broken setup.
+        """
+        backoff_index = 0
+        while not self._shutting_down and self.subscriber_count > 0:
+            try:
+                await self._run_zmq_loop(proc)
+                # Subprocess exited cleanly (e.g. parent told it to stop).
+                return
+            except asyncio.CancelledError:
+                raise
+            except _PipelineDied as exc:
+                self._mode = "fault"
+                self._fault_detail = str(exc)
+                logger.warning("%s pipeline died: %s", self.name, exc)
+            except Exception as exc:
+                self._mode = "fault"
+                self._fault_detail = f"Consumer crashed: {exc}"
+                logger.exception("%s ZMQ consumer crashed", self.name)
+
+            if self._shutting_down or self.subscriber_count == 0:
+                return
+
+            wait = self._backoff_schedule[min(backoff_index, len(self._backoff_schedule) - 1)]
+            backoff_index += 1
+            logger.info("%s respawning pipeline in %.1fs (attempt %d)", self.name, wait, backoff_index)
+            try:
+                await asyncio.sleep(wait)
+            except asyncio.CancelledError:
+                raise
+
+            async with self._lifecycle_lock:
+                if self._shutting_down or self.subscriber_count == 0:
+                    return
+                # The old proc reference is dead; clear before spawning.
+                self._proc = None
+                await self._spawn_subprocess_locked()
+                proc = self._proc
+                if proc is None:
+                    return
+
+    async def _run_zmq_loop(self, proc: subprocess.Popen[bytes]) -> None:
+        # Imported lazily so the hardware service still imports cleanly on
+        # systems without pyzmq (e.g. a developer's laptop running tests).
+        try:
+            import zmq  # type: ignore[import-not-found]
+            import zmq.asyncio  # type: ignore[import-not-found]
+        except ImportError as exc:
+            self._mode = "unavailable"
+            self._fault_detail = "pyzmq is not installed"
+            raise _PipelineDied(str(exc)) from exc
+
+        ctx = zmq.asyncio.Context.instance()
+        sock = ctx.socket(zmq.SUB)
+        sock.setsockopt(zmq.SUBSCRIBE, b"")
+        sock.setsockopt(zmq.RCVHWM, 2)
+        sock.setsockopt(zmq.LINGER, 0)
+        sock.connect(self._cfg.pipeline_ipc_path)
+        # GNU Radio's zmq_pub_sink emits one message per integrate_ff output
+        # (~publish_rate_hz). At 5 Hz the deadline below gives us 3× slack.
+        recv_timeout_s = 5.0 * self._publish_period_s + self.subprocess_start_timeout_s
+        fft_size = int(self._cfg.fft_size)
+        expected_bytes = fft_size * 4  # float32
+
+        try:
+            first_frame_deadline = time.monotonic() + self.subprocess_start_timeout_s
+            saw_frame = False
+            last_publish = 0.0
+            while not self._shutting_down and self.subscriber_count > 0:
+                if proc.poll() is not None:
+                    raise _PipelineDied(f"subprocess exited with code {proc.returncode}")
+                try:
+                    raw = await asyncio.wait_for(sock.recv(), timeout=recv_timeout_s)
+                except asyncio.TimeoutError:
+                    if not saw_frame and time.monotonic() > first_frame_deadline:
+                        raise _PipelineDied("no spectrum received within startup grace period")
+                    continue
+
+                if len(raw) != expected_bytes:
+                    logger.warning(
+                        "%s received unexpected payload length %d (expected %d)",
+                        self.name, len(raw), expected_bytes,
+                    )
+                    continue
+
+                saw_frame = True
+                if self._mode != "running":
+                    self._mode = "running"
+                    self._fault_detail = None
+
+                power = np.frombuffer(raw, dtype=np.float32).copy()
+                # GNU Radio's integrate_ff sums (not averages) `integrate_k`
+                # FFTs. We don't need to divide because the median-subtract
+                # before publishing makes the absolute scale irrelevant.
+                self._frames_seen += 1
+                self._blend_into_ema(power)
+
+                now = time.monotonic()
+                if now - last_publish >= self._publish_period_s:
+                    last_publish = now
+                    self._publish_frame()
+        finally:
+            try:
+                sock.close(0)
+            except Exception:
+                pass
+
+    def _blend_into_ema(self, power: np.ndarray) -> None:
+        if self._integrated is None:
+            self._integrated = power
+            return
+        # EMA window length in *published frames* — long enough that one
+        # published-spectrum-worth of input contributes 1/N of the result.
+        n = max(1, self._cfg.integration_frames)
+        alpha = 1.0 / n
+        self._integrated = (1.0 - alpha) * self._integrated + alpha * power
+
+    def _publish_frame(self) -> None:
+        integrated = self._integrated
+        if integrated is None:
+            return
+        # Avoid log(0); the FFT magnitudes never quite hit zero in practice
+        # but a floor keeps the y-axis tidy when the gain is low.
+        floored = np.maximum(integrated, 1e-12)
+        power_db = 10.0 * np.log10(floored)
         power_db -= float(np.median(power_db))
-        # Effective integration time is the rolling EMA window's wall-clock
-        # length, capped by how many frames have actually been accumulated
-        # since the last reset. Past `integration_frames`, the window is
-        # saturated and the value plateaus — which is what the UI should show
-        # instead of a counter that climbs forever.
+
         cfg = self._cfg
-        effective_frames = min(self._frames_seen, cfg.integration_frames)
+        # Effective integration time is the EMA window in wall-clock seconds,
+        # capped by how much real input has actually accumulated since reset.
+        effective_seconds = min(
+            self._frames_seen * self._publish_period_s,
+            cfg.integration_seconds,
+        )
+
         frame = SpectrumFrame(
             timestamp=time.time(),
             center_freq_mhz=cfg.center_freq_hz / 1e6,
             sample_rate_mhz=cfg.sample_rate_hz / 1e6,
             integration_frames=cfg.integration_frames,
             frames_seen=self._frames_seen,
-            frame_duration_s=self._frame_period_s,
-            integration_seconds=effective_frames * self._frame_period_s,
-            mode=self._rx.mode,
+            frame_duration_s=self._publish_period_s,
+            integration_seconds=effective_seconds,
+            mode=self._mode,
             freqs_mhz=self._freqs_mhz.tolist(),
             power_db=power_db.astype(np.float32).round(3).tolist(),
         )
         self._latest = frame
         self.publish(frame)
+
+
+class _PipelineDied(RuntimeError):
+    """The GNU Radio subprocess exited or stopped sending data."""
 
 
 __all__: Iterable[str] = ("SpectrumService", "SpectrumFrame")

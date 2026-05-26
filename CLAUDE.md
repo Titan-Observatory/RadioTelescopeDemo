@@ -47,10 +47,11 @@ cd hardware && python -m rt_hardware.scripts.dump_types
 Owns the physical hardware. Routes are unauthenticated — the service binds on a trusted network only (Docker internal bridge, or a LAN with firewall rules).
 
 - `hardware/roboclaw.py` — Packet Serial driver for a RoboClaw motor controller over USB serial. M1 = azimuth, M2 = elevation. `COMMANDS` / `OPERATOR_COMMAND_IDS` define the API surface.
-- `hardware/sdr.py` — `SDRReceiver` wraps SoapySDR's `airspy` driver. Optional 4.5 V bias tee for an inline LNA.
+- `hardware/sdr.py` — `LnaController` toggles the Airspy's 4.5 V bias tee via the `airspy_gpio` tool. Live IQ acquisition lives in the GNU Radio subprocess, not here.
 - `hardware/host_stats.py` — CPU/memory/temp readers folded into telemetry.
 - `services/roboclaw.py` — `RoboClawService`: polls telemetry, serialises I/O behind an `asyncio.Lock`, broadcasts `RoboClawTelemetry`. Tracks position targets, runs the jog watchdog. Computes RA/Dec via `pointing.altaz_to_radec`.
-- `services/spectrum.py` — `SpectrumService`: pulls IQ from `SDRReceiver`, computes Hann-windowed FFTs, EMA-integrated spectrum. Persists baseline to `spectrum_baseline.json`.
+- `services/spectrum.py` — `SpectrumService`: manages the GNU Radio subprocess lifecycle (lazy spawn on first subscriber, idle close 5 s after the last leaves) and consumes integrated power spectra over ZeroMQ. Applies a rolling EMA in numpy at the publish rate, then broadcasts JSON frames to WebSocket subscribers. Persists baseline to `spectrum_baseline.json`.
+- `sdr_pipeline.py` — GNU Radio top-block (Soapy → FFT → mag² → integrate_ff → zeromq.pub_sink) run as a subprocess via `python -m rt_hardware.sdr_pipeline -c config.toml`. This is where the per-sample DSP actually happens.
 - `geometry.py` / `pointing.py` — encoder ↔ altitude and katpoint J2000 conversions.
 - `models/state.py` — canonical Pydantic response models. Frontend types are generated from this via `scripts/dump_types.py`.
 - `api/routes_roboclaw.py`, `api/routes_spectrum.py`, `api/routes_camera.py` — the three HTTP routers. Hardware has no queue/auth dependencies; mutations are unrestricted.
@@ -90,5 +91,5 @@ Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. Each package has its ow
 ## Hardware Notes (Raspberry Pi)
 
 - Motors: RoboClaw 2xN over USB serial (Packet Serial mode, default address 0x80, 38400 baud). Encoders are the only source of position — calibrate `mount.az_counts_per_degree`, `alt_counts_per_degree`, zero offsets, and (optionally) `altitude_calibration.points`.
-- SDR: SoapySDR Airspy driver. Install on the Pi with `sudo apt install soapysdr-module-airspy python3-soapysdr` (bindings aren't on PyPI). Airspy Mini sample rate must be 3 Msps or 6 Msps. In Docker, the hardware image already installs these packages.
+- SDR: SoapySDR Airspy driver + GNU Radio (the spectrum DSP runs as a GNU Radio flowgraph in a subprocess; the FastAPI service only consumes integrated spectra via ZeroMQ). Install on the Pi with `sudo apt install soapysdr-module-airspy python3-soapysdr gnuradio gr-soapy python3-zmq` (none of these bindings are on PyPI). Airspy Mini sample rate must be 3 Msps or 6 Msps. In Docker, the hardware image already installs these packages.
 - Camera: V4L2 device via OpenCV; configured under `[camera]`.

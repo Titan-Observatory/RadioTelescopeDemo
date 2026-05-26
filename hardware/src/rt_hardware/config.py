@@ -105,11 +105,28 @@ class SDRConfig(BaseModel):
     enabled: bool = True
     center_freq_hz: float = Field(default=1.4204e9, gt=0)
     sample_rate_hz: float = Field(default=3.0e6, gt=0)
-    fft_size: int = Field(default=2048, ge=64)
+    fft_size: int = Field(default=8192, ge=64)
     gain_db: float | None = None
     lna_bias_tee_enabled: bool = False
-    integration_frames: int = Field(default=32, ge=1, le=4096)
     publish_rate_hz: float = Field(default=5.0, gt=0)
+    # EMA time constant for the displayed spectrum. The Python consumer
+    # blends each averaged spectrum from the GNU Radio flowgraph into a
+    # rolling exponential window of this length. Display responsiveness
+    # (settling time) ≈ this value; per-bin σ ≈ 1/√(integration_seconds × B).
+    integration_seconds: float = Field(default=15.0, gt=0)
+    # Path to the IPC socket the GNU Radio subprocess publishes spectra on.
+    # Defaults to the per-process tmp socket; override in containerised
+    # deployments if /tmp is read-only or shared across services.
+    pipeline_ipc_path: str = "ipc:///tmp/rt-spectrum.sock"
+
+    @property
+    def integration_frames(self) -> int:
+        """Number of published spectra (at publish_rate_hz) inside one EMA window.
+
+        Preserved as a derived field so the existing JSON frame shape and
+        `/api/spectrum/status` payload continue to carry the same key.
+        """
+        return max(1, round(self.integration_seconds * self.publish_rate_hz))
 
 
 class GeneralConfig(BaseModel):

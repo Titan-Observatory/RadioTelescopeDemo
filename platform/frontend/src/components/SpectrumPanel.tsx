@@ -529,6 +529,17 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         </div>
       </div>
 
+      {integrationStats && (
+        <p className="spectrum-stats" aria-label="Integration statistics">
+          Integrating <strong>{integrationStats.windowSeconds.toFixed(1)} s</strong>
+          {' '}({integrationStats.effectiveFrames}/{integrationStats.targetFrames} frames)
+          {' · '}
+          <strong>{integrationStats.binHz.toFixed(0)} Hz</strong> bins
+          {' · '}
+          {integrationStats.frameHz.toFixed(1)} Hz FFT
+        </p>
+      )}
+
       <div className="spectrum-chart-wrap">
         {baseline && baselineApplies && (
           <div className="spectrum-chart-note">Baseline subtracted</div>
@@ -566,17 +577,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         </details>
         {chartEmptyMessage && <div className="spectrum-chart-empty">{chartEmptyMessage}</div>}
       </div>
-
-      {integrationStats && (
-        <p className="spectrum-stats" aria-label="Integration statistics">
-          Integrating <strong>{integrationStats.windowSeconds.toFixed(1)} s</strong>
-          {' '}({integrationStats.effectiveFrames}/{integrationStats.targetFrames} frames)
-          {' · '}
-          <strong>{integrationStats.binHz.toFixed(0)} Hz</strong> bins
-          {' · '}
-          {integrationStats.frameHz.toFixed(1)} Hz FFT
-        </p>
-      )}
 
       <BaselineWizard
         open={wizardOpen}
