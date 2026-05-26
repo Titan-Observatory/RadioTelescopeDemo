@@ -3,7 +3,7 @@ import React from 'react';
 
 import { altAzToRaDec, raDecToGalactic } from '../lib/astro';
 import {
-  amps, celsius, encoder, maxAbsReading, maxReading, minReading, motorState,
+  amps, celsius, encoder, maxAbsReading, maxReading, motorState,
   tempClass, voltClass, volts,
 } from '../lib/formatters';
 import type { LnaStatus, RoboClawTelemetry, TelescopeConfig } from '../types';
