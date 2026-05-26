@@ -32,14 +32,16 @@ export interface UseBackendCatalogResult {
 
 export function useBackendCatalog({ onError, enabled = true }: UseBackendCatalogOptions): UseBackendCatalogResult {
   const [commands, setCommands] = useState<CommandInfo[]>([]);
-  const [telescopeConfig, setTelescopeConfig] = useState<TelescopeConfig | null>(DEFAULT_TELESCOPE_CONFIG);
+  const [telescopeConfig, setTelescopeConfig] = useState<TelescopeConfig | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
     void api.commands().then(setCommands).catch((err) => onError('API', errorMessage(err)));
-    // If the backend is reachable we overwrite the default with real values;
-    // otherwise the SkyMap keeps rendering against the fallback above.
-    void api.telescopeConfig().then(setTelescopeConfig).catch(() => { /* non-critical */ });
+    // Real config overwrites the null initial state; if the backend is
+    // unreachable the fallback fires so the SkyMap still renders for visitors.
+    void api.telescopeConfig()
+      .then(setTelescopeConfig)
+      .catch(() => setTelescopeConfig(DEFAULT_TELESCOPE_CONFIG));
   }, [enabled, onError]);
 
   return { commands, telescopeConfig };

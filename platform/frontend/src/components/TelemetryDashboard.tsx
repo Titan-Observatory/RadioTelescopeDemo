@@ -1,11 +1,12 @@
 import { Activity, Navigation, Zap } from 'lucide-react';
 import React from 'react';
 
+import { altAzToRaDec, raDecToGalactic } from '../lib/astro';
 import {
   amps, celsius, encoder, maxAbsReading, maxReading, minReading, motorState,
   tempClass, voltClass, volts,
 } from '../lib/formatters';
-import type { LnaStatus, RoboClawTelemetry } from '../types';
+import type { LnaStatus, RoboClawTelemetry, TelescopeConfig } from '../types';
 
 type ReadoutRow = [label: string, value: React.ReactNode, valueClass?: string];
 
@@ -59,11 +60,13 @@ function LnaPill({
 
 export function TelemetryDashboard({
   telemetry,
+  config,
   lnaStatus,
   lnaChanging,
   onToggleLna,
 }: {
   telemetry: RoboClawTelemetry | null;
+  config: TelescopeConfig | null;
   lnaStatus: LnaStatus | null;
   lnaChanging: boolean;
   onToggleLna: () => void;
@@ -72,6 +75,16 @@ export function TelemetryDashboard({
   const roboclawTemp = maxReading(telemetry?.temperature_c, telemetry?.temperature_2_c);
   const motorOutput = maxAbsReading(telemetry?.motors.m1?.pwm, telemetry?.motors.m2?.pwm);
   const motorSpeed = maxAbsReading(telemetry?.motors.m1?.speed_qpps, telemetry?.motors.m2?.speed_qpps);
+
+  const galactic = React.useMemo(() => {
+    if (telemetry?.azimuth_deg == null || telemetry?.altitude_deg == null || config == null) return null;
+    const radec = altAzToRaDec(
+      { altitude_deg: telemetry.altitude_deg, azimuth_deg: telemetry.azimuth_deg },
+      config,
+      new Date(),
+    );
+    return raDecToGalactic(radec.ra_deg, radec.dec_deg);
+  }, [telemetry?.azimuth_deg, telemetry?.altitude_deg, config]);
 
   return (
     <div className="telemetry-dense">
@@ -85,6 +98,8 @@ export function TelemetryDashboard({
       <DenseReadout title="Pointing" icon={<Navigation size={11} />} rows={[
         ['Azimuth', telemetry?.azimuth_deg == null ? '—' : `${telemetry.azimuth_deg.toFixed(2)}°`],
         ['Elevation', telemetry?.altitude_deg == null ? '—' : `${telemetry.altitude_deg.toFixed(2)}°`],
+        ['Gal. lon (l)', galactic == null ? '—' : `${galactic.l_deg.toFixed(2)}°`],
+        ['Gal. lat (b)', galactic == null ? '—' : `${galactic.b_deg.toFixed(2)}°`],
       ]} />
       <DenseReadout title="Drive" icon={<Zap size={11} />} rows={[
         ['State', motorState(motorSpeed, motorOutput)],

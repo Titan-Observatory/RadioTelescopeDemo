@@ -153,6 +153,26 @@ export function moonRaDec(date: Date): RaDecTarget {
 }
 
 /** Illuminated fraction (0 = new, 1 = full) and whether the moon is waxing. */
+// IAU 1958 galactic pole in J2000 equatorial coordinates.
+const NGP_RA  = 192.85948 * DEG2RAD;
+const NGP_DEC = 27.12825  * DEG2RAD;
+const L_NCP   = 122.93192; // galactic longitude of the north celestial pole (degrees)
+
+export function raDecToGalactic(ra_deg: number, dec_deg: number): { l_deg: number; b_deg: number } {
+  const ra  = ra_deg  * DEG2RAD;
+  const dec = dec_deg * DEG2RAD;
+  const dRa = ra - NGP_RA;
+
+  const sinB = Math.sin(dec) * Math.sin(NGP_DEC) + Math.cos(dec) * Math.cos(NGP_DEC) * Math.cos(dRa);
+  const b_deg = Math.asin(Math.max(-1, Math.min(1, sinB))) * RAD2DEG;
+
+  const y = Math.cos(dec) * Math.sin(dRa);
+  const x = Math.sin(dec) * Math.cos(NGP_DEC) - Math.cos(dec) * Math.sin(NGP_DEC) * Math.cos(dRa);
+  const l_deg = normalizeDeg(L_NCP - Math.atan2(y, x) * RAD2DEG);
+
+  return { l_deg, b_deg };
+}
+
 export function moonIllumination(
   sun: RaDecTarget,
   moon: RaDecTarget,

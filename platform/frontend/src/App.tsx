@@ -123,6 +123,7 @@ function ControlUI({ queue }: ControlUIProps) {
           <section className="panel status-side-panel">
             <TelemetryDashboard
               telemetry={telemetry}
+              config={telescopeConfig}
               lnaStatus={lnaStatus}
               lnaChanging={lnaChanging}
               onToggleLna={toggleLna}

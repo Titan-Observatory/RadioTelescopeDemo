@@ -90,6 +90,7 @@ async def _audit_motion(
         "endpoint": endpoint,
         "accepted": accepted,
         "reason": reason,
+        "session_id": read_session_token(request),
         "session_hash": _session_fingerprint(request),
         "ip_hash": _ip_fingerprint(request),
         "params": params or {},
@@ -169,14 +170,18 @@ async def jog(request: Request) -> JSONResponse:
     body = await _safe_json(request)
     audit_params = {k: body.get(k) for k in ("direction", "speed", "seq") if k in body}
     resp = await _forward("POST", request, "/api/telescope/jog", json_body=body)
-    payload = _payload(resp)
-    accepted = bool(payload.get("accepted")) if isinstance(payload, dict) else False
-    await _audit_motion(
-        request, "jog",
-        accepted=accepted and resp.status_code < 400,
-        params=audit_params,
-        reason=_reason_from(payload, resp.status_code, accepted and resp.status_code < 400),
-    )
+    # Only log the first command in each hold (seq 0 or absent) — the hardware
+    # sends repeated jog requests while the button is held and we don't need
+    # one audit entry per tick.
+    if body.get("seq", 0) == 0:
+        payload = _payload(resp)
+        accepted = bool(payload.get("accepted")) if isinstance(payload, dict) else False
+        await _audit_motion(
+            request, "jog",
+            accepted=accepted and resp.status_code < 400,
+            params=audit_params,
+            reason=_reason_from(payload, resp.status_code, accepted and resp.status_code < 400),
+        )
     return resp
 
 

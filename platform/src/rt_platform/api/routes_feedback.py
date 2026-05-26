@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from rt_platform.api.dependencies import read_session_token
 from rt_platform.api.log_files import append_jsonl_with_rotation
 from rt_platform import loki
 
@@ -27,6 +28,7 @@ async def submit_feedback(body: FeedbackRequest, request: Request) -> dict[str, 
     log_path = Path(request.app.state.config.feedback_log_path)
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": read_session_token(request),
         "rating": body.rating,
         "message": body.message,
     }
