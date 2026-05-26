@@ -11,7 +11,7 @@ from typing import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 logger = logging.getLogger("radiotelescope.camera_proxy")
 router = APIRouter(tags=["camera-proxy"])
@@ -34,6 +34,24 @@ async def camera_status(request: Request) -> JSONResponse:
     except Exception as exc:
         logger.warning("Camera status proxy failed: %s", exc)
         return JSONResponse({"enabled": False, "label": "Cam A"})
+
+
+@router.get("/api/camera/frame")
+async def camera_frame(request: Request) -> Response:
+    """Single-shot JPEG proxy. Short timeout so a stalled hardware fetch
+    doesn't pin a connection — the browser polls anyway, it'll retry."""
+    try:
+        r = await _hardware(request).request("GET", "/api/camera/frame", timeout=4.0)
+    except Exception as exc:
+        logger.warning("Camera frame proxy failed: %s", exc)
+        raise HTTPException(502, "Camera gateway unreachable")
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, "Camera gateway returned an error")
+    return Response(
+        content=r.content,
+        media_type=r.headers.get("content-type", "image/jpeg"),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/api/camera/stream")

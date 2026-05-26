@@ -14,6 +14,7 @@ from rt_hardware.config import load_config
 from rt_hardware.hardware.roboclaw import make_client
 from rt_hardware.models.state import ElevationHomeRequest
 from rt_hardware.pointing import compute_fwhm_deg, make_antenna
+from rt_hardware.services.camera import CameraService
 from rt_hardware.services.roboclaw import RoboClawService
 from rt_hardware.services.spectrum import SpectrumService
 
@@ -37,6 +38,11 @@ async def lifespan(app: FastAPI):
     if cfg.sdr.enabled:
         spectrum = SpectrumService(cfg.sdr, app.state.config_path)
         app.state.spectrum_service = spectrum
+
+    camera: CameraService | None = None
+    if cfg.camera.enabled:
+        camera = CameraService(cfg.camera.device, cfg.camera.width, cfg.camera.height)
+        app.state.camera_service = camera
 
     await service.start()
     if spectrum is not None:
@@ -76,6 +82,8 @@ async def lifespan(app: FastAPI):
 
     if spectrum is not None:
         await spectrum.stop()
+    if camera is not None:
+        await camera.stop()
     await service.stop()
     logger.info("rt-hardware shut down")
 
