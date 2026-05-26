@@ -160,6 +160,20 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         """
         await self._cancel_idle_close()
         async with self._lifecycle_lock:
+            proc_task = self._proc_task
+            if (
+                proc_task is not None
+                and not proc_task.done()
+                and self._proc is None
+                and self.subscriber_count > 0
+                and not self._shutting_down
+            ):
+                logger.info(
+                    "%s reconnect skipped; pipeline restart already pending (mode=%s)",
+                    self.name,
+                    self._mode,
+                )
+                return self.mode
             await self._kill_subprocess_locked()
             if self.subscriber_count > 0 and not self._shutting_down:
                 await self._spawn_subprocess_locked()
@@ -418,6 +432,8 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         async with self._lifecycle_lock:
             if self._shutting_down or self.subscriber_count == 0:
                 return None
+            if self._proc is not None:
+                return self._proc
             cmd = [sys.executable, "-m", "rt_hardware.sdr_pipeline", "--config", self._config_path]
             try:
                 proc = subprocess.Popen(
