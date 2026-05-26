@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -110,6 +111,37 @@ def test_spectrum_lna_not_touched_at_boot_when_disabled(simulated_config_path, m
     assert status.status_code == 200
     assert status.json()["lna"]["state"] == "off"
     assert calls == []
+
+
+def test_boot_log_says_disabled_when_bias_tee_off(simulated_config_path, caplog):
+    """The boot log must not claim the bias tee was 'applied' when config has it off."""
+    with caplog.at_level(logging.INFO, logger="rt_hardware"):
+        with TestClient(create_app(simulated_config_path)):
+            pass
+
+    messages = [r.getMessage() for r in caplog.records if r.name == "rt_hardware"]
+    assert any("LNA bias tee disabled" in m for m in messages), messages
+    assert not any("LNA bias tee applied" in m or "LNA bias tee enabled" in m for m in messages), messages
+
+
+def test_boot_log_says_enabled_when_bias_tee_on(simulated_config_path, monkeypatch, caplog):
+    simulated_config_path.write_text(
+        simulated_config_path.read_text(encoding="utf-8")
+        + "\n[sdr]\nenabled = true\nlna_bias_tee_enabled = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "rt_hardware.hardware.sdr.subprocess.run",
+        lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    with caplog.at_level(logging.INFO, logger="rt_hardware"):
+        with TestClient(create_app(simulated_config_path)):
+            pass
+
+    messages = [r.getMessage() for r in caplog.records if r.name == "rt_hardware"]
+    assert any("LNA bias tee enabled at boot" in m for m in messages), messages
+    assert not any("LNA bias tee disabled" in m for m in messages), messages
 
 
 def test_api_accepts_alt_az_goto(simulated_config_path):

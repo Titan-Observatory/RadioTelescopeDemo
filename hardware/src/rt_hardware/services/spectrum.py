@@ -244,7 +244,14 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
     async def _ensure_running(self) -> None:
         await self._cancel_idle_close()
         async with self._lifecycle_lock:
-            if self._proc is not None or self._shutting_down or self.subscriber_count == 0:
+            if self._shutting_down or self.subscriber_count == 0:
+                return
+            if self._proc is not None:
+                return
+            if self._proc_task is not None and not self._proc_task.done():
+                # An existing consumer is mid-backoff between respawns; it will
+                # relaunch the subprocess itself. Spawning here would create a
+                # second consumer + subprocess racing for the same Airspy.
                 return
             await self._spawn_subprocess_locked()
 
