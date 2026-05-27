@@ -101,6 +101,7 @@ interface SpectrumFrame {
   integration_seconds: number;
   mode: string;
   freqs_mhz: number[];
+  power_linear: number[];
   power_db: number[];
 }
 
@@ -124,7 +125,9 @@ interface Baseline {
   sample_rate_mhz: number;
   integration_frames: number;
   freqs_mhz: number[];
+  power_linear?: number[];
   power_db: number[];
+  capture_samples?: number;
 }
 
 interface SpectrumPanelProps {
@@ -141,7 +144,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   // dataset of tens of thousands of cells per frame.
   const waterfallCanvasRef = useRef<HTMLCanvasElement | null>(null);
   // Signature of the current FFT layout. When the centre/sample-rate/bin count
-  // or baseline subtraction toggles, the dB scale shifts wholesale, so we wipe
+  // or baseline correction toggles, the dB scale shifts wholesale, so we wipe
   // the canvas rather than render a mismatched colour-coded seam.
   const waterfallSigRef = useRef<string>('');
   // The last frame we actually painted. The draw effect also re-fires when
@@ -157,13 +160,14 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   const [wizardOpen, setWizardOpen] = useState(false);
   const [waterfallOpen, setWaterfallOpen] = useState(false);
 
-  // Baseline subtraction is what makes the H I line pop above the bandpass.
+  // Baseline correction is what makes the H I line pop above the bandpass.
   // Only apply when the cached baseline matches the current FFT layout —
-  // otherwise the arrays don't align and the subtraction is nonsense.
+  // otherwise the arrays don't align and the division is nonsense.
   const baselineApplies = useMemo(() => {
     if (!baseline || !frame) return false;
     return (
-      baseline.power_db.length === frame.power_db.length &&
+      Array.isArray(baseline.power_linear) &&
+      baseline.power_linear.length === frame.power_linear.length &&
       Math.abs(baseline.center_freq_mhz - frame.center_freq_mhz) < 1e-6 &&
       Math.abs(baseline.sample_rate_mhz - frame.sample_rate_mhz) < 1e-6
     );
@@ -171,8 +175,12 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
 
   const displayed = useMemo(() => {
     if (!frame) return null;
-    if (baselineApplies && baseline) {
-      return frame.power_db.map((v, i) => v - baseline.power_db[i]);
+    if (baselineApplies && baseline?.power_linear) {
+      return frame.power_linear.map((currentPower, i) => {
+        const baselinePower = baseline.power_linear?.[i] ?? 0;
+        if (currentPower <= 0 || baselinePower <= 0) return -120;
+        return 10 * Math.log10(currentPower / baselinePower);
+      });
     }
     return frame.power_db;
   }, [frame, baseline, baselineApplies]);
@@ -504,7 +512,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           <div className="spectrum-control-label">
             <strong>Capture baseline</strong>
             <span>
-              Save the current buffer to perform baseline subtraction, helping signals stand out.
+              Save the current buffer to correct the receiver bandpass, helping signals stand out.
             </span>
           </div>
           <div className="spectrum-tool-group" role="group" aria-label="Baseline controls">
@@ -533,7 +541,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         )}
         <div className="spectrum-chart-box">
           {baseline && baselineApplies && (
-            <div className="spectrum-chart-note">Baseline subtracted</div>
+            <div className="spectrum-chart-note">Baseline corrected</div>
           )}
           {hydrogenGuide && (
             <div

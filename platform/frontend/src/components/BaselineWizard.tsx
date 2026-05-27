@@ -15,6 +15,7 @@ interface SpectrumFrame {
   integration_seconds: number;
   mode: string;
   freqs_mhz: number[];
+  power_linear: number[];
   power_db: number[];
 }
 
@@ -24,7 +25,9 @@ export interface Baseline {
   sample_rate_mhz: number;
   integration_frames: number;
   freqs_mhz: number[];
+  power_linear?: number[];
   power_db: number[];
+  capture_samples?: number;
 }
 
 interface Props {
@@ -132,24 +135,30 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
     }
   }
 
-  function capture() {
+  async function capture() {
     if (!frame) return;
-    const baseline: Baseline = {
-      captured_at: Date.now() / 1000,
-      center_freq_mhz: frame.center_freq_mhz,
-      sample_rate_mhz: frame.sample_rate_mhz,
-      integration_frames: frame.integration_frames,
-      freqs_mhz: frame.freqs_mhz,
-      power_db: frame.power_db,
-    };
-    onBaselineReady(baseline);
-    track('baseline_captured', {
-      seconds_waited: settleStartedAtRef.current
-        ? Math.floor((Date.now() - settleStartedAtRef.current) / 1000)
-        : 0,
-      integration_seconds: frame.integration_seconds,
-    });
-    setStep('done');
+    setBusy(true);
+    try {
+      const r = await fetch('/api/spectrum/baseline', { method: 'POST' });
+      if (!r.ok) {
+        track('baseline_capture_result', { result: 'error', status: r.status });
+        return;
+      }
+      const baseline = await r.json() as Baseline;
+      onBaselineReady(baseline);
+      track('baseline_captured', {
+        seconds_waited: settleStartedAtRef.current
+          ? Math.floor((Date.now() - settleStartedAtRef.current) / 1000)
+          : 0,
+        integration_seconds: frame.integration_seconds,
+        capture_samples: baseline.capture_samples ?? null,
+      });
+      setStep('done');
+    } catch {
+      track('baseline_capture_result', { result: 'error' });
+    } finally {
+      setBusy(false);
+    }
   }
 
   // While the user is picking on the sky map, hide the Radix dialog so the
@@ -183,8 +192,8 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
             <div id="baseline-desc" className="baseline-body">
               <p>
                 Radio receivers have their own "shape" — even with no signal at all, the spectrum
-                from a real antenna isn't flat. <strong>Baseline subtraction</strong> stores a
-                reference trace of that shape and subtracts it from live data, so real features
+                from a real antenna isn't flat. <strong>Baseline correction</strong> stores a
+                reference trace of that shape and divides it out of live data, so real features
                 like the hydrogen line stand out instead of getting lost in the bandpass curve.
               </p>
               <p className="baseline-prompt">
@@ -241,10 +250,10 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
                 <button
                   type="button"
                   className="baseline-btn-primary"
-                  onClick={capture}
-                  disabled={!frame}
+                  onClick={() => void capture()}
+                  disabled={!frame || busy}
                 >
-                  <Camera size={14} /> Capture now
+                  <Camera size={14} /> {busy ? 'Capturing...' : 'Capture now'}
                 </button>
               </div>
             </div>
@@ -253,7 +262,7 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
           {step === 'done' && (
             <div id="baseline-desc" className="baseline-body">
               <p>
-                Done — the live spectrum is now drawn with this baseline subtracted. The bandpass
+                Done — the live spectrum is now drawn with this baseline corrected. The bandpass
                 curve should flatten out, so anything left poking up is a real feature in the sky
                 rather than the receiver's shape.
               </p>

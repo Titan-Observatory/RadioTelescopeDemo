@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
+import numpy as np
 import pytest
 
 from rt_hardware.config import SDRConfig
@@ -80,3 +81,44 @@ async def test_ensure_running_skips_when_consumer_is_in_backoff(tmp_path):
 
     assert spawn_calls == 0
     assert service._proc is None
+
+
+def test_publish_frame_keeps_linear_power_for_baseline_correction(tmp_path):
+    service = SpectrumService(
+        SDRConfig(fft_size=64, publish_rate_hz=1.0, integration_seconds=3.0),
+        tmp_path / "config.toml",
+    )
+    power = np.arange(1, 65, dtype=np.float32)
+
+    service._integrated = power.copy()
+    service._frames_seen = 1
+    service._publish_frame()
+
+    latest = service.latest
+    assert latest is not None
+    assert latest["power_linear"] == pytest.approx(power.tolist())
+    assert np.median(latest["power_db"]) == pytest.approx(0.0, abs=1e-3)
+
+
+def test_capture_baseline_uses_per_bin_median_linear_power(tmp_path, monkeypatch):
+    from rt_hardware.services import spectrum as spectrum_module
+
+    monkeypatch.setattr(spectrum_module, "BASELINE_CACHE", tmp_path / "baseline.json")
+    service = SpectrumService(
+        SDRConfig(fft_size=64, publish_rate_hz=1.0, integration_seconds=3.0),
+        tmp_path / "config.toml",
+    )
+    base = np.arange(1, 65, dtype=np.float32)
+    samples = [base, base * 10.0, base * 100.0]
+
+    for seen, sample in enumerate(samples, start=1):
+        service._integrated = sample.copy()
+        service._frames_seen = seen
+        service._publish_frame()
+
+    baseline = service.capture_baseline()
+
+    assert baseline is not None
+    assert baseline["capture_samples"] == 3
+    assert baseline["power_linear"] == pytest.approx((base * 10.0).tolist())
+    assert baseline["power_db"] == pytest.approx((10.0 * np.log10(base * 10.0)).round(3).tolist())

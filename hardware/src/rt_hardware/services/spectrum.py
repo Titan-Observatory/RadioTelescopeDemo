@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -35,6 +36,7 @@ from rt_hardware.services._pubsub import Broadcaster
 # directory with RT_STATE_DIR when running in a container so the file lands
 # on a mounted volume rather than the ephemeral container FS.
 BASELINE_CACHE = Path(os.environ.get("RT_STATE_DIR", ".")) / "spectrum_baseline.json"
+POWER_FLOOR = 1e-12
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,8 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
 
         self._latest: SpectrumFrame | None = None
         self._integrated: np.ndarray | None = None
+        baseline_window = max(1, int(cfg.integration_frames))
+        self._baseline_samples: deque[np.ndarray] = deque(maxlen=baseline_window)
         self._frames_seen: int = 0
         self._publish_period_s: float = 1.0 / max(cfg.publish_rate_hz, 1e-3)
         self._freqs_mhz = self._build_freq_axis()
@@ -204,19 +208,25 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
 
     def reset_integration(self) -> None:
         self._integrated = None
+        self._baseline_samples.clear()
         self._frames_seen = 0
 
     def capture_baseline(self) -> dict[str, Any] | None:
         latest = self._latest
-        if latest is None:
+        if latest is None or not self._baseline_samples:
             return None
+        baseline_power = np.median(np.stack(tuple(self._baseline_samples)), axis=0)
+        baseline_power = np.maximum(baseline_power, POWER_FLOOR)
+        baseline_power_db = 10.0 * np.log10(baseline_power)
         baseline = {
             "captured_at": time.time(),
             "center_freq_mhz": latest["center_freq_mhz"],
             "sample_rate_mhz": latest["sample_rate_mhz"],
             "integration_frames": latest["integration_frames"],
             "freqs_mhz": list(latest["freqs_mhz"]),
-            "power_db": list(latest["power_db"]),
+            "power_linear": baseline_power.astype(np.float32).tolist(),
+            "power_db": baseline_power_db.astype(np.float32).round(3).tolist(),
+            "capture_samples": len(self._baseline_samples),
         }
         try:
             BASELINE_CACHE.write_text(json.dumps(baseline))
@@ -514,8 +524,8 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
 
                 power = np.frombuffer(raw, dtype=np.float32).copy()
                 # GNU Radio's integrate_ff sums (not averages) `integrate_k`
-                # FFTs. We don't need to divide because the median-subtract
-                # before publishing makes the absolute scale irrelevant.
+                # FFTs. We keep that linear scale because live baseline
+                # correction divides spectra captured through the same chain.
                 self._frames_seen += 1
                 self._blend_into_ema(power)
 
@@ -545,7 +555,8 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             return
         # Avoid log(0); the FFT magnitudes never quite hit zero in practice
         # but a floor keeps the y-axis tidy when the gain is low.
-        floored = np.maximum(integrated, 1e-12)
+        floored = np.maximum(integrated, POWER_FLOOR)
+        self._baseline_samples.append(floored.astype(np.float32).copy())
         power_db = 10.0 * np.log10(floored)
         power_db -= float(np.median(power_db))
 
@@ -567,6 +578,7 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             integration_seconds=effective_seconds,
             mode=self.mode,
             freqs_mhz=self._freqs_mhz.tolist(),
+            power_linear=floored.astype(np.float32).tolist(),
             power_db=power_db.astype(np.float32).round(3).tolist(),
         )
         self._latest = frame
