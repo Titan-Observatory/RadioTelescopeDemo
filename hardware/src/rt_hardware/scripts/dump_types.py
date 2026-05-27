@@ -48,6 +48,9 @@ EXPORTED_MODELS: tuple[type[BaseModel], ...] = (
     state.CommandArg,
     state.CommandInfo,
     state.CommandResult,
+    state.VelocityPid,
+    state.PositionPid,
+    state.PidBundle,
 )
 
 # Type aliases emitted as TypeScript union literals.

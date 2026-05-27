@@ -5,6 +5,7 @@ import { Cloud } from 'lucide-react';
 
 import queueSpectrumRaw from '../data/queueSpectrum.txt?raw';
 import type { QueueStatus } from '../queue';
+import type { TelescopeStatus } from '../types';
 import { StarsBackground } from './StarsBackground';
 
 declare global {
@@ -1067,6 +1068,7 @@ interface Props {
   hasControl: boolean;
   onContinue: () => void;
   loading?: boolean;
+  telescopeStatus?: TelescopeStatus | null;
 }
 
 type InlinePopoverState = {
@@ -1178,7 +1180,9 @@ function InlineHoverPopover({
 export function QueuePage({
   status, joining, joinError, joinRateLimitedSec = null,
   siteKey, turnstileEnabled, betaPasswordEnabled, onJoin, hasControl, onContinue, loading = false,
+  telescopeStatus = null,
 }: Props) {
+  const telescopeOpen = (telescopeStatus?.state ?? 'operational') === 'operational';
   const rateLimited = joinRateLimitedSec != null && joinRateLimitedSec > 0;
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [betaPassword, setBetaPassword] = useState('');
@@ -1189,7 +1193,7 @@ export function QueuePage({
   const inQueue = (status?.position ?? -1) >= 0;
   const passwordRequired = betaPasswordEnabled && !betaPassword.trim();
   const waitingForCaptcha = turnstileEnabled && !captchaToken;
-  const joinDisabled = joining || rateLimited || passwordRequired || waitingForCaptcha;
+  const joinDisabled = joining || rateLimited || passwordRequired || waitingForCaptcha || !telescopeOpen;
 
   const submitHeaderJoin = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
@@ -1288,6 +1292,21 @@ export function QueuePage({
       <header className={`queue-header${headerCollapsed ? ' queue-header-collapsed' : ''}`}>
         <div className="queue-header-inner">
           <div className="queue-header-title">
+            {!telescopeOpen && (
+              <div
+                className={`queue-maintenance-banner queue-maintenance-${telescopeStatus?.state ?? 'maintenance'}`}
+                role="status"
+              >
+                <strong>
+                  {telescopeStatus?.state === 'closed'
+                    ? 'Telescope is currently closed'
+                    : 'Telescope is down for maintenance'}
+                </strong>
+                {telescopeStatus?.message && (
+                  <span> — {telescopeStatus.message}</span>
+                )}
+              </div>
+            )}
             <h1>
               {loading
                 ? 'Loading queue'
@@ -1345,9 +1364,11 @@ export function QueuePage({
                 <button className="action-button queue-header-cta" type="submit" disabled={joinDisabled}>
                   {joining
                     ? 'Joining...'
-                    : rateLimited
-                      ? `Try again in ${joinRateLimitedSec}s`
-                      : 'Join queue'}
+                    : !telescopeOpen
+                      ? (telescopeStatus?.state === 'closed' ? 'Closed' : 'Unavailable')
+                      : rateLimited
+                        ? `Try again in ${joinRateLimitedSec}s`
+                        : 'Join queue'}
                 </button>
                 <p className={`queue-status-line${joinError || rateLimited ? ' queue-status-line-error' : ''}`}>
                   {rateLimited

@@ -235,6 +235,38 @@ async def home_altitude(request: Request) -> JSONResponse:
     return await _forward("POST", request, "/api/telescope/home/altitude")
 
 
+# ─── PID admin proxy (LAN-only) ───────────────────────────────────────────
+
+
+@router.get("/api/admin/pid", dependencies=[Depends(require_lan_admin)])
+async def read_pid(request: Request) -> JSONResponse:
+    return await _forward("GET", request, "/api/admin/pid", timeout_s=5.0)
+
+
+@router.post("/api/admin/pid", dependencies=[Depends(require_lan_admin)])
+async def write_pid(request: Request) -> JSONResponse:
+    body = await _safe_json(request)
+    resp = await _forward("POST", request, "/api/admin/pid", json_body=body, timeout_s=5.0)
+    await _audit_motion(
+        request, "pid_write",
+        accepted=resp.status_code < 400,
+        params={k: True for k in body.keys() if body.get(k) is not None},
+        reason=_reason_from(_payload(resp), resp.status_code, resp.status_code < 400),
+    )
+    return resp
+
+
+@router.post("/api/admin/pid/save", dependencies=[Depends(require_lan_admin)])
+async def save_pid_to_nvm(request: Request) -> JSONResponse:
+    resp = await _forward("POST", request, "/api/admin/pid/save", timeout_s=5.0)
+    await _audit_motion(
+        request, "pid_save_nvm",
+        accepted=resp.status_code < 400,
+        reason=_reason_from(_payload(resp), resp.status_code, resp.status_code < 400),
+    )
+    return resp
+
+
 # ─── WebSocket bridge ─────────────────────────────────────────────────────
 
 

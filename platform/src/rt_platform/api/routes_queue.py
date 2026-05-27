@@ -15,7 +15,13 @@ from rt_platform.api.dependencies import (
     write_session_token,
 )
 from rt_platform.api.log_files import hash_ip
-from rt_platform.services.queue import QueueFullError, QueueRateLimitedError, QueueStatus
+from rt_platform.services.queue import (
+    QueueClosedError,
+    QueueFullError,
+    QueueRateLimitedError,
+    QueueStatus,
+)
+from rt_platform.services.status import TelescopeStatus
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["queue"])
@@ -35,6 +41,7 @@ class QueueConfigResponse(BaseModel):
     max_session_seconds: int
     idle_timeout_seconds: int
     beta_password_enabled: bool
+    telescope_status: TelescopeStatus
 
 
 @router.get("/api/queue/config", response_model=QueueConfigResponse)
@@ -52,7 +59,14 @@ async def queue_config(request: Request) -> QueueConfigResponse:
         max_session_seconds=cfg.queue.max_session_seconds,
         idle_timeout_seconds=cfg.queue.idle_timeout_seconds,
         beta_password_enabled=cfg.auth.enabled,
+        telescope_status=request.app.state.status_service.status,
     )
+
+
+@router.get("/api/telescope/status", response_model=TelescopeStatus)
+async def telescope_status(request: Request) -> TelescopeStatus:
+    """Public read of the operator-controlled telescope status."""
+    return request.app.state.status_service.status
 
 
 @router.get("/api/queue/status", response_model=QueueStatus)
@@ -124,6 +138,10 @@ async def queue_join(body: JoinRequest, request: Request, response: Response) ->
         raise HTTPException(429, str(exc)) from exc
     except QueueFullError as exc:
         raise HTTPException(503, str(exc)) from exc
+    except QueueClosedError as exc:
+        status = request.app.state.status_service.status
+        detail = status.message or str(exc)
+        raise HTTPException(503, detail) from exc
 
     if auth.enabled and _auth_password is not None:
         auth.log_attempt(

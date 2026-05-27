@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from rt_platform.api import (
+    routes_admin,
     routes_camera,
     routes_events,
     routes_feedback,
@@ -31,6 +32,7 @@ from rt_platform.loki import configure as configure_loki
 from rt_platform.services.hardware_client import HardwareClient
 from rt_platform.services.queue import QueueService
 from rt_platform.services.spectrum_bridge import SpectrumBridge
+from rt_platform.services.status import TelescopeStatusService
 
 logger = logging.getLogger("rt_platform")
 
@@ -44,12 +46,16 @@ RT_ENV_CACHE_CONTROL = "no-cache"
 async def lifespan(app: FastAPI):
     cfg = app.state.config
 
+    status_service = TelescopeStatusService(Path(cfg.telescope_status_path))
+    app.state.status_service = status_service
+
     queue = QueueService(
         max_session_seconds=cfg.queue.max_session_seconds,
         idle_timeout_seconds=cfg.queue.idle_timeout_seconds,
         max_queue_size=cfg.queue.max_queue_size,
         max_sessions_per_ip=cfg.queue.max_sessions_per_ip,
         join_cooldown_seconds=cfg.queue.join_cooldown_seconds,
+        is_open=lambda: status_service.is_operational,
     )
     app.state.queue_service = queue
 
@@ -60,6 +66,7 @@ async def lifespan(app: FastAPI):
     bridge = SpectrumBridge(ws_base)
     app.state.spectrum_bridge = bridge
 
+    await status_service.start()
     await hardware.start()
     await queue.start()
     await bridge.start()
@@ -131,6 +138,7 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
     app.add_middleware(PasswordAuthMiddleware, auth=auth)
 
     app.include_router(auth_router)
+    app.include_router(routes_admin.router)
     app.include_router(routes_motor.router)
     app.include_router(routes_queue.router)
     app.include_router(routes_camera.router)

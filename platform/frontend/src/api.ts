@@ -1,4 +1,14 @@
-import type { CommandInfo, CommandResult, RaDecTarget, RoboClawTelemetry, TelescopeConfig } from './types';
+import type {
+  CommandInfo,
+  CommandResult,
+  PidBundle,
+  QueueSnapshot,
+  RaDecTarget,
+  RoboClawTelemetry,
+  TelescopeConfig,
+  TelescopeState,
+  TelescopeStatus,
+} from './types';
 import type { QueueConfig, QueueStatus } from './queue';
 
 export type JogDirection = 'west' | 'east' | 'up' | 'down';
@@ -96,6 +106,18 @@ export const api = {
   joinQueue: (turnstileToken: string | null, betaPassword: string | null) =>
     request<QueueStatus>('POST', '/api/queue/join', { turnstile_token: turnstileToken, beta_password: betaPassword }),
   leaveQueue: () => request<void>('POST', '/api/queue/leave'),
+  // ─── Admin (LAN-only on the server side) ──────────────────────────────
+  adminGetStatus: () => request<TelescopeStatus>('GET', '/api/admin/status'),
+  adminSetStatus: (state: TelescopeState, message: string | null) =>
+    request<TelescopeStatus>('POST', '/api/admin/status', { state, message }),
+  adminGetQueue: () => request<QueueSnapshot>('GET', '/api/admin/queue'),
+  adminKick: (token: string) =>
+    request<{ kicked: boolean }>('POST', '/api/admin/queue/kick', { token }),
+  adminReadPid: () => request<PidBundle>('GET', '/api/admin/pid'),
+  adminWritePid: (body: Partial<PidBundle>) =>
+    request<PidBundle>('POST', '/api/admin/pid', body),
+  adminSavePidNvm: () =>
+    request<{ status: string; message: string }>('POST', '/api/admin/pid/save'),
 };
 
 export async function submitFeedback(rating: number, message: string): Promise<void> {

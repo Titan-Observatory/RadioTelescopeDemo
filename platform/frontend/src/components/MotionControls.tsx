@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Square } from 'lucide-react';
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { track } from '../analytics';
@@ -269,11 +269,11 @@ export function MotionControls({
             </div>
           </label>
           <div className="goto-actions">
+            <button type="button" className="action-button goto-stop-btn" onClick={onStop} aria-label="Stop">
+              <Square size={14} fill="currentColor" strokeWidth={0} />
+            </button>
             <button type="submit" className="action-button goto-slew-btn">
               Slew
-            </button>
-            <button type="button" className="action-button goto-stop-btn" onClick={onStop}>
-              Stop
             </button>
           </div>
         </form>

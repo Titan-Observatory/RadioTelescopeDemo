@@ -136,6 +136,15 @@ export interface QueueStatus {
   has_active_user: boolean;
 }
 
+export type TelescopeState = 'operational' | 'maintenance' | 'closed';
+
+export interface TelescopeStatus {
+  state: TelescopeState;
+  message: string | null;
+  updated_at: string | null;
+  updated_by_ip_hash: string | null;
+}
+
 export interface QueueConfigResponse {
   enabled: boolean;
   turnstile_site_key: string;
@@ -143,6 +152,47 @@ export interface QueueConfigResponse {
   max_session_seconds: number;
   idle_timeout_seconds: number;
   beta_password_enabled: boolean;
+  telescope_status: TelescopeStatus;
+}
+
+export interface QueueSessionSnapshot {
+  token: string;
+  ip_hash: string;
+  joined_at: number;
+  age_s: number;
+  ws_connected: boolean;
+  is_active: boolean;
+  queue_position: number;
+}
+
+export interface QueueSnapshot {
+  sessions: QueueSessionSnapshot[];
+  active_lease_remaining_s: number | null;
+  active_idle_remaining_s: number | null;
+}
+
+export interface VelocityPid {
+  p: number;
+  i: number;
+  d: number;
+  qpps: number;
+}
+
+export interface PositionPid {
+  p: number;
+  i: number;
+  d: number;
+  i_max: number;
+  deadzone: number;
+  min: number;
+  max: number;
+}
+
+export interface PidBundle {
+  vel_m1: VelocityPid;
+  vel_m2: VelocityPid;
+  pos_m1: PositionPid;
+  pos_m2: PositionPid;
 }
 
 export interface RaDecTarget {

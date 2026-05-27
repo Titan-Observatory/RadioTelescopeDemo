@@ -6,6 +6,7 @@ import { BRAND } from './branding';
 import { InfoSection } from './components/InfoSection';
 import { MobileHint } from './components/MobileHint';
 import { MotionControls } from './components/MotionControls';
+import { AdminPage } from './components/AdminPage';
 import { QueuePage } from './components/QueuePage';
 import { SkyMap } from './components/SkyMap';
 import { SpectrumPanel } from './components/SpectrumPanel';
@@ -161,6 +162,13 @@ function useAfterInitialPaint() {
 }
 
 export default function App() {
+  // Tiny path-based router. The admin surface is LAN-only on the server side
+  // (require_lan_admin returns 404 for non-LAN clients), so it's safe to expose
+  // the route here unconditionally — the panel just fails to load data.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    return <AdminPage />;
+  }
+
   const queue = useQueueLease();
 
   // Keep analytics context current so every tracked event is tagged with
@@ -188,6 +196,7 @@ export default function App() {
         hasControl={queue.hasControl}
         onContinue={queue.acknowledgeContinue}
         loading={!queue.queueReady}
+        telescopeStatus={queue.queueConfig?.telescope_status ?? null}
       />
     );
   }

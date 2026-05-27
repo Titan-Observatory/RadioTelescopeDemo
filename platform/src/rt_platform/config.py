@@ -84,6 +84,7 @@ class AppConfig(BaseModel):
     events_log_max_bytes: int = Field(default=5_242_880, ge=1)
     motion_log_path: str = "motion.jsonl"
     motion_log_max_bytes: int = Field(default=5_242_880, ge=1)
+    telescope_status_path: str = "telescope_status.json"
     auth_log_path: str = "auth_events.jsonl"
     auth_log_max_bytes: int = Field(default=5_242_880, ge=1)
 

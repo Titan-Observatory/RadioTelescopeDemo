@@ -852,16 +852,19 @@ input:focus-visible {
 .goto-slew-btn {
   flex: 1;
 }
-.goto-stop-btn {
+.action-button.goto-stop-btn {
   flex: 0 0 auto;
   width: 42px;
   padding: 0;
-  background: rgba(216, 17, 89, 0.18);
-  border-color: rgba(216, 17, 89, 0.45);
-  color: #e8305a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #d81159;
+  border-color: #d81159;
+  color: #0b0d16;
 }
-.goto-stop-btn:hover { background: rgba(216, 17, 89, 0.28); border-color: rgba(216, 17, 89, 0.65); }
-.goto-stop-btn:active { background: rgba(216, 17, 89, 0.10); }
+.action-button.goto-stop-btn:hover { background: #e8305a; border-color: #e8305a; color: #0b0d16; }
+.action-button.goto-stop-btn:active { background: #b80e4b; border-color: #b80e4b; color: #0b0d16; }
 
 /* Status panel — always-visible section below the waterfall in the right column */
 .status-side-panel {
@@ -2633,6 +2636,26 @@ h2.panel-header {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 28px;
+}
+
+.queue-maintenance-banner {
+  display: inline-block;
+  padding: 6px 12px;
+  margin: 0 0 10px 0;
+  border-radius: 6px;
+  background: rgba(255, 165, 60, 0.18);
+  border: 1px solid rgba(255, 165, 60, 0.55);
+  color: #ffd9a4;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.queue-maintenance-banner.queue-maintenance-closed {
+  background: rgba(255, 80, 80, 0.18);
+  border-color: rgba(255, 100, 100, 0.55);
+  color: #ffc6c6;
+}
+.queue-maintenance-banner strong {
+  font-weight: 600;
 }
 
 .queue-header-title h1 {
