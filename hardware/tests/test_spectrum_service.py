@@ -109,7 +109,9 @@ async def test_reconnect_is_noop_while_capturing(tmp_path):
 
 
 def test_publish_frame_forwards_db_spectrum_verbatim(tmp_path):
-    service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
+    service = SpectrumService(
+        SDRConfig(fft_size=64, spur_median_bins=0), tmp_path / "config.toml",
+    )
     power_db = np.linspace(-5.0, 5.0, 64).astype(np.float32)
 
     service._publish_frame(power_db)
@@ -120,6 +122,34 @@ def test_publish_frame_forwards_db_spectrum_verbatim(tmp_path):
     assert "power_linear" not in latest
     assert latest["power_db"] == pytest.approx(power_db.round(3).tolist())
     assert latest["baseline_corrected"] is False
+
+
+def test_publish_frame_rejects_single_bin_spurs(tmp_path):
+    service = SpectrumService(
+        SDRConfig(fft_size=64, spur_median_bins=5), tmp_path / "config.toml",
+    )
+    power_db = np.zeros(64, dtype=np.float32)
+    power_db[30] = 40.0   # narrowband birdie (spur up)
+    power_db[31] = -40.0  # spur down
+
+    service._publish_frame(power_db)
+
+    latest = service.latest
+    assert latest is not None
+    # The median window flattens the isolated spikes back to the 0 dB floor.
+    assert latest["power_db"][30] == pytest.approx(0.0, abs=1e-3)
+    assert latest["power_db"][31] == pytest.approx(0.0, abs=1e-3)
+
+
+def test_median_filter_preserves_broad_features(tmp_path):
+    from rt_hardware.services.spectrum import _median_filter_1d
+
+    values = np.zeros(200, dtype=np.float32)
+    values[80:120] = 6.0  # a broad bump (40 bins) like the hydrogen line
+    out = _median_filter_1d(values, 5)
+    # The bump survives a 5-bin median nearly intact.
+    assert out[100] == pytest.approx(6.0, abs=1e-3)
+    assert out[0] == pytest.approx(0.0, abs=1e-3)
 
 
 def test_publish_frame_reports_baseline_corrected_from_active_flag(tmp_path):

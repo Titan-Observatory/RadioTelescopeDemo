@@ -806,6 +806,12 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
 
     def _publish_frame(self, power_db: np.ndarray) -> None:
         cfg = self._cfg
+        # Reject narrowband spurs/RFI (1-2 bin spikes) that don't divide out of
+        # the baseline cleanly. The hydrogen line is far wider than this window,
+        # so it survives untouched.
+        spectrum = _median_filter_1d(
+            np.asarray(power_db, dtype=np.float32), int(cfg.spur_median_bins),
+        )
         frame = SpectrumFrame(
             timestamp=time.time(),
             center_freq_mhz=cfg.center_freq_hz / 1e6,
@@ -816,11 +822,29 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             integration_seconds=float(cfg.integration_seconds),
             mode=self.mode,
             freqs_mhz=self._freqs_mhz.tolist(),
-            power_db=np.asarray(power_db, dtype=np.float32).round(3).tolist(),
+            power_db=spectrum.round(3).tolist(),
             baseline_corrected=self._baseline_active,
         )
         self._latest = frame
         self.publish(frame)
+
+
+def _median_filter_1d(values: np.ndarray, window: int) -> np.ndarray:
+    """Sliding-window median across frequency bins for spur rejection.
+
+    ``window`` is forced odd; 0 or 1 is a no-op. Edges are handled by
+    edge-padding so the output keeps the same length. Cheap enough to run on
+    every published frame (a few thousand bins at ~5 Hz).
+    """
+    if window <= 1 or values.size == 0:
+        return values
+    k = int(window) | 1  # force odd
+    if k >= values.size:
+        return values
+    pad = k // 2
+    padded = np.pad(values, pad, mode="edge")
+    windows = np.lib.stride_tricks.sliding_window_view(padded, k)
+    return np.median(windows, axis=1).astype(np.float32)
 
 
 class _PipelineDied(RuntimeError):

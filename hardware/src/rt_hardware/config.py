@@ -124,6 +124,11 @@ class SDRConfig(BaseModel):
     # additive dB shift on the output. Defaults are no-ops.
     baseline_scale: float = Field(default=1.0, ge=0.1, le=10.0)
     baseline_offset_db: float = Field(default=0.0, ge=-30.0, le=30.0)
+    # Width (in bins) of the median spur-reject applied to the displayed
+    # spectrum. Removes narrowband SDR birdies / RFI that don't divide out of
+    # the baseline cleanly, while leaving the broad hydrogen line (hundreds of
+    # bins wide) untouched. Forced odd; 0 or 1 disables it.
+    spur_median_bins: int = Field(default=5, ge=0, le=51)
 
     @property
     def integration_frames(self) -> int:
