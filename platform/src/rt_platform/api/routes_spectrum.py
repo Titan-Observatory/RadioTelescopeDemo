@@ -17,10 +17,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from rt_platform.api.dependencies import (
+    is_lan_admin,
     queue_service,
     read_session_token,
     require_active_queue_session,
     require_control,
+    require_lan_admin,
 )
 
 logger = logging.getLogger("radiotelescope.spectrum_proxy")
@@ -90,17 +92,21 @@ async def get_baseline(request: Request) -> JSONResponse:
 
 @router.post("/api/spectrum/baseline", dependencies=[Depends(require_control)])
 async def capture_baseline(request: Request) -> JSONResponse:
-    return await _proxy_json("POST", request, "/api/spectrum/baseline")
+    # Capture integrates a full window (integration_seconds) then bounces the
+    # flowgraph, so give the upstream generous headroom before declaring a 502.
+    return await _proxy_json("POST", request, "/api/spectrum/baseline", timeout_s=90.0)
 
 
 @router.delete("/api/spectrum/baseline", dependencies=[Depends(require_control)])
 async def clear_baseline(request: Request) -> JSONResponse:
-    return await _proxy_json("DELETE", request, "/api/spectrum/baseline")
+    # Clearing respawns the flowgraph without the baseline; allow for the bounce.
+    return await _proxy_json("DELETE", request, "/api/spectrum/baseline", timeout_s=15.0)
 
 
 @router.post("/api/spectrum/reset", dependencies=[Depends(require_control)])
 async def reset_integration(request: Request) -> JSONResponse:
-    return await _proxy_json("POST", request, "/api/spectrum/reset")
+    # Reset bounces the flowgraph to flush the rolling integration.
+    return await _proxy_json("POST", request, "/api/spectrum/reset", timeout_s=15.0)
 
 
 @router.post("/api/spectrum/reconnect", dependencies=[Depends(require_control)])
@@ -108,13 +114,20 @@ async def reconnect_sdr(request: Request) -> JSONResponse:
     return await _proxy_json("POST", request, "/api/spectrum/reconnect")
 
 
-@router.post("/api/spectrum/display_mode", dependencies=[Depends(require_control)])
-async def set_display_mode(request: Request) -> JSONResponse:
+@router.get("/api/admin/spectrum/processing", dependencies=[Depends(require_lan_admin)])
+async def get_spectrum_processing(request: Request) -> JSONResponse:
+    return await _proxy_json("GET", request, "/api/admin/spectrum/processing", timeout_s=3.0)
+
+
+@router.post("/api/admin/spectrum/processing", dependencies=[Depends(require_lan_admin)])
+async def set_spectrum_processing(request: Request) -> JSONResponse:
     try:
         body = await request.json()
     except Exception:
         body = None
-    return await _proxy_json("POST", request, "/api/spectrum/display_mode", json_body=body)
+    # Subprocess restarts can take a few seconds; bump the timeout so the
+    # client doesn't see a 502 while the GNU Radio flowgraph is bouncing.
+    return await _proxy_json("POST", request, "/api/admin/spectrum/processing", json_body=body, timeout_s=15.0)
 
 
 @router.websocket("/ws/spectrum")
@@ -127,7 +140,7 @@ async def spectrum_ws(ws: WebSocket):
     await ws.accept()
     if ws.app.state.config.queue.enabled:
         token = read_session_token(ws)
-        if not queue_service(ws).is_active(token):
+        if not (is_lan_admin(ws) or queue_service(ws).is_active(token)):
             await ws.close(code=1008, reason="Active queue session required")
             return
     bridge = getattr(ws.app.state, "spectrum_bridge", None)

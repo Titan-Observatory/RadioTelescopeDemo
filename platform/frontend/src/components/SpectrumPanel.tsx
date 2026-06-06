@@ -12,7 +12,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 
-import { RotateCcw, Sliders, Sparkles } from 'lucide-react';
+import { Sliders, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { HYDROGEN_LINE_MHZ } from '../lib/astro';
@@ -103,10 +103,7 @@ interface SpectrumFrame {
   freqs_mhz: number[];
   power_db: number[];
   baseline_corrected?: boolean;
-  display_mode?: 'absolute' | 'median' | 'baseline';
 }
-
-type DisplayMode = 'absolute' | 'median' | 'baseline';
 
 interface SpectrumStatus {
   enabled: boolean;
@@ -162,18 +159,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   const [dopplerOpen, setDopplerOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [waterfallOpen, setWaterfallOpen] = useState(false);
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('baseline');
-
-  const changeDisplayMode = async (mode: DisplayMode) => {
-    setDisplayMode(mode);
-    try {
-      await fetch('/api/spectrum/display_mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
-      });
-    } catch { /* dev-only knob — failures are visible in the next frame */ }
-  };
 
   // Baseline correction is what makes the H I line pop above the bandpass.
   // Only apply when the cached baseline matches the current FFT layout —
@@ -265,9 +250,10 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const chart = chartInstance.current;
     if (!chart || !frame || !displayed) return;
     const data = frame.freqs_mhz.map((f, i) => [f, displayed[i]] as [number, number]);
-    const frameMode = frame.display_mode ?? 'baseline';
+    // Baseline-corrected frames sit around 0 dB, so a fixed range keeps the
+    // hydrogen bump readable. Uncorrected (absolute dB) frames auto-scale.
     chart.setOption({
-      yAxis: frameMode === 'baseline'
+      yAxis: frame.baseline_corrected
         ? { min: yRange[0], max: yRange[1] }
         : { min: 'dataMin', max: 'dataMax' },
       series: [{ data }],
@@ -514,42 +500,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
       </div>
 
       <div className="spectrum-toolbar spectrum-toolbar-above" aria-label="Spectrum processing controls">
-        <div className="spectrum-control-block">
-          <div className="spectrum-control-label">
-            <strong>Display mode (dev)</strong>
-            <span>Pick the math applied to each frame. No fallbacks — baseline mode shows zeros if no baseline is loaded.</span>
-          </div>
-          <div className="spectrum-tool-group" role="group" aria-label="Display mode">
-            {(['absolute', 'median', 'baseline'] as DisplayMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                className="ghost-btn"
-                aria-pressed={displayMode === m}
-                style={displayMode === m ? { outline: '1px solid #ffbc42' } : undefined}
-                onClick={() => void changeDisplayMode(m)}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="spectrum-control-block">
-          <div className="spectrum-control-label">
-            <strong>Capture</strong>
-            <span>Clear the integration buffer and start fresh.</span>
-          </div>
-          <div className="spectrum-tool-group" role="group" aria-label="Capture controls">
-            <button
-              type="button"
-              className="ghost-btn"
-              onClick={() => { void fetch('/api/spectrum/reset', { method: 'POST' }); }}
-              title="Reset the EMA buffer so the displayed spectrum integrates from this moment forward"
-            >
-              <RotateCcw size={12} /> Capture
-            </button>
-          </div>
-        </div>
         <div className="spectrum-control-block">
           <div className="spectrum-control-label">
             <strong>Capture baseline</strong>

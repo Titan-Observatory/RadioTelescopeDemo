@@ -9,4 +9,5 @@ __pycache__/
 config.toml
 spectrum_baseline.json
 events.json
+events.jsonl
 passwords.txt

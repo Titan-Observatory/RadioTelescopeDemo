@@ -5,6 +5,8 @@ import type {
   QueueSnapshot,
   RaDecTarget,
   RoboClawTelemetry,
+  SpectrumProcessing,
+  SpectrumProcessingUpdate,
   TelescopeConfig,
   TelescopeState,
   TelescopeStatus,
@@ -118,6 +120,10 @@ export const api = {
     request<PidBundle>('POST', '/api/admin/pid', body),
   adminSavePidNvm: () =>
     request<{ status: string; message: string }>('POST', '/api/admin/pid/save'),
+  adminGetSpectrumProcessing: () =>
+    request<SpectrumProcessing>('GET', '/api/admin/spectrum/processing'),
+  adminSetSpectrumProcessing: (update: SpectrumProcessingUpdate) =>
+    request<SpectrumProcessing>('POST', '/api/admin/spectrum/processing', update),
 };
 
 export async function submitFeedback(rating: number, message: string): Promise<void> {

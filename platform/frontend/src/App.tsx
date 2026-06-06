@@ -1,4 +1,4 @@
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2, Navigation } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { setAnalyticsContext, track } from './analytics';
@@ -112,7 +112,8 @@ function ControlUI({ queue }: ControlUIProps) {
                 onClick={() => { track('slew_from_map', { alt_deg: map.targetAlt, az_deg: map.targetAz }); void motion.gotoAltAz(map.targetAlt, map.targetAz); }}
                 title={`Slew to Az ${map.targetAz.toFixed(3)} deg, Alt ${map.targetAlt.toFixed(3)} deg`}
               >
-                Slew
+                <Navigation size={15} />
+                <span>Slew</span>
               </button>
             )}
           </div>

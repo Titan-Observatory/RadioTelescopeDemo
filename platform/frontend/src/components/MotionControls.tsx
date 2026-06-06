@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Square } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Navigation, Square } from 'lucide-react';
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { track } from '../analytics';
@@ -273,6 +273,7 @@ export function MotionControls({
               <Square size={14} fill="currentColor" strokeWidth={0} />
             </button>
             <button type="submit" className="action-button goto-slew-btn">
+              <Navigation size={14} />
               Slew
             </button>
           </div>

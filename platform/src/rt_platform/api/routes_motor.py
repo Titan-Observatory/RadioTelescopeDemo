@@ -27,6 +27,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 
 from rt_platform.api.dependencies import (
+    is_lan_admin,
     queue_service,
     read_session_token,
     require_active_queue_session,
@@ -276,7 +277,7 @@ async def roboclaw_ws(ws: WebSocket) -> None:
     await ws.accept()
     if ws.app.state.config.queue.enabled:
         token = read_session_token(ws)
-        if not queue_service(ws).is_active(token):
+        if not (is_lan_admin(ws) or queue_service(ws).is_active(token)):
             await ws.close(code=1008, reason="Active queue session required")
             return
     upstream_url = _ws_base_url(ws.app) + "/ws/roboclaw"

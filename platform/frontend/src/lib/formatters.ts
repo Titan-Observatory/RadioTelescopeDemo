@@ -46,18 +46,18 @@ export function maxAbsReading(...values: Array<number | null | undefined>): numb
   return present.length === 0 ? null : Math.max(...present);
 }
 
-// Encoder quantisation and PWM telemetry both jitter by ±1 around zero when the
-// motors are commanded off. Without a deadband the state readout flickers
-// between Moving/Idle every poll. 2 QPPS / 2 PWM counts is well below any real
-// commanded motion (slewing runs at hundreds of QPPS) so it's safe to ignore.
-const MOTOR_SPEED_DEADBAND_QPPS = 2;
-const MOTOR_OUTPUT_DEADBAND = 2;
+// Encoder and PWM telemetry can jitter while the controller is stopped. Treat
+// small values as idle so the Drive state doesn't flicker between Moving/Idle.
+// Real slew commands are hundreds or thousands of QPPS and well above these
+// display-only deadbands.
+const MOTOR_SPEED_DEADBAND_QPPS = 25;
+const MOTOR_OUTPUT_DEADBAND = 256;
 
 export function motorState(speed: number | null, output: number | null): string {
   if (speed == null && output == null) return '—';
   const moving =
-    (speed ?? 0) > MOTOR_SPEED_DEADBAND_QPPS ||
-    (output ?? 0) > MOTOR_OUTPUT_DEADBAND;
+    Math.abs(speed ?? 0) > MOTOR_SPEED_DEADBAND_QPPS ||
+    Math.abs(output ?? 0) > MOTOR_OUTPUT_DEADBAND;
   return moving ? 'Moving' : 'Idle';
 }
 

@@ -119,6 +119,12 @@ class SDRConfig(BaseModel):
     # deployments if /tmp is read-only or shared across services.
     pipeline_ipc_path: str = "ipc:///tmp/rt-spectrum.sock"
 
+    # Baseline-correction knobs applied at flowgraph build time. baseline_scale
+    # multiplies the stored baseline before division; baseline_offset_db is an
+    # additive dB shift on the output. Defaults are no-ops.
+    baseline_scale: float = Field(default=1.0, ge=0.1, le=10.0)
+    baseline_offset_db: float = Field(default=0.0, ge=-30.0, le=30.0)
+
     @property
     def integration_frames(self) -> int:
         """Number of published spectra (at publish_rate_hz) inside one EMA window.

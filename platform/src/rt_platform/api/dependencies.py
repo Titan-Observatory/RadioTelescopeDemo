@@ -119,11 +119,13 @@ async def require_control(request: Request) -> None:
 async def require_active_queue_session(request: Request) -> None:
     """Gate live hardware reads to the active queue session.
 
-    Unlike require_control, this deliberately does not grant a LAN-admin
-    shortcut. Passive localhost tabs should not wake telemetry or SDR streams
-    before someone has explicitly joined the queue.
+    LAN admins are granted a shortcut so the operator admin panel can open
+    telemetry/SDR streams without joining the queue — the explicit act of
+    opening that page is enough intent.
     """
     if not request.app.state.config.queue.enabled:
+        return
+    if is_lan_admin(request):
         return
     token = read_session_token(request)
     queue = queue_service(request)

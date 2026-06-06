@@ -4,8 +4,26 @@ import asyncio
 import time
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["spectrum"])
+
+
+class SpectrumProcessingUpdate(BaseModel):
+    """Subset of SpectrumService knobs the admin panel can drive at runtime.
+
+    All fields are optional — only the ones supplied are applied. Every knob is
+    a GNU Radio flowgraph-build parameter, so any change bounces the subprocess.
+    """
+    integration_seconds: float | None = Field(default=None, gt=0)
+    baseline_scale: float | None = Field(default=None, gt=0)
+    baseline_offset_db: float | None = Field(default=None, ge=-30.0, le=30.0)
+    gain_db: float | None = Field(default=None, ge=0.0, le=21.0)
+    agc: bool | None = None
+    center_freq_mhz: float | None = Field(default=None, gt=0)
+    sample_rate_msps: float | None = Field(default=None, gt=0)
+    fft_size: int | None = Field(default=None, ge=64)
+    publish_rate_hz: float | None = Field(default=None, gt=0)
 
 
 def _service(request: Request):
@@ -62,8 +80,9 @@ async def capture_baseline(request: Request):
 
 @router.post("/api/spectrum/reset")
 async def reset_integration(request: Request):
-    _service(request).reset_integration()
-    return {"ok": True}
+    """Flush the rolling integration by bouncing the flowgraph."""
+    mode = await _service(request).reset_integration()
+    return {"ok": mode not in ("unavailable", "fault"), "mode": mode}
 
 
 @router.post("/api/spectrum/reconnect")
@@ -74,24 +93,24 @@ async def reconnect_sdr(request: Request):
     return {"ok": mode not in ("unavailable", "fault"), "mode": mode}
 
 
-@router.post("/api/spectrum/display_mode")
-async def set_display_mode(request: Request):
-    service = _service(request)
-    body = await request.json()
-    mode = body.get("mode") if isinstance(body, dict) else None
-    if not isinstance(mode, str):
-        raise HTTPException(400, "Missing 'mode' field")
-    try:
-        service.set_display_mode(mode)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return {"mode": service.display_mode}
-
-
 @router.delete("/api/spectrum/baseline")
 async def clear_baseline(request: Request):
-    _service(request).clear_baseline()
+    await _service(request).clear_baseline()
     return {"ok": True}
+
+
+@router.get("/api/admin/spectrum/processing")
+async def get_spectrum_processing(request: Request):
+    return _service(request).processing_snapshot()
+
+
+@router.post("/api/admin/spectrum/processing")
+async def set_spectrum_processing(body: SpectrumProcessingUpdate, request: Request):
+    service = _service(request)
+    try:
+        return await service.apply_processing(**body.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.websocket("/ws/spectrum")

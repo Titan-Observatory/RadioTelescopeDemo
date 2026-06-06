@@ -1,14 +1,18 @@
 """Spectrum service.
 
-Consumes integrated power spectra from a GNU Radio subprocess
-([rt_hardware.sdr_pipeline]) over a ZeroMQ socket, applies a rolling EMA
-for the displayed integration window, and broadcasts the resulting JSON
-frames to WebSocket subscribers.
+Forwards baseline-corrected power spectra from a GNU Radio subprocess
+([rt_hardware.sdr_pipeline]) to WebSocket subscribers. The subprocess owns the
+*entire* DSP path — FFT, integration (rolling EMA), baseline division and the dB
+conversion — so this service does no per-frame numpy work: it just receives one
+dB ``float32[fft_size]`` vector per message over ZeroMQ and packages it into a
+JSON frame.
 
-The DSP (Soapy → FFT → mag² → block-average) runs in GNU Radio because
-Python + asyncio can't sustain 3 Msps on a Pi 3B+. This service owns the
-subprocess lifecycle (lazy spawn on first subscriber, idle-close after
-the last leaves) but does no per-IQ-chunk work itself.
+This service owns the subprocess lifecycle (lazy spawn on first subscriber,
+idle-close after the last leaves) and orchestrates baseline capture: it stops
+the live flowgraph, runs a one-shot capture flowgraph that writes the baseline
+to a local ``.f32`` file, then respawns the live flowgraph which divides by that
+file. The captured baseline is also mirrored to a JSON sidecar so the HTTP API
+and frontend can read it.
 """
 from __future__ import annotations
 
@@ -16,7 +20,6 @@ import asyncio
 import json
 import logging
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -31,10 +34,16 @@ from rt_hardware.models.state import LnaStatus
 from rt_hardware.services._pubsub import Broadcaster
 
 # Baseline cache lives next to where the server was launched so it survives
-# restarts. Small JSON file — a couple thousand floats. Override the
-# directory with RT_STATE_DIR when running in a container so the file lands
-# on a mounted volume rather than the ephemeral container FS.
-BASELINE_CACHE = Path(os.environ.get("RT_STATE_DIR", ".")) / "spectrum_baseline.json"
+# restarts. Override the directory with RT_STATE_DIR when running in a container
+# so the files land on a mounted volume rather than the ephemeral container FS.
+# Two files: a JSON sidecar (read by the HTTP API / frontend) and a raw float32
+# vector (read by the GNU Radio live flowgraph to divide against).
+_STATE_DIR = Path(os.environ.get("RT_STATE_DIR", "."))
+BASELINE_CACHE = _STATE_DIR / "spectrum_baseline.json"
+BASELINE_F32 = _STATE_DIR / "spectrum_baseline.f32"
+# Capture writes here first, then we atomically rename onto BASELINE_F32 so the
+# live flowgraph never reads a half-written file.
+BASELINE_F32_TMP = _STATE_DIR / "spectrum_baseline.f32.tmp"
 POWER_FLOOR = 1e-12
 
 logger = logging.getLogger(__name__)
@@ -45,11 +54,11 @@ class SpectrumFrame(dict):
 
 
 class SpectrumService(Broadcaster[SpectrumFrame]):
-    """Subprocess manager + ZMQ consumer for the spectrum pipeline.
+    """Subprocess manager + ZMQ forwarder for the spectrum pipeline.
 
-    Lifecycle mirrors the previous SDRDriverTask-based service: the GNU
-    Radio subprocess is spawned on first subscribe and torn down 5 s after
-    the last unsubscribe, so the dongle stays cool when nobody is watching.
+    The GNU Radio subprocess is spawned on first subscribe and torn down 5 s
+    after the last unsubscribe, so the dongle stays cool when nobody is
+    watching.
     """
 
     name: str = "spectrum-service"
@@ -67,24 +76,20 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         self._lna = LnaController(cfg)
 
         self._latest: SpectrumFrame | None = None
-        self._integrated: np.ndarray | None = None
-        self._baseline_power: np.ndarray | None = None
-        self._baseline_meta: dict[str, float | int] | None = None
-        self._baseline_capture_lock = asyncio.Lock()
-        self._baseline_capture_samples: list[np.ndarray] | None = None
-        self._baseline_capture_target: int = 0
-        self._baseline_capture_done: asyncio.Event | None = None
         self._frames_seen: int = 0
         self._publish_period_s: float = 1.0 / max(cfg.publish_rate_hz, 1e-3)
         self._freqs_mhz = self._build_freq_axis()
-
-        self._display_mode: str = "baseline"
+        # Whether the live flowgraph was spawned with a baseline file present,
+        # i.e. whether the frames it emits are baseline-corrected.
+        self._baseline_active: bool = False
 
         self._proc: subprocess.Popen[bytes] | None = None
         self._proc_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._idle_close_task: asyncio.Task[None] | None = None
         self._lifecycle_lock = asyncio.Lock()
+        self._baseline_capture_lock = asyncio.Lock()
+        self._capturing: bool = False
         self._mode: str = "idle"
         self._fault_detail: str | None = None
         self._shutting_down: bool = False
@@ -105,10 +110,14 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         the pipeline is up so the frontend's auto-reconnect heuristic keeps
         recognising the SDR as healthy. Internal lifecycle states
         (`"starting"`, `"running"`) are folded into `"airspy"` once a
-        subprocess exists; only true failure modes leak through.
+        subprocess exists; only true failure modes leak through. While a
+        baseline capture is running we also report `"airspy"` so the frontend
+        doesn't try to reconnect into the capture.
         """
         if self._shutting_down:
             return "idle"
+        if self._capturing:
+            return "airspy"
         if self.subscriber_count == 0 and self._proc is None:
             return "idle"
         if self._mode in ("starting", "running"):
@@ -124,14 +133,116 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         proc = self._proc
         return proc.pid if proc is not None and proc.poll() is None else None
 
-    @property
-    def display_mode(self) -> str:
-        return self._display_mode
+    # ── Live processing tuning ───────────────────────────────────────────
 
-    def set_display_mode(self, mode: str) -> None:
-        if mode not in ("absolute", "median", "baseline"):
-            raise ValueError(f"Unknown display mode: {mode}")
-        self._display_mode = mode
+    def processing_snapshot(self) -> dict[str, Any]:
+        """Current values of every knob the admin panel can drive.
+
+        Every knob is now consumed at flowgraph build time, so applying any of
+        them bounces the GNU Radio subprocess.
+        """
+        cfg = self._cfg
+        return {
+            "integration_seconds": float(cfg.integration_seconds),
+            "baseline_scale": float(cfg.baseline_scale),
+            "baseline_offset_db": float(cfg.baseline_offset_db),
+            "gain_db": cfg.gain_db,
+            "agc": cfg.gain_db is None,
+            "center_freq_mhz": float(cfg.center_freq_hz) / 1e6,
+            "sample_rate_msps": float(cfg.sample_rate_hz) / 1e6,
+            "fft_size": int(cfg.fft_size),
+            "publish_rate_hz": float(cfg.publish_rate_hz),
+            # Derived (echoed so the UI can show effective values).
+            "integration_frames": int(cfg.integration_frames),
+            "freq_resolution_hz": float(cfg.sample_rate_hz) / float(cfg.fft_size),
+        }
+
+    async def apply_processing(
+        self,
+        *,
+        integration_seconds: float | None = None,
+        baseline_scale: float | None = None,
+        baseline_offset_db: float | None = None,
+        gain_db: float | None = None,
+        agc: bool | None = None,
+        center_freq_mhz: float | None = None,
+        sample_rate_msps: float | None = None,
+        fft_size: int | None = None,
+        publish_rate_hz: float | None = None,
+    ) -> dict[str, Any]:
+        """Mutate in-memory ``SDRConfig`` and bounce the flowgraph to apply it.
+
+        Every knob is a flowgraph-build parameter now (integration window, gain,
+        tuning, baseline scale/offset), so any change restarts the GNU Radio
+        subprocess via ``reconnect()``. Changes that alter the FFT layout
+        (centre / sample rate / fft size) invalidate the captured baseline, so
+        we drop it. Changes are NOT persisted to disk — restart the service to
+        fall back to ``config.toml``.
+        """
+        cfg = self._cfg
+        changed = False
+        axis_changed = False
+
+        if integration_seconds is not None:
+            if integration_seconds <= 0:
+                raise ValueError("integration_seconds must be > 0")
+            cfg.integration_seconds = float(integration_seconds)
+            changed = True
+        if baseline_scale is not None:
+            if baseline_scale <= 0:
+                raise ValueError("baseline_scale must be > 0")
+            cfg.baseline_scale = float(baseline_scale)
+            changed = True
+        if baseline_offset_db is not None:
+            cfg.baseline_offset_db = float(baseline_offset_db)
+            changed = True
+        if agc is True:
+            cfg.gain_db = None
+            changed = True
+        elif gain_db is not None:
+            cfg.gain_db = float(gain_db)
+            changed = True
+        if center_freq_mhz is not None:
+            if center_freq_mhz <= 0:
+                raise ValueError("center_freq_mhz must be > 0")
+            cfg.center_freq_hz = float(center_freq_mhz) * 1e6
+            changed = True
+            axis_changed = True
+        if sample_rate_msps is not None:
+            if sample_rate_msps <= 0:
+                raise ValueError("sample_rate_msps must be > 0")
+            cfg.sample_rate_hz = float(sample_rate_msps) * 1e6
+            changed = True
+            axis_changed = True
+        if fft_size is not None:
+            if fft_size < 64:
+                raise ValueError("fft_size must be ≥ 64")
+            cfg.fft_size = int(fft_size)
+            changed = True
+            axis_changed = True
+        if publish_rate_hz is not None:
+            if publish_rate_hz <= 0:
+                raise ValueError("publish_rate_hz must be > 0")
+            cfg.publish_rate_hz = float(publish_rate_hz)
+            self._publish_period_s = 1.0 / max(cfg.publish_rate_hz, 1e-3)
+            changed = True
+
+        if axis_changed:
+            self._freqs_mhz = self._build_freq_axis()
+            # The baseline is keyed off the FFT layout; an axis change makes the
+            # stored vector the wrong length, so drop it. The single reconnect
+            # below respawns the flowgraph without it.
+            self._delete_baseline_files()
+
+        restarted = False
+        if changed:
+            await self.reconnect()
+            restarted = True
+
+        result = self.processing_snapshot()
+        result["restarted"] = restarted
+        result["live_applied"] = False
+        return result
 
     @property
     def lna_status(self) -> LnaStatus:
@@ -171,13 +282,17 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
     async def reconnect(self) -> str:
         """Kill and respawn the GNU Radio subprocess.
 
-        Lets the operator power-cycle the dongle or recover from a stuck
-        Soapy state without bouncing uvicorn. If nobody is currently
-        subscribed the subprocess stays down — the next viewer will spawn
-        it lazily.
+        Lets the operator power-cycle the dongle, apply a flowgraph parameter,
+        or recover from a stuck Soapy state without bouncing uvicorn. If nobody
+        is currently subscribed the subprocess stays down — the next viewer will
+        spawn it lazily. No-op while a baseline capture owns the dongle.
         """
+        if self._capturing:
+            return self.mode
         await self._cancel_idle_close()
         async with self._lifecycle_lock:
+            if self._capturing:
+                return self.mode
             proc_task = self._proc_task
             if (
                 proc_task is not None
@@ -218,122 +333,200 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
                     self._close_after_idle(), name=f"{self.name}-idle-close",
                 )
 
-    # ── Integration / baseline ───────────────────────────────────────────
+    # ── Integration reset ────────────────────────────────────────────────
 
-    def reset_integration(self) -> None:
-        self._integrated = None
+    async def reset_integration(self) -> str:
+        """Restart the flowgraph to flush its rolling EMA back to empty."""
         self._frames_seen = 0
+        return await self.reconnect()
+
+    # ── Baseline capture / load / clear ──────────────────────────────────
 
     async def capture_baseline(self) -> dict[str, Any] | None:
+        """Capture a fresh baseline by running a one-shot capture flowgraph.
+
+        Stops the live flowgraph (freeing the Airspy), runs a capture flowgraph
+        that integrates one ``integration_seconds`` window and writes a baseline
+        ``.f32``, persists the JSON sidecar, then respawns the live flowgraph so
+        it divides by the new baseline. Bounded by a timeout so the request can
+        never hang; returns ``None`` (→ HTTP 409) if no spectrum could be
+        captured (pipeline unavailable, dongle busy, etc.).
+        """
         async with self._baseline_capture_lock:
-            target = max(1, int(self._cfg.integration_frames))
-            done = asyncio.Event()
-            self._baseline_capture_samples = []
-            self._baseline_capture_target = target
-            self._baseline_capture_done = done
-
-            try:
-                timeout_s = self._cfg.integration_seconds + self._publish_period_s * 2.0
-                await asyncio.wait_for(done.wait(), timeout=timeout_s)
-                samples = self._baseline_capture_samples or []
-            except asyncio.TimeoutError:
-                samples = self._baseline_capture_samples or []
-            finally:
-                self._baseline_capture_samples = None
-                self._baseline_capture_target = 0
-                self._baseline_capture_done = None
-
-            latest = self._latest
-            if latest is None or not samples:
-                return None
-
-            baseline_power = np.median(np.stack(samples), axis=0)
-            baseline_power = np.maximum(baseline_power, POWER_FLOOR)
-            baseline_power_db = 10.0 * np.log10(baseline_power)
-            baseline = {
-                "captured_at": time.time(),
-                "center_freq_mhz": latest["center_freq_mhz"],
-                "sample_rate_mhz": latest["sample_rate_mhz"],
-                "integration_frames": latest["integration_frames"],
-                "freqs_mhz": list(latest["freqs_mhz"]),
-                "power_linear": baseline_power.astype(np.float32).tolist(),
-                "power_db": baseline_power_db.astype(np.float32).round(3).tolist(),
-                "capture_samples": len(samples),
-            }
-            self._set_baseline(baseline, baseline_power)
-            try:
-                BASELINE_CACHE.write_text(json.dumps(baseline))
-            except Exception:
-                logger.exception("Failed to persist baseline to %s", BASELINE_CACHE)
+            await self._cancel_idle_close()
+            async with self._lifecycle_lock:
+                if self._shutting_down:
+                    return None
+                self._capturing = True
+                # Keep `mode` reading healthy so the frontend doesn't fire a
+                # reconnect into the capture while the live stream is paused.
+                self._mode = "starting"
+                baseline: dict[str, Any] | None = None
+                try:
+                    await self._kill_subprocess_locked()
+                    if await self._run_capture_subprocess():
+                        baseline = self._persist_baseline_from_capture()
+                finally:
+                    self._capturing = False
+                    if self.subscriber_count > 0 and not self._shutting_down:
+                        await self._spawn_subprocess_locked()
+                    else:
+                        self._mode = "idle"
             return baseline
 
     def load_baseline(self) -> dict[str, Any] | None:
+        """Return the persisted baseline JSON sidecar, or ``None`` if absent."""
         if not BASELINE_CACHE.exists():
             return None
         try:
-            baseline = json.loads(BASELINE_CACHE.read_text())
-            self._set_baseline(baseline)
-            return baseline
+            return json.loads(BASELINE_CACHE.read_text())
         except Exception:
             logger.exception("Failed to read baseline from %s", BASELINE_CACHE)
             return None
 
-    def clear_baseline(self) -> None:
-        self._baseline_power = None
-        self._baseline_meta = None
-        try:
-            BASELINE_CACHE.unlink(missing_ok=True)
-        except Exception:
-            logger.exception("Failed to remove baseline cache %s", BASELINE_CACHE)
-
-    def _set_baseline(
-        self,
-        baseline: dict[str, Any],
-        baseline_power: np.ndarray | None = None,
-    ) -> None:
-        if baseline_power is None:
-            raw = baseline.get("power_linear")
-            if not isinstance(raw, list):
-                self._baseline_power = None
-                self._baseline_meta = None
-                return
-            baseline_power = np.asarray(raw, dtype=np.float32)
-        self._baseline_power = np.maximum(baseline_power, POWER_FLOOR)
-        self._baseline_meta = {
-            "center_freq_mhz": float(baseline["center_freq_mhz"]),
-            "sample_rate_mhz": float(baseline["sample_rate_mhz"]),
-            "bins": int(self._baseline_power.size),
-        }
-
-    def _active_baseline_power(self, current_power: np.ndarray) -> np.ndarray | None:
-        baseline_power = self._baseline_power
-        meta = self._baseline_meta
-        if baseline_power is None or meta is None:
-            return None
-        if int(meta["bins"]) != current_power.size:
-            return None
-        cfg = self._cfg
-        if abs(float(meta["center_freq_mhz"]) - cfg.center_freq_hz / 1e6) > 1e-6:
-            return None
-        if abs(float(meta["sample_rate_mhz"]) - cfg.sample_rate_hz / 1e6) > 1e-6:
-            return None
-        return baseline_power
-
-    def _capture_baseline_sample(self, current_power: np.ndarray) -> None:
-        samples = self._baseline_capture_samples
-        done = self._baseline_capture_done
-        if samples is None or done is None or done.is_set():
+    async def clear_baseline(self) -> None:
+        """Delete the baseline and respawn the flowgraph so it stops dividing."""
+        self._delete_baseline_files()
+        if self._capturing or self._shutting_down:
             return
-        samples.append(current_power.astype(np.float32).copy())
-        if len(samples) >= self._baseline_capture_target:
-            done.set()
+        await self.reconnect()
+
+    def _delete_baseline_files(self) -> None:
+        for path in (BASELINE_CACHE, BASELINE_F32, BASELINE_F32_TMP):
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                logger.exception("Failed to remove baseline file %s", path)
+
+    async def _run_capture_subprocess(self) -> bool:
+        """Run the one-shot capture flowgraph, writing BASELINE_F32_TMP.
+
+        Returns True if the subprocess exited cleanly and a temp file exists.
+        """
+        try:
+            BASELINE_F32_TMP.unlink(missing_ok=True)
+        except Exception:
+            logger.exception("Failed to clear stale capture temp %s", BASELINE_F32_TMP)
+
+        cmd = [
+            sys.executable, "-m", "rt_hardware.sdr_pipeline",
+            "--config", self._config_path,
+            "--capture-baseline", str(BASELINE_F32_TMP),
+        ]
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        except FileNotFoundError as exc:
+            logger.error("%s baseline capture spawn failed: %s", self.name, exc)
+            return False
+
+        # Wait for the window to integrate, plus startup grace and slack.
+        timeout_s = self._cfg.integration_seconds + self.subprocess_start_timeout_s + 5.0
+        try:
+            _, stderr = await asyncio.to_thread(proc.communicate, timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            logger.warning("%s baseline capture timed out after %.1fs; killing", self.name, timeout_s)
+            proc.kill()
+            await asyncio.to_thread(proc.wait)
+            return False
+        except Exception:
+            logger.exception("%s baseline capture failed", self.name)
+            return False
+
+        if stderr:
+            for line in stderr.decode("utf-8", errors="replace").splitlines():
+                logger.info("[capture] %s", line)
+        if proc.returncode != 0:
+            logger.error("%s baseline capture exited with code %d", self.name, proc.returncode)
+            return False
+        return BASELINE_F32_TMP.exists()
+
+    def _persist_baseline_from_capture(self) -> dict[str, Any] | None:
+        """Read the captured .f32, write the JSON sidecar, commit the .f32."""
+        try:
+            power = np.fromfile(BASELINE_F32_TMP, dtype=np.float32)
+        except Exception:
+            logger.exception("Failed to read captured baseline %s", BASELINE_F32_TMP)
+            return None
+        fft_size = int(self._cfg.fft_size)
+        if power.size != fft_size:
+            logger.error(
+                "Captured baseline has %d bins, expected %d", power.size, fft_size,
+            )
+            return None
+
+        power = np.maximum(power, POWER_FLOOR)
+        power_db = 10.0 * np.log10(power)
+        cfg = self._cfg
+        baseline = {
+            "captured_at": time.time(),
+            "center_freq_mhz": cfg.center_freq_hz / 1e6,
+            "sample_rate_mhz": cfg.sample_rate_hz / 1e6,
+            "integration_frames": int(cfg.integration_frames),
+            "freqs_mhz": self._freqs_mhz.tolist(),
+            "power_linear": power.astype(np.float32).tolist(),
+            "power_db": power_db.astype(np.float32).round(3).tolist(),
+            "capture_samples": int(cfg.integration_frames),
+        }
+        try:
+            BASELINE_CACHE.write_text(json.dumps(baseline))
+        except Exception:
+            logger.exception("Failed to persist baseline to %s", BASELINE_CACHE)
+            return None
+        # Commit the raw vector for the live flowgraph last and atomically.
+        try:
+            os.replace(BASELINE_F32_TMP, BASELINE_F32)
+        except Exception:
+            logger.exception("Failed to commit baseline %s", BASELINE_F32)
+            return None
+        return baseline
 
     # ── Subprocess management ────────────────────────────────────────────
+
+    def _pipeline_cmd(self) -> list[str]:
+        """Build the live-pipeline launch command, including the baseline file
+        when one has been captured *and* still matches the current FFT layout.
+        Records whether the spawned flowgraph will be baseline-corrected."""
+        cmd = [sys.executable, "-m", "rt_hardware.sdr_pipeline", "--config", self._config_path]
+        if self._baseline_file_matches():
+            cmd += ["--baseline", str(BASELINE_F32)]
+            self._baseline_active = True
+        else:
+            # A stale baseline (e.g. config changed between runs) would silently
+            # mis-divide; drop it rather than apply a mismatched correction.
+            if BASELINE_F32.exists():
+                self._delete_baseline_files()
+            self._baseline_active = False
+        return cmd
+
+    def _baseline_file_matches(self) -> bool:
+        """True if a captured baseline exists and matches the current config."""
+        if not BASELINE_F32.exists():
+            return False
+        meta = self.load_baseline()
+        if meta is None:
+            # No metadata to validate against; the flowgraph still length-checks.
+            return True
+        cfg = self._cfg
+        try:
+            if int(len(meta.get("power_linear", []))) != int(cfg.fft_size):
+                return False
+            if abs(float(meta["center_freq_mhz"]) - cfg.center_freq_hz / 1e6) > 1e-6:
+                return False
+            if abs(float(meta["sample_rate_mhz"]) - cfg.sample_rate_hz / 1e6) > 1e-6:
+                return False
+        except Exception:
+            return False
+        return True
 
     async def _ensure_running(self) -> None:
         await self._cancel_idle_close()
         async with self._lifecycle_lock:
-            if self._shutting_down or self.subscriber_count == 0:
+            if self._shutting_down or self.subscriber_count == 0 or self._capturing:
                 return
             if self._proc is not None:
                 return
@@ -345,7 +538,7 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             await self._spawn_subprocess_locked()
 
     async def _spawn_subprocess_locked(self) -> None:
-        cmd = [sys.executable, "-m", "rt_hardware.sdr_pipeline", "--config", self._config_path]
+        cmd = self._pipeline_cmd()
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -445,10 +638,10 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         except Exception:
             logger.exception("%s stderr pipe failed", self.name)
 
-    # ── ZMQ consumer + EMA ───────────────────────────────────────────────
+    # ── ZMQ consumer (pure forwarder) ────────────────────────────────────
 
     async def _consume_zmq(self, proc: subprocess.Popen[bytes]) -> None:
-        """Receive one Float32[fft_size] vector per message and publish frames.
+        """Receive one dB Float32[fft_size] vector per message and forward it.
 
         Implements backoff-with-reset: a clean run drops the backoff index
         to 0; consecutive crashes step through `_backoff_schedule` so we
@@ -526,11 +719,11 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         on every restart cycle.
         """
         async with self._lifecycle_lock:
-            if self._shutting_down or self.subscriber_count == 0:
+            if self._shutting_down or self.subscriber_count == 0 or self._capturing:
                 return None
             if self._proc is not None:
                 return self._proc
-            cmd = [sys.executable, "-m", "rt_hardware.sdr_pipeline", "--config", self._config_path]
+            cmd = self._pipeline_cmd()
             try:
                 proc = subprocess.Popen(
                     cmd,
@@ -569,8 +762,8 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         sock.setsockopt(zmq.RCVHWM, 2)
         sock.setsockopt(zmq.LINGER, 0)
         sock.connect(self._cfg.pipeline_ipc_path)
-        # GNU Radio's zmq_pub_sink emits one message per integrate_ff output
-        # (~publish_rate_hz). At 5 Hz the deadline below gives us 3× slack.
+        # GNU Radio's zmq_pub_sink emits one message per output (~publish_rate_hz).
+        # At 5 Hz the deadline below gives us 3× slack.
         recv_timeout_s = 5.0 * self._publish_period_s + self.subprocess_start_timeout_s
         fft_size = int(self._cfg.fft_size)
         expected_bytes = fft_size * 4  # float32
@@ -578,7 +771,6 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         try:
             first_frame_deadline = time.monotonic() + self.subprocess_start_timeout_s
             saw_frame = False
-            last_publish = 0.0
             while not self._shutting_down and self.subscriber_count > 0:
                 if proc.poll() is not None:
                     raise _PipelineDied(f"subprocess exited with code {proc.returncode}")
@@ -601,63 +793,19 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
                     self._mode = "running"
                     self._fault_detail = None
 
-                power = np.frombuffer(raw, dtype=np.float32).copy()
-                # GNU Radio's integrate_ff sums (not averages) `integrate_k`
-                # FFTs. We keep that linear scale because live baseline
-                # correction divides spectra captured through the same chain.
+                # The flowgraph already produced a finished dB spectrum
+                # (integrated, baseline-divided). We just forward it.
+                power_db = np.frombuffer(raw, dtype=np.float32)
                 self._frames_seen += 1
-                self._blend_into_ema(power)
-
-                now = time.monotonic()
-                if now - last_publish >= self._publish_period_s:
-                    last_publish = now
-                    self._publish_frame()
+                self._publish_frame(power_db)
         finally:
             try:
                 sock.close(0)
             except Exception:
                 pass
 
-    def _blend_into_ema(self, power: np.ndarray) -> None:
-        if self._integrated is None:
-            self._integrated = power
-            return
-        # EMA window length in *published frames* — long enough that one
-        # published-spectrum-worth of input contributes 1/N of the result.
-        n = max(1, self._cfg.integration_frames)
-        alpha = 1.0 / n
-        self._integrated = (1.0 - alpha) * self._integrated + alpha * power
-
-    def _publish_frame(self) -> None:
-        integrated = self._integrated
-        if integrated is None:
-            return
-        # Avoid log(0); the FFT magnitudes never quite hit zero in practice
-        # but a floor keeps the y-axis tidy when the gain is low.
-        floored = np.maximum(integrated, POWER_FLOOR)
-        self._capture_baseline_sample(floored)
-        mode = self._display_mode
-        baseline_power = self._active_baseline_power(floored)
-        if mode == "absolute":
-            power_db = 10.0 * np.log10(floored)
-        elif mode == "median":
-            power_db = 10.0 * np.log10(floored)
-            power_db -= float(np.median(power_db))
-        else:  # "baseline"
-            if baseline_power is not None:
-                power_db = 10.0 * np.log10(floored / baseline_power)
-            else:
-                power_db = np.zeros_like(floored)
-        baseline_corrected = mode == "baseline" and baseline_power is not None
-
+    def _publish_frame(self, power_db: np.ndarray) -> None:
         cfg = self._cfg
-        # Effective integration time is the EMA window in wall-clock seconds,
-        # capped by how much real input has actually accumulated since reset.
-        effective_seconds = min(
-            self._frames_seen * self._publish_period_s,
-            cfg.integration_seconds,
-        )
-
         frame = SpectrumFrame(
             timestamp=time.time(),
             center_freq_mhz=cfg.center_freq_hz / 1e6,
@@ -665,12 +813,11 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             integration_frames=cfg.integration_frames,
             frames_seen=self._frames_seen,
             frame_duration_s=self._publish_period_s,
-            integration_seconds=effective_seconds,
+            integration_seconds=float(cfg.integration_seconds),
             mode=self.mode,
             freqs_mhz=self._freqs_mhz.tolist(),
-            power_db=power_db.astype(np.float32).round(3).tolist(),
-            baseline_corrected=baseline_corrected,
-            display_mode=mode,
+            power_db=np.asarray(power_db, dtype=np.float32).round(3).tolist(),
+            baseline_corrected=self._baseline_active,
         )
         self._latest = frame
         self.publish(frame)
