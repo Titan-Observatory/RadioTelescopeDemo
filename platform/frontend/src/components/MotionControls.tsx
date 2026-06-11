@@ -3,8 +3,6 @@ import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'reac
 
 import { track } from '../analytics';
 import type { JogDirection } from '../api';
-import { maxAbsReading, motorState } from '../lib/formatters';
-import type { RoboClawTelemetry } from '../types';
 
 const JOG_REPEAT_MS = 250;
 
@@ -169,10 +167,14 @@ function SpeedFader({ slewSpeed, setSlewSpeed }: {
     Math.abs(p.value - slewSpeed) < Math.abs(best.value - slewSpeed) ? p : best,
   SPEED_PRESETS[0]);
 
+  // Render fastest at the top, slowest at the bottom: taller bar = faster, so
+  // the column itself reads like a throttle without needing to parse labels.
+  const ordered = [...SPEED_PRESETS].reverse();
+
   return (
     <div className="speed-toggle" role="radiogroup" aria-label="Slew speed">
       <span className="speed-toggle-heading">Speed</span>
-      {SPEED_PRESETS.map((p) => {
+      {ordered.map((p) => {
         const selected = p.id === active.id;
         return (
           <button
@@ -191,10 +193,6 @@ function SpeedFader({ slewSpeed, setSlewSpeed }: {
   );
 }
 
-function degrees(v: number | null | undefined): string {
-  return v == null ? '—' : `${v.toFixed(2)}°`;
-}
-
 // Floating control handset for the dish. Reads top to bottom the way an
 // operator thinks: where the dish is pointing (live readout + motion state),
 // how to nudge it (pad + speed), and where to send it (inline go-to row).
@@ -202,18 +200,36 @@ function degrees(v: number | null | undefined): string {
 // The typed go-to speaks RA/Dec — the coordinates star charts and catalogues
 // actually give you — while map clicks keep their own alt/az slew chip.
 export function MotionControls({
-  jog, stopJog, gotoRaDec, onStop, telemetry,
+  jog, stopJog, gotoRaDec, onStop, targetRaDeg, targetDecDeg,
 }: {
   jog: (direction: JogDirection, speed: number, token: string, seq: number) => Promise<void>;
   stopJog: (token: string, seq: number) => Promise<void>;
   gotoRaDec: (raDeg: number, decDeg: number) => Promise<void>;
   onStop: () => Promise<void>;
-  telemetry: RoboClawTelemetry | null;
+  /** RA/Dec (degrees) of the latest sky-map click, to prefill the GoTo inputs. */
+  targetRaDeg?: number | null;
+  targetDecDeg?: number | null;
 }) {
   const [slewSpeed, setSlewSpeed] = useState(40);
   const [raText, setRaText] = useState('');
   const [decText, setDecText] = useState('');
   const speed = Math.round(slewSpeed * 127 / 100);
+
+  // Accept a keystroke only if the whole field stays a number with at most three
+  // decimals (so letters, extra dots and 4th decimals never make it in). An
+  // empty field and a lone leading "-" (Dec only) are allowed mid-typing.
+  const filterNumeric = (raw: string, allowNegative: boolean): string | null => {
+    const re = allowNegative ? /^-?\d{0,3}(\.\d{0,3})?$/ : /^\d{0,2}(\.\d{0,3})?$/;
+    return re.test(raw) ? raw : null;
+  };
+
+  // Mirror the clicked sky position into the GoTo inputs (RA shown in hours),
+  // so picking a point on the map fills in where to slew.
+  useEffect(() => {
+    if (targetRaDeg == null || targetDecDeg == null) return;
+    setRaText((targetRaDeg / 15).toFixed(3));
+    setDecText(targetDecDeg.toFixed(3));
+  }, [targetRaDeg, targetDecDeg]);
 
   const changeSpeed = (value: number) => {
     if (value === slewSpeed) return;
@@ -223,7 +239,12 @@ export function MotionControls({
 
   const raHoursVal = parseFloat(raText);
   const decDegVal = parseFloat(decText);
-  const targetValid = Number.isFinite(raHoursVal) && Number.isFinite(decDegVal);
+  const raValid = Number.isFinite(raHoursVal) && raHoursVal >= 0 && raHoursVal <= 24;
+  const decValid = Number.isFinite(decDegVal) && decDegVal >= -90 && decDegVal <= 90;
+  const targetValid = raValid && decValid;
+  // Only flag a field red once it has content; an empty field is incomplete, not wrong.
+  const raInvalid = raText.trim() !== '' && !raValid;
+  const decInvalid = decText.trim() !== '' && !decValid;
 
   const submitTarget = async (e: FormEvent) => {
     e.preventDefault();
@@ -231,61 +252,48 @@ export function MotionControls({
     await gotoRaDec(raHoursVal * 15, decDegVal).catch(() => { /* tracked in the hook */ });
   };
 
-  const driveState = telemetry == null
-    ? null
-    : motorState(
-        maxAbsReading(telemetry.motors.m1?.speed_qpps, telemetry.motors.m2?.speed_qpps),
-        maxAbsReading(telemetry.motors.m1?.pwm, telemetry.motors.m2?.pwm),
-      );
-  const moving = driveState === 'Moving';
-
   return (
     <div className="motion-panel">
       <header className="motion-head">
         <span className="motion-head-title">Pointing</span>
-        <span className={`motion-state${moving ? ' is-moving' : ''}`}>
-          <span className="motion-state-dot" aria-hidden />
-          {driveState ?? 'No link'}
-        </span>
       </header>
 
-      <div className="motion-position" aria-label="Current pointing">
-        <span className="motion-pos-item">
-          <span className="motion-pos-label">Az</span>
-          <strong>{degrees(telemetry?.azimuth_deg)}</strong>
-        </span>
-        <span className="motion-pos-item">
-          <span className="motion-pos-label">El</span>
-          <strong>{degrees(telemetry?.altitude_deg)}</strong>
-        </span>
-      </div>
-
       <div className="motion-card">
-        <PointingPad jog={jog} stopJog={stopJog} speed={speed} onStop={onStop} />
         <SpeedFader slewSpeed={slewSpeed} setSlewSpeed={changeSpeed} />
+        <PointingPad jog={jog} stopJog={stopJog} speed={speed} onStop={onStop} />
       </div>
 
       <form className="target-form-overlay" onSubmit={submitTarget} aria-label="Go to celestial coordinates">
         <span className="motion-goto-label">Go to</span>
-        <div className="goto-input-row">
+        <div className={`goto-input-row${raInvalid ? ' is-invalid' : ''}`}>
           <span className="goto-prefix">RA</span>
           <input
-            type="number" min={0} max={24} step={0.01}
+            type="text" inputMode="decimal"
             value={raText}
-            placeholder="20.69"
-            onChange={(e) => setRaText(e.target.value)}
+            placeholder="20.690"
+            onChange={(e) => {
+              const next = filterNumeric(e.target.value, false);
+              if (next !== null) setRaText(next);
+            }}
             aria-label="Target right ascension in hours"
+            aria-invalid={raInvalid}
+            title={raInvalid ? 'RA must be between 0 and 24 hours' : undefined}
           />
           <span className="goto-unit">h</span>
         </div>
-        <div className="goto-input-row">
+        <div className={`goto-input-row${decInvalid ? ' is-invalid' : ''}`}>
           <span className="goto-prefix">Dec</span>
           <input
-            type="number" min={-90} max={90} step={0.1}
+            type="text" inputMode="decimal"
             value={decText}
-            placeholder="45.3"
-            onChange={(e) => setDecText(e.target.value)}
+            placeholder="45.300"
+            onChange={(e) => {
+              const next = filterNumeric(e.target.value, true);
+              if (next !== null) setDecText(next);
+            }}
             aria-label="Target declination in degrees"
+            aria-invalid={decInvalid}
+            title={decInvalid ? 'Dec must be between −90 and 90 degrees' : undefined}
           />
           <span className="goto-unit">°</span>
         </div>

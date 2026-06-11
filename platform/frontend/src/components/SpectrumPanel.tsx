@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { HYDROGEN_LINE_MHZ } from '../lib/astro';
 import { useJsonSocket } from '../lib/useJsonSocket';
+import { startSpectrumTour } from '../tour';
 import { BaselineWizard } from './BaselineWizard';
 
 echarts.use([
@@ -617,18 +618,13 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         </div>
         )}
 
-        <details className="spectrum-learn">
-          <summary>How to read this chart</summary>
-          <p>
-            Hydrogen atoms emit at exactly 1420.406&nbsp;MHz at rest — the vertical marker. Gas moving
-            along the line of sight Doppler-shifts that emission: a peak <em>left</em> of the marker
-            means the gas is moving away from us, a peak to the <em>right</em> means it is approaching.
-            Each 0.1&nbsp;MHz of shift is about 21&nbsp;km/s. Because the dish looks through the whole
-            thickness of the galaxy, you will often see broad or multiple peaks — different spiral-arm
-            clouds moving at different speeds. Compare a few directions along the galactic plane and you
-            are mapping the rotation of the Milky Way.
-          </p>
-        </details>
+        <button
+          type="button"
+          className="spectrum-learn-link"
+          onClick={() => startSpectrumTour()}
+        >
+          How to read this chart
+        </button>
 
         <details
           className="spectrum-waterfall-dropdown"

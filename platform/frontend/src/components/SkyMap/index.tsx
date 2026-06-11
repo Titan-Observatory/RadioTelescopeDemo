@@ -21,7 +21,7 @@ interface SkyMapProps {
   telemetry: RoboClawTelemetry | null;
   config: TelescopeConfig | null;
   onNotice: (msg: string | null) => void;
-  onTarget: (az: number, alt: number) => void;
+  onTarget: (az: number, alt: number, raDeg: number, decDeg: number) => void;
   onClearTarget?: () => void;
   tooltipsEnabled: boolean;
   overlays?: SkyOverlay[];
@@ -34,7 +34,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, t
   const telemetryRef    = useRef<RoboClawTelemetry | null>(null);
   const pendingRef      = useRef<RaDecTarget | null>(null);
   const horizonCanvasRef  = useRef<HTMLCanvasElement | null>(null);
-  const onTargetRef = useRef<((az: number, alt: number) => void) | null>(null);
+  const onTargetRef = useRef<((az: number, alt: number, raDeg: number, decDeg: number) => void) | null>(null);
   const onClearTargetRef = useRef<(() => void) | null>(null);
   // Mirrored so the init effect doesn't re-run (and tear down its event handlers)
   // every time the parent passes a fresh inline callback.

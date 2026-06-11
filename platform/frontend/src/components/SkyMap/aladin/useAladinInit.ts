@@ -25,7 +25,7 @@ interface UseAladinInitOptions {
   configRef: RefObject<TelescopeConfig | null>;
   telemetryRef: RefObject<RoboClawTelemetry | null>;
   surveyRef: RefObject<SurveyId>;
-  onTargetRef: RefObject<((az: number, alt: number) => void) | null>;
+  onTargetRef: RefObject<((az: number, alt: number, raDeg: number, decDeg: number) => void) | null>;
   onClearTargetRef: RefObject<(() => void) | null>;
   onNoticeRef: RefObject<((msg: string | null) => void) | null>;
   setReady: Dispatch<SetStateAction<boolean>>;
@@ -283,7 +283,7 @@ export function useAladinInit(opts: UseAladinInitOptions) {
 
         onNoticeRef.current?.(null);
         setPending({ ra_deg, dec_deg });
-        onTargetRef.current?.(altAz.azimuth_deg, altAz.altitude_deg);
+        onTargetRef.current?.(altAz.azimuth_deg, altAz.altitude_deg, ra_deg, dec_deg);
       };
       container.addEventListener('pointerdown', handlePointerDown, true);
       container.addEventListener('mousedown', handleMouseDown, true);

@@ -855,15 +855,18 @@ input:focus-visible {
   color: var(--on-accent);
 }
 
-/* Go-to row — one line: label, Az and El inputs, slew button. Lives below
-   the jog pad so typing coordinates never hides the manual controls. */
+/* Go-to row — label on top, then RA and Dec inputs side by side with the slew
+   button at the end. Lives below the jog pad so typing coordinates never hides
+   the manual controls. */
 .target-form-overlay {
   display: grid;
-  grid-template-columns: auto 1fr 1fr auto;
-  align-items: center;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: stretch;
   gap: 6px;
 }
 .motion-goto-label {
+  grid-column: 1 / -1;
+  align-self: center;
   color: var(--fg-subtle);
   font-size: 10px;
   font-weight: 700;
@@ -872,20 +875,45 @@ input:focus-visible {
   padding-right: 2px;
 }
 .goto-input-row {
-  position: relative;
   display: flex;
   align-items: center;
+  gap: 6px;
+  grid-row: 2;
   min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.goto-input-row:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.goto-input-row.is-invalid {
+  border-color: var(--crit);
+}
+.goto-input-row.is-invalid:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 22%, transparent);
 }
 .goto-input-row input {
   flex: 1;
   min-width: 0;
-  min-height: 32px;
-  height: 32px;
-  padding: 0 15px 0 32px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+.goto-input-row input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 .goto-input-row input[type="number"]::-webkit-outer-spin-button,
 .goto-input-row input[type="number"]::-webkit-inner-spin-button {
@@ -900,8 +928,7 @@ input:focus-visible {
   opacity: 1;
 }
 .goto-prefix {
-  position: absolute;
-  left: 8px;
+  flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -910,15 +937,20 @@ input:focus-visible {
   pointer-events: none;
 }
 .goto-unit {
-  position: absolute;
-  right: 7px;
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--fg-subtle);
   pointer-events: none;
 }
 .motion-goto-btn {
-  width: 36px;
-  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  grid-column: 3;
+  grid-row: 2;
+  width: 44px;
+  height: 100%;
+  min-height: 0;
   padding: 0;
   flex-shrink: 0;
   background: var(--accent);
@@ -1288,53 +1320,33 @@ input:focus-visible {
   max-width: 420px;
 }
 
-/* "How to read this chart" disclosure — the lesson lives here, after the
-   data, so the chart stays the eye anchor. */
-.spectrum-learn {
-  margin-top: 10px;
-  margin-bottom: 12px;
-}
-.spectrum-learn > summary {
+/* "How to read this chart" — a link under the plot that launches a guided
+   tour walking through each part of the spectrum (see startSpectrumTour). */
+.spectrum-learn-link {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  margin: 10px 0 12px;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--fg-muted);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  list-style: none;
-  user-select: none;
+  text-decoration: underline;
+  text-decoration-color: var(--accent-edge);
+  text-underline-offset: 3px;
 }
-.spectrum-learn > summary::-webkit-details-marker { display: none; }
-.spectrum-learn > summary::before {
+.spectrum-learn-link::before {
   content: "";
   width: 6px;
   height: 6px;
   border-right: 1.5px solid var(--fg-subtle);
   border-bottom: 1.5px solid var(--fg-subtle);
   transform: rotate(-45deg);
-  transition: transform var(--t-fast);
 }
-.spectrum-learn[open] > summary::before {
-  transform: rotate(45deg);
-}
-.spectrum-learn > summary:hover { color: var(--fg); }
-.spectrum-learn > p {
-  max-width: 760px;
-  margin: 8px 0 0;
-  padding: 10px 12px;
-  border-left: 2px solid var(--accent-edge);
-  background: var(--surface-1);
-  border-radius: 0 var(--r-md) var(--r-md) 0;
-  color: var(--fg-muted);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-.spectrum-learn > p em {
-  color: var(--fg);
-  font-style: normal;
-  font-weight: 600;
-}
+.spectrum-learn-link:hover { color: var(--fg); }
 
 /* Inline glossary-term button (also used on the queue page). */
 .spectrum-doppler-term {
@@ -1695,7 +1707,8 @@ h2.panel-header {
    tour anchor.) */
 .motion-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
   gap: 10px;
 }
 
@@ -1708,6 +1721,7 @@ h2.panel-header {
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
   gap: 6px;
+  flex: 1;
   min-width: 0;
 }
 .pad-up    { grid-column: 2; grid-row: 1; }
@@ -1720,11 +1734,6 @@ h2.panel-header {
    it never stretches into an ellipse. Filled like its neighbours, with a
    crimson tint that goes solid on hover. */
 .pad-btn.pad-stop {
-  justify-self: center;
-  align-self: center;
-  height: 100%;
-  aspect-ratio: 1 / 1;
-  min-height: 0;
   padding: 0;
   gap: 1px;
   border-radius: 50%;
@@ -1748,8 +1757,13 @@ h2.panel-header {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  justify-self: center;
+  align-self: center;
   gap: 2px;
-  min-height: 58px;
+  width: 100%;
+  max-width: 68px;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
   padding: 6px 4px;
   color: var(--fg);
   background: var(--surface-1);
@@ -1878,29 +1892,33 @@ h2.panel-header {
 }
 
 /* =========================================================================
-   Segmented speed toggle — horizontal pill matching the sky-map survey
-   switcher. Three discrete presets (Slew / Coarse / Fine) in a single row.
+   Speed throttle — vertical segmented control sitting to the left of the
+   d-pad and sharing its height. Three presets stacked fastest-on-top
+   (Fast / Coarse / Fine), so the column reads like a throttle lever: the
+   higher the lit segment, the faster the slew.
    ========================================================================= */
 .speed-toggle {
-  display: grid;
-  grid-template-columns: auto repeat(3, 1fr);
-  align-items: center;
-  column-gap: 8px;
-  min-height: 36px;
-  padding: 4px 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 78px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid var(--hairline-strong);
   border-radius: var(--r-md);
   background: var(--surface-1);
 }
 
 .speed-toggle-heading {
-  padding: 0 10px 0 0;
-  border-right: 1px solid var(--hairline);
+  padding: 2px 0 5px;
+  margin-bottom: 1px;
+  border-bottom: 1px solid var(--hairline);
   color: var(--fg-subtle);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1;
+  text-align: center;
   text-transform: uppercase;
 }
 
@@ -1908,7 +1926,8 @@ h2.panel-header {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 28px;
+  flex: 1;
+  min-height: 30px;
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
@@ -1917,9 +1936,11 @@ h2.panel-header {
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+  cursor: pointer;
   transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
 }
 .speed-toggle-btn:hover:not(:disabled) {
+  background: var(--surface-3);
   color: var(--fg);
 }
 .speed-toggle-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

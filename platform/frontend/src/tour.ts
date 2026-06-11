@@ -1,4 +1,4 @@
-import { driver } from 'driver.js';
+import { driver, type DriveStep } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { track } from './analytics';
 
@@ -84,6 +84,118 @@ export function maybePromptFirstVisit(onStartGuided: () => void) {
   });
 
   prompt.drive();
+}
+
+// Walks the user through each part of the hydrogen-line spectrum, anchored to
+// the live chart. Triggered from the "How to read this chart" link under the
+// plot. Steps are built from whatever is actually on screen — the hydrogen
+// marker, search band, peak marker and readouts only exist once a frame has
+// arrived — so we never highlight a missing element.
+export function startSpectrumTour() {
+  track('spectrum_tour_started');
+
+  const has = (sel: string) => document.querySelector(sel) != null;
+
+  const steps: DriveStep[] = [];
+
+  // Scroll the spectrum into view so the first highlight isn't offscreen.
+  document.querySelector('.spectrum-section')?.scrollIntoView({ block: 'start', behavior: 'auto' });
+
+  steps.push({
+    element: '.spectrum-chart-box',
+    popover: {
+      title: 'The trace',
+      description:
+        'Each point is the radio power the dish hears (vertical axis, in dB) at a given frequency (horizontal axis, in MHz). The live line rides on a noise floor; a real signal pokes up as a bump above it.',
+      side: 'bottom',
+      align: 'start',
+    },
+  });
+
+  if (has('.spectrum-hydrogen-line')) {
+    steps.push({
+      element: '.spectrum-hydrogen-line',
+      popover: {
+        title: 'The 1420 MHz marker',
+        description:
+          'Hydrogen atoms emit at exactly 1420.406 MHz when at rest. This vertical marker is where a stationary hydrogen cloud would appear — your reference point for everything else.',
+        side: 'bottom',
+      },
+    });
+  }
+
+  if (has('.spectrum-hydrogen-band')) {
+    steps.push({
+      element: '.spectrum-hydrogen-band',
+      popover: {
+        title: 'The search band',
+        description:
+          'The shaded strip is ±0.5 MHz around the rest line — the range of Doppler shifts we expect from Galactic gas. A peak left of the marker means gas moving away; right means approaching. Every 0.1 MHz of shift is about 21 km/s.',
+        side: 'bottom',
+      },
+    });
+  }
+
+  if (has('.spectrum-peak-marker')) {
+    steps.push({
+      element: '.spectrum-peak-marker',
+      popover: {
+        title: 'Detected peak',
+        description:
+          'When a clear bump rises above the noise, it is marked here. Its offset from the 1420 MHz line is what the Doppler velocity below is worked out from.',
+        side: 'bottom',
+      },
+    });
+  }
+
+  if (has('.spectrum-readouts')) {
+    steps.push({
+      element: '.spectrum-readouts',
+      popover: {
+        title: 'The measurements',
+        description:
+          'The peak frequency, how far it stands above the noise (in dB), and the line-of-sight velocity that frequency shift implies — positive for gas receding, negative for gas approaching.',
+        side: 'top',
+      },
+    });
+  }
+
+  if (has('.spectrum-baseline-row')) {
+    steps.push({
+      element: '.spectrum-baseline-row',
+      popover: {
+        title: 'Baseline correction',
+        description:
+          "Receivers have their own bandpass shape even with no signal. Capturing a baseline on empty sky subtracts that shape, so the hydrogen line stands out instead of getting lost in the receiver's own curve.",
+        side: 'bottom',
+      },
+    });
+  }
+
+  if (has('.spectrum-waterfall-dropdown')) {
+    steps.push({
+      element: '.spectrum-waterfall-dropdown',
+      popover: {
+        title: 'The waterfall',
+        description:
+          'Open this to see signal strength stacked over time. A genuine hydrogen line shows up as a persistent vertical streak; random noise flickers and never lines up.',
+        side: 'top',
+      },
+    });
+  }
+
+  const tour = driver({
+    showProgress: true,
+    allowClose: true,
+    overlayOpacity: 0.65,
+    popoverClass: 'rt-tour-popover',
+    nextBtnText: 'Next',
+    prevBtnText: 'Back',
+    doneBtnText: 'Done',
+    steps,
+  });
+
+  tour.drive();
 }
 
 // Matches the breakpoint in main.css where .skymap-overlay-controls is hidden

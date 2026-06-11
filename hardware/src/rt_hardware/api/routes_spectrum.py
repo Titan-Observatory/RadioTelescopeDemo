@@ -124,8 +124,12 @@ async def spectrum_ws(ws: WebSocket):
     try:
         while True:
             frame = await q.get()
-            await ws.send_json(frame)
-    except (WebSocketDisconnect, asyncio.CancelledError):
+            # Bound the send so a single slow/stuck consumer can't wedge the
+            # writer indefinitely on drain(). The Broadcaster is already
+            # drop-oldest on the queue side; if the socket itself can't keep
+            # up we drop the connection rather than back the buffer up.
+            await asyncio.wait_for(ws.send_json(frame), timeout=5)
+    except (WebSocketDisconnect, asyncio.CancelledError, asyncio.TimeoutError):
         pass
     finally:
         service.unsubscribe(q)

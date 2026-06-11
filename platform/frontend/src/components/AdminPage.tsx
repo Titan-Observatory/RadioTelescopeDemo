@@ -96,11 +96,12 @@ export function AdminPage() {
           <div className="skymap-bottom-dock">
             <div className="skymap-overlay-controls">
               <MotionControls
-                telemetry={telemetry}
                 jog={motion.jog}
                 stopJog={motion.stopJog}
                 gotoRaDec={motion.gotoRaDec}
                 onStop={motion.stopMotion}
+                targetRaDeg={map.targetRaDeg}
+                targetDecDeg={map.targetDecDeg}
               />
             </div>
             {map.hasMapTarget && (

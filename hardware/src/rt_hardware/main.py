@@ -130,6 +130,13 @@ def cli() -> None:
             host=cfg.server.host,
             port=cfg.server.port,
             timeout_graceful_shutdown=3,
+            # Disable the legacy `websockets` keepalive ping. The spectrum stream
+            # already pushes frames continuously, so the protocol-level ping buys
+            # us nothing — and under backpressure its keepalive_ping task races
+            # the app's send_json on the same transport's drain(), tripping an
+            # asyncio AssertionError that tears the connection down with a 1011.
+            ws_ping_interval=None,
+            ws_ping_timeout=None,
         )
     except KeyboardInterrupt:
         pass
