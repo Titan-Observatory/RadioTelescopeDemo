@@ -7,6 +7,7 @@ import queueSpectrumRaw from '../data/queueSpectrum.txt?raw';
 import type { QueueStatus } from '../queue';
 import type { TelescopeStatus } from '../types';
 import { StarsBackground } from './StarsBackground';
+import { QueueFooter } from './QueueFooter';
 
 declare global {
   interface Window {
@@ -1187,6 +1188,8 @@ export function QueuePage({
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [betaPassword, setBetaPassword] = useState('');
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const scrollProgressRef = useRef<HTMLDivElement | null>(null);
   const widgetRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
   const autoJoinedTokenRef = useRef<string | null>(null);
@@ -1210,6 +1213,14 @@ export function QueuePage({
         '--queue-viewport-top',
         `${viewport?.offsetTop ?? 0}px`,
       );
+      // Scroll-progress needle along the bottom edge of the sticky header.
+      // Written imperatively so scrolling never triggers a React render.
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - window.innerHeight;
+      const frac = max > 0 ? Math.min(1, window.scrollY / max) : 0;
+      if (scrollProgressRef.current) {
+        scrollProgressRef.current.style.width = `${(frac * 100).toFixed(2)}%`;
+      }
     };
 
     updateCollapsed();
@@ -1224,6 +1235,53 @@ export function QueuePage({
       viewport?.removeEventListener('resize', updateCollapsed);
       viewport?.removeEventListener('scroll', updateCollapsed);
       document.documentElement.style.removeProperty('--queue-viewport-top');
+    };
+  }, []);
+
+  // Scroll-driven reveals: every [data-reveal] element rises into place the
+  // first time it enters the viewport. With reduced motion preferred we skip
+  // straight to the revealed state (the CSS transition is also disabled).
+  useEffect(() => {
+    const root = pageRef.current;
+    if (!root) return;
+    const els = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'));
+    if (els.length === 0) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      for (const el of els) el.classList.add('is-revealed');
+      return;
+    }
+    const pending = new Set(els);
+    const reveal = (el: HTMLElement) => {
+      el.classList.add('is-revealed');
+      pending.delete(el);
+      observer.unobserve(el);
+    };
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) reveal(entry.target as HTMLElement);
+      }
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    for (const el of els) observer.observe(el);
+    // Belt-and-braces geometric sweep: if the observer never fires (it ticks
+    // with the refresh driver, which some environments suspend), anything
+    // already in the viewport still reveals shortly after mount and on scroll.
+    const sweep = () => {
+      for (const el of Array.from(pending)) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight - 40 && rect.bottom > 0) reveal(el);
+      }
+      if (pending.size === 0) window.removeEventListener('scroll', onScroll);
+    };
+    let sweepTimer = window.setTimeout(sweep, 350);
+    const onScroll = () => {
+      clearTimeout(sweepTimer);
+      sweepTimer = window.setTimeout(sweep, 120);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      clearTimeout(sweepTimer);
+      window.removeEventListener('scroll', onScroll);
     };
   }, []);
 
@@ -1288,7 +1346,7 @@ export function QueuePage({
   const [spinFlipRef, spinFlipActive] = useVisibleAnimation<HTMLDivElement>(STICKY_HEADER_ANIMATION_MARGIN_PX);
 
   return (
-    <div className="queue-waiting">
+    <div className="queue-waiting" ref={pageRef}>
       <header className={`queue-header${headerCollapsed ? ' queue-header-collapsed' : ''}`}>
         <div className="queue-header-inner">
           <div className="queue-header-title">
@@ -1380,7 +1438,9 @@ export function QueuePage({
             )}
             <div className="queue-header-status-row">
               <span className="queue-header-label">Position</span>
-              <strong className="queue-header-position">
+              {/* Keyed on position so a queue advance remounts the number and
+                  replays the pop animation. */}
+              <strong className="queue-header-position" key={inQueue ? position : 'idle'}>
                 {inQueue ? `#${position}` : '—'}
               </strong>
               {inQueue && queueLength > 0 && (
@@ -1393,11 +1453,14 @@ export function QueuePage({
               </div>
             )}
             {inQueue && hasControl && (
-              <button className="action-button queue-header-cta" onClick={onContinue}>
+              <button className="action-button queue-header-cta queue-cta-ready" onClick={onContinue}>
                 Continue to telescope →
               </button>
             )}
           </div>
+        </div>
+        <div className="queue-scroll-progress" aria-hidden="true">
+          <div ref={scrollProgressRef} className="queue-scroll-progress-fill" />
         </div>
       </header>
 
@@ -1406,12 +1469,12 @@ export function QueuePage({
         {/* ── Hero ──────────────────────────────────────────────────────────── */}
         <section className="h1-hero" id="h1-intro-section">
           <div className="h1-hero-inner">
-            <div className="h1-hero-text">
+            <div className="h1-hero-text" data-reveal>
               <span className="h1-eyebrow">What is it?</span>
               <h2 className="h1-hero-title">The Hydrogen Line</h2>
               <p className="h1-hero-sub">Found around 1420.4 MHz, the hydrogen line is a characteristic radio signal emitted by electrically neutral hydrogen atoms, a common form of the most abundant element in the universe. Its discovery and use in early days of radio astronomy unlocked an entirely new set of tools for exploring the universe, allowing us to see through thick clouds of dust, measure the velocity and structure of nearby hydrogen, and, for the first time, learn what our own Milky Way galaxy looked like.</p>
             </div>
-            <div className="h1-hero-visual">
+            <div className="h1-hero-visual" data-reveal="lag">
               <HeroSpectrum paused={animationsPaused} />
               <p className="h1-visual-caption">
                 Hydrogen line profile looking outward through the galactic disk
@@ -1419,13 +1482,17 @@ export function QueuePage({
               </p>
             </div>
           </div>
+          <a className="h1-scroll-cue" href="#h1-history-section" aria-label="Scroll to the next section">
+            <span>scroll</span>
+            <span className="h1-scroll-cue-chevron" aria-hidden="true">▾</span>
+          </a>
         </section>
 
         {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}
         <section className="h1-spinflip h1-discovery-section" id="h1-history-section">
           <StarsBackground />
           <div className="h1-spinflip-inner">
-            <div className="h1-spinflip-text">
+            <div className="h1-spinflip-text" data-reveal>
               <span className="h1-eyebrow">How was it discovered?</span>
               <h2 className="h1-section-heading">Science at its best</h2>
               <p className="h1-section-body">
@@ -1447,7 +1514,7 @@ export function QueuePage({
               <p className="h1-section-body">When Doc Ewen began the experiment under Purcell's guidance, there was little expectation of actually detecting anything. Even Van de Hulst had expressed doubt that the signal would be strong enough to observe. Still, in science, looking for something and not finding it still teaches us something. In this case, they hoped to at least set an upper limit on how strong the signal could be, if it did exist.</p>
               <p className="h1-section-body">Ewen turned on the receiver after major modifications for the first time during Easter weekend in 1951. As Ewen put it: "By 3:00 AM on Sunday morning March 25, I was convinced that the line had been detected."</p>
             </div>
-            <figure className="h1-ewen-figure">
+            <figure className="h1-ewen-figure" data-reveal="lag">
               <img
                 src="/ewen.jpg"
                 alt="Doc Ewen inspecting patchwork inside the horn antenna"
@@ -1467,7 +1534,7 @@ export function QueuePage({
         {/* ── Doppler section ───────────────────────────────────────────────── */}
         <section className="h1-spinflip h1-spinflip-alt" id="h1-doppler-section">
           <div className="h1-doppler-inner">
-            <div className="h1-doppler-text">
+            <div className="h1-doppler-text" data-reveal>
               <span className="h1-eyebrow">How do we use it?</span>
               <h2 className="h1-section-heading">The Doppler Effect</h2>
               <p className="h1-section-body">You may be familiar with the Doppler effect as it relates to sound, but did you know the same thing happens to light? In the same way that an approaching ambulance siren sounds higher in pitch as it gets closer and lower as it moves away, electromagnetic waves shift in frequency based on the relative motion between the source and the observer. It's far too subtle to notice in everyday life, but it's one of the most foundational tools in all of astronomy.</p>
@@ -1475,7 +1542,7 @@ export function QueuePage({
               <p className="h1-section-body">The obvious challenge with this method is that in order to tell how much a frequency has shifted, you first need to know what it was originally. How do you do that for a photon that came from the other side of the Milky Way? This is where the power of spectral lines becomes clear.</p>
               <p className="h1-section-body">Since we can measure the exact frequency of light emitted by hydrogen in a controlled lab, and because every neutral hydrogen atom in the universe is identical, we can use that reference frequency to measure the relative velocity of hydrogen across the Milky Way.</p>
             </div>
-            <div className="h1-doppler-visual">
+            <div className="h1-doppler-visual" data-reveal="lag">
               <DopplerAnimation paused={animationsPaused} />
               <p className="h1-visual-caption">
                 The relative velocity of hydrogen gas along our line of sight shifts the observed frequency: approaching gas is blueshifted, receding gas is redshifted.
@@ -1485,7 +1552,7 @@ export function QueuePage({
         </section>
         {/* ── Donation banner ───────────────────────────────────────────────── */}
         <div className="donation-banner">
-          <div className="donation-banner-inner">
+          <div className="donation-banner-inner" data-reveal>
           <div className="donation-banner-body">
             <p className="donation-banner-headline">We need your help!</p>
             <p className="donation-banner-sub">
@@ -1517,7 +1584,7 @@ export function QueuePage({
         {/* ── Spin-flip section ─────────────────────────────────────────────── */}
         <section className="h1-doppler" id="h1-spinflip-section">
           <div className="h1-spinflip-inner">
-            <div className="h1-spinflip-text">
+            <div className="h1-spinflip-text" data-reveal>
               <span className="h1-eyebrow">What causes it?</span>
               <h2 className="h1-section-heading">The spin-flip transition</h2>
               <p className="h1-section-body">
@@ -1535,7 +1602,7 @@ export function QueuePage({
               </p>
               <p className="h1-section-body">Although any individual spin-flip transition is exceptionally rare, neutral hydrogen is so abundant in the galaxy that the combined signal is constant and measurable, even with a home-built radio telescope!</p>
             </div>
-            <div className="h1-spinflip-visual-wrap" ref={spinFlipRef}>
+            <div className="h1-spinflip-visual-wrap" ref={spinFlipRef} data-reveal="lag">
               <div className="h1-spinflip-visual">
                 <HydrogenAtomDepiction paused={!spinFlipActive} />
               </div>
@@ -1545,16 +1612,16 @@ export function QueuePage({
             </div>
           </div>
         </section>
-        <section className="h1-spinflip h1-spinflip-alt h1-jansky-section" id="h1-history-section">
+        <section className="h1-spinflip h1-spinflip-alt h1-jansky-section" id="h1-jansky-section">
           <div className="h1-spinflip-inner">
-            <div className="h1-spinflip-text">
+            <div className="h1-spinflip-text" data-reveal>
               <span className="h1-eyebrow">More lore</span>
               <h2 className="h1-section-heading">The beginning of radio astronomy</h2>
               <p className="h1-section-body">In the 1930's, while working at Bell Labs in it's formative years, Karl Jansky was tasked with identifying sources of radio noise which could interefere with overseas radio communication (a bleeding edge technology at the time). Among more mundane sources like thunderstorms, Jansky observed a peculiar background "hiss" of unknown origin which seemed to cycle in intensity once per day, leading Jansky to assume this noise originated from the sun.</p>
               <p className="h1-section-body">However, after a few more months of observation, the point of maximum "static" had noticibly shifted from the position of the sun. Recognizing that this puzzle was beyond the realm of RF engineering, Janksky met with his friend and astrophysicist Albert Melvin Skellett, who pointed out that the now refined 23 hours and 56 minute period of the signal was the exact length of a sidereal day.</p>
               <p className="h1-section-body">There's a whole lot more to the story, but fitting everything on one page is hard. In the future, I would like to expand each of these sections into their own page.</p>
             </div>
-            <figure className="h1-jansky-figure">
+            <figure className="h1-jansky-figure" data-reveal="lag">
               <img
                 src="/Jansky.jpg"
                 alt="Karl Jansky's rotating directional radio antenna array"
@@ -1569,6 +1636,7 @@ export function QueuePage({
           </div>
         </section>
 
+        <QueueFooter />
 
       </main>
 

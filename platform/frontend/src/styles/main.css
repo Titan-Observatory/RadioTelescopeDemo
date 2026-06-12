@@ -3616,6 +3616,341 @@ h2.panel-header {
 }
 
 /* =========================================================================
+   Queue page — motion & finishing touches
+   ========================================================================= */
+
+/* Scroll-driven reveals. Elements tagged data-reveal start slightly low and
+   transparent; QueuePage's IntersectionObserver adds .is-revealed the first
+   time each enters the viewport. Without JS (or with reduced motion) the
+   base rule keeps everything visible. */
+[data-reveal] { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(22px);
+    transition: opacity 720ms ease, transform 720ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  [data-reveal="lag"] { transition-delay: 140ms; }
+  [data-reveal].is-revealed {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Scroll cue at the bottom of the hero. */
+.h1-scroll-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 1;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--fg-subtle);
+  transition: color 160ms ease;
+}
+
+.h1-scroll-cue:hover { color: var(--accent); }
+
+.h1-scroll-cue-chevron {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .h1-scroll-cue-chevron { animation: h1-scroll-cue-bob 2.1s ease-in-out infinite; }
+}
+
+@keyframes h1-scroll-cue-bob {
+  0%, 100% { transform: translateY(0); opacity: 0.55; }
+  50%      { transform: translateY(5px); opacity: 1; }
+}
+
+@media (max-width: 760px) {
+  .h1-scroll-cue { display: none; }
+}
+
+/* Scroll-progress needle along the bottom edge of the sticky header. Width is
+   written imperatively from QueuePage's scroll handler. */
+.queue-scroll-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  pointer-events: none;
+}
+
+.queue-scroll-progress-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent-edge), var(--accent));
+  box-shadow: 0 0 10px rgba(255, 188, 66, 0.45);
+}
+
+/* Position number pops when the queue advances (element is keyed on the
+   position, so a change remounts it and replays the animation). */
+@media (prefers-reduced-motion: no-preference) {
+  .queue-header-position { animation: queue-pos-pop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.3); }
+}
+
+@keyframes queue-pos-pop {
+  0%   { transform: scale(1.16); filter: brightness(1.5); }
+  100% { transform: scale(1); filter: none; }
+}
+
+/* Shimmer sweep across the queue progress bar. */
+.queue-progress-fill {
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .queue-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 36px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+    animation: queue-progress-sweep 2.6s ease-in-out infinite;
+  }
+}
+
+@keyframes queue-progress-sweep {
+  0%        { left: -36px; }
+  60%, 100% { left: 100%; }
+}
+
+/* Amber breathing glow on the CTA once control is available. */
+@media (prefers-reduced-motion: no-preference) {
+  .queue-cta-ready { animation: queue-cta-glow 2.2s ease-in-out infinite; }
+}
+
+@keyframes queue-cta-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 188, 66, 0); }
+  50%      { box-shadow: 0 0 18px 2px rgba(255, 188, 66, 0.35); }
+}
+
+/* =========================================================================
+   Site footer (ported from titan-observatory-dynamic)
+   ========================================================================= */
+
+.titan-footer {
+  position: relative;
+  border-top: 1px solid var(--hairline);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 96%, transparent), var(--surface-1));
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+
+.titan-footer-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 56px 24px;
+  display: grid;
+  gap: 48px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.7fr);
+}
+
+/* Brand block */
+.titan-footer-brand { max-width: 38rem; }
+
+.titan-footer-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.titan-footer-wordmark img {
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
+.titan-footer-tagline {
+  margin: 0 0 20px;
+  max-width: 24rem;
+  font-size: 14px;
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--fg) 80%, transparent);
+}
+
+.titan-footer-contact {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+
+.titan-footer-contact p { margin: 0; }
+
+.titan-footer-contact a {
+  color: var(--fg);
+  text-decoration: none;
+  transition: color var(--t-fast);
+}
+
+.titan-footer-contact a:hover { color: var(--accent-strong); }
+
+/* Link columns */
+.titan-footer-columns {
+  display: grid;
+  gap: 40px 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.titan-footer-col h3 {
+  margin: 0 0 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.titan-footer-col ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.titan-footer-col a {
+  color: var(--fg-muted);
+  text-decoration: none;
+  transition: color var(--t-fast);
+}
+
+.titan-footer-col a:hover { color: var(--accent-strong); }
+
+/* Share buttons — per-link brand color via CSS custom props, icons rendered
+   as masked monochrome shapes so they tint with the button color. */
+.titan-footer-col-share { grid-column: span 1; }
+
+.titan-footer-share {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.titan-share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid var(--share-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--share-color);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.titan-share-btn:hover {
+  color: #ffffff;
+  border-color: var(--share-color);
+  background: var(--share-bg);
+}
+
+.titan-share-btn:focus-visible {
+  outline: 2px solid var(--share-color);
+  outline-offset: 2px;
+}
+
+.titan-share-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--share-color);
+  transition: background-color 0.2s;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+  mask-size: contain;
+  -webkit-mask-size: contain;
+}
+
+.titan-share-btn:hover .titan-share-icon { background-color: #ffffff; }
+
+/* Bottom bar */
+.titan-footer-bottom {
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+}
+
+.titan-footer-bottom > * {
+  max-width: 1180px;
+}
+
+.titan-footer-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 24px;
+  font-size: 12px;
+  color: var(--fg-subtle);
+}
+
+.titan-footer-bottom p { margin: 0; }
+
+.titan-footer-legal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+}
+
+.titan-footer-legal a {
+  color: var(--fg-subtle);
+  text-decoration: none;
+  transition: color var(--t-fast);
+}
+
+.titan-footer-legal a:hover { color: var(--accent-strong); }
+
+@media (min-width: 768px) {
+  .titan-footer-bottom {
+    flex-direction: row;
+    justify-content: space-between;
+    margin: 0 auto;
+    max-width: 1180px;
+  }
+}
+
+@media (max-width: 900px) {
+  .titan-footer-main { grid-template-columns: 1fr; gap: 40px; }
+}
+
+@media (max-width: 640px) {
+  .titan-footer-main { padding: 44px 18px; }
+  .titan-footer-columns { grid-template-columns: 1fr; gap: 32px; text-align: center; }
+  .titan-footer-col ul { justify-items: center; }
+  .titan-footer-share { align-items: stretch; }
+  .titan-share-btn { justify-content: center; }
+}
+
+/* =========================================================================
    Responsive
    ========================================================================= */
 
