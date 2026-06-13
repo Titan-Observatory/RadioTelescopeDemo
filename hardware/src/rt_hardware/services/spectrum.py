@@ -337,6 +337,19 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             if (
                 proc_task is not None
                 and not proc_task.done()
+                and self._mode == "starting"
+                and self.subscriber_count > 0
+                and not self._shutting_down
+            ):
+                logger.info(
+                    "%s reconnect skipped; pipeline already starting (mode=%s)",
+                    self.name,
+                    self._mode,
+                )
+                return self.mode
+            if (
+                proc_task is not None
+                and not proc_task.done()
                 and self._proc is None
                 and self.subscriber_count > 0
                 and not self._shutting_down
