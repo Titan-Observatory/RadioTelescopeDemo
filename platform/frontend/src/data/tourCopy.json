@@ -1,0 +1,181 @@
+{
+  "prompt": {
+    "title": "Welcome",
+    "description": "First time here? Pick how you want to start. The control tour shows you what every panel does; the guided observation walks you through capturing a hydrogen-line signal end-to-end.",
+    "buttons": {
+      "dontShow": "Don't show again",
+      "later": "Maybe later",
+      "controls": "Tour the controls",
+      "observe": "Try a guided observation"
+    }
+  },
+  "spectrumTour": {
+    "buttons": {
+      "next": "Next",
+      "back": "Back",
+      "done": "Done"
+    },
+    "steps": {
+      "trace": {
+        "title": "The trace",
+        "description": "Each point is the radio power the dish hears (vertical axis, in dB) at a given frequency (horizontal axis, in MHz). The live line rides on a noise floor; a real signal pokes up as a bump above it."
+      },
+      "hydrogenMarker": {
+        "title": "The 1420 MHz marker",
+        "description": "Hydrogen atoms emit at exactly 1420.406 MHz when at rest. This vertical marker is where a stationary hydrogen cloud would appear - your reference point for everything else."
+      },
+      "searchBand": {
+        "title": "The search band",
+        "description": "The shaded strip is +/-0.5 MHz around the rest line - the range of Doppler shifts we expect from Galactic gas. A peak left of the marker means gas moving away; right means approaching. Every 0.1 MHz of shift is about 21 km/s."
+      },
+      "detectedPeak": {
+        "title": "Detected peak",
+        "description": "When a clear bump rises above the noise, it is marked here. Its offset from the 1420 MHz line is what the Doppler velocity below is worked out from."
+      },
+      "measurements": {
+        "title": "The measurements",
+        "description": "The peak frequency, how far it stands above the noise (in dB), and the line-of-sight velocity that frequency shift implies - positive for gas receding, negative for gas approaching."
+      },
+      "baselineCorrection": {
+        "title": "Baseline correction",
+        "description": "Receivers have their own bandpass shape even with no signal. Capturing a baseline on empty sky subtracts that shape, so the hydrogen line stands out instead of getting lost in the receiver's own curve."
+      },
+      "waterfall": {
+        "title": "The waterfall",
+        "description": "Open this to see signal strength stacked over time. A genuine hydrogen line shows up as a persistent vertical streak; random noise flickers and never lines up."
+      }
+    }
+  },
+  "controlsTour": {
+    "buttons": {
+      "next": "Next",
+      "back": "Back",
+      "done": "Done"
+    },
+    "steps": {
+      "welcome": {
+        "title": "Welcome",
+        "description": "This is a short tour of the telescope control panel. Use Next/Back to step through, or press Esc to exit at any time."
+      },
+      "statusBar": {
+        "title": "Status bar",
+        "description": "Connection state, telescope time, and - when you are in control - your session timer live up here."
+      },
+      "spectrum": {
+        "title": "Spectrum",
+        "description": "Live FFT from the SDR. The rolling average is configured on the server; watch for the hydrogen line near 1420 MHz."
+      },
+      "manualJog": {
+        "title": "Manual jog",
+        "description": "Press and hold a direction to nudge the dish. The center button is an emergency stop for all motion, and the speed presets set how fast it moves."
+      },
+      "gotoTarget": {
+        "title": "Go to a target",
+        "description": "Type a target's RA (hours) and Dec (degrees) - the coordinates any star chart or catalogue lists - then hit the arrow to drive the dish there automatically."
+      },
+      "skyMapDesktop": {
+        "title": "Sky map",
+        "description": "Live view of the sky from the telescope's location. Click a target on the map, then hit the Slew button that appears to point the dish there."
+      },
+      "skyMapMobile": {
+        "title": "Sky map",
+        "description": "Live view of the sky from the telescope's location. Tap a target on the map, then hit Slew to point the dish there."
+      },
+      "telemetry": {
+        "title": "Telemetry",
+        "description": "Encoder positions, motor currents, voltages, and safety state. Watch here if a move feels wrong - overcurrent trips show up immediately."
+      },
+      "done": {
+        "title": "You are set",
+        "description": "That covers the main sections. You can re-run this tour anytime from the Help button in the top bar."
+      }
+    }
+  },
+  "guidedObservation": {
+    "buttons": {
+      "next": "Next",
+      "back": "Back",
+      "done": "Done",
+      "slewing": "Slewing...",
+      "slewReference": "Slew to reference",
+      "slewGalacticPlane": "Slew to galactic plane"
+    },
+    "progressText": "Step {{current}} of {{total}}",
+    "steps": {
+      "intro": {
+        "title": "Observe hydrogen",
+        "description": "We'll point the dish at two patches of sky and look for the faint radio glow given off by hydrogen gas at 1420 MHz - the most common element in the galaxy. The whole thing takes about three minutes."
+      },
+      "liveSignal": {
+        "title": "Live radio signal",
+        "description": "This yellow trace shows the radio energy the dish is hearing right now. The vertical green marker at 1420.4 MHz is where pure hydrogen emits. We're looking for a small bump that lines up with - or shifts slightly off - that marker."
+      },
+      "emptySky": {
+        "title": "Aim at empty sky",
+        "description": "First we point somewhere with very little hydrogen, to learn what the receiver sounds like on its own. We picked the sky near the North Galactic Pole - looking \"up\" out of our galaxy, where almost no hydrogen gas lies in the way."
+      },
+      "saveBaseline": {
+        "title": "Save what 'empty' looks like",
+        "description": "Click \"Set up baseline\" below. This stores the current trace as a reference, so when we slew somewhere with real hydrogen the signal pops out clearly against this flat background. Then press Next."
+      },
+      "milkyWay": {
+        "title": "Aim at the Milky Way",
+        "description": "Now we'll swing to a thick part of our galaxy's disk, in Cygnus. There's a huge column of hydrogen gas between us and the far side of the galaxy, all emitting at 1420 MHz. Watch the yellow trace once the dish settles - a bump should grow near the green marker."
+      },
+      "done": {
+        "title": "You did it",
+        "description": "The bump you see is hydrogen gas tens of thousands of light-years away. If it sits slightly off the green marker, that gas is moving toward or away from us - the Doppler effect - and the velocity readout under the chart tells you how fast. Slew elsewhere any time to compare."
+      }
+    }
+  },
+  "baselineWizard": {
+    "dialog": {
+      "readyTitle": "Baseline ready",
+      "setupTitle": "Set up baseline"
+    },
+    "intro": {
+      "body": "Radio receivers have their own \"shape\" - even with no signal at all, the spectrum from a real antenna isn't flat. Baseline correction stores a reference trace of that shape and divides it out of live data, so real features like the hydrogen line stand out instead of getting lost in the bandpass curve.",
+      "prompt": "We'll capture one by pointing somewhere quiet and freezing the trace. If you just want to see the effect, you can load a saved baseline instead.",
+      "buttons": {
+        "capture": "Walk me through capturing one",
+        "load": "Load a saved baseline",
+        "loading": "Loading...",
+        "cancel": "Not right now"
+      }
+    },
+    "pick": {
+      "title": "Pick an empty patch of sky",
+      "description": "Use the sky map to choose somewhere quiet - high in the sky, away from the Sun and the shaded Milky Way band (clicks inside it are blocked). Click a point on the map to load it as your target, then hit the Slew button to drive the dish there.",
+      "buttons": {
+        "cancel": "Cancel",
+        "confirm": "I've picked a spot"
+      }
+    },
+    "capture": {
+      "stepLabel": "Step 2 of 2 - Trigger the capture",
+      "body": "Once the dish has finished slewing onto your empty patch, trigger the capture. The hardware service will then collect a full integration window of fresh samples and return the baseline when it's done - no need to time it yourself.",
+      "countdownPrefix": "Capturing... waiting for the hardware service to integrate",
+      "countdownSuffix": "of samples.",
+      "noFrame": "No spectrum frame received yet - wait a moment for the first one to arrive.",
+      "buttons": {
+        "back": "Back to map",
+        "trigger": "Trigger capture",
+        "capturing": "Capturing..."
+      }
+    },
+    "done": {
+      "body": "Done - the live spectrum is now drawn with this baseline corrected. The bandpass curve should flatten out, so anything left poking up is a real feature in the sky rather than the receiver's shape.",
+      "meta": "Look around 1420.4 MHz: a narrow bump that persists as a vertical streak in the waterfall is the hydrogen line.",
+      "buttons": {
+        "close": "Close"
+      }
+    },
+    "loadFailed": {
+      "body": "There's no saved baseline on the server yet (or it couldn't be loaded). You can capture your own - it only takes a minute.",
+      "buttons": {
+        "cancel": "Cancel",
+        "capture": "Capture instead"
+      }
+    }
+  }
+}

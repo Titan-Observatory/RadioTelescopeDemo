@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { track } from '../analytics';
+import tourCopy from '../data/tourCopy.json';
+
+const FORCE_HYDROGEN_SURVEY_EVENT = 'rt-force-hydrogen-survey';
 
 interface SpectrumFrame {
   timestamp: number;
@@ -58,7 +61,7 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
 
   // During the 'pick' step we hide the Radix dialog and apply a body-level
   // class. The class triggers a CSS spotlight (box-shadow on .skymap-panel
-  // darkens everything outside it) — pure visual, no DOM overlay, so Aladin
+  // darkens everything outside it) - pure visual, no DOM overlay, so Aladin
   // keeps full pointer interaction (click-to-select, click-and-drag-to-pan,
   // hover tooltips). The popover next to the map is rendered by React
   // (BaselinePickPopover) and positioned from .skymap-panel's bounding box.
@@ -80,6 +83,7 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   }
 
   function chooseCapture() {
+    window.dispatchEvent(new Event(FORCE_HYDROGEN_SURVEY_EVENT));
     track('baseline_path_chosen', { path: 'capture' });
     setPath('capture');
     setStep('pick');
@@ -87,7 +91,7 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
 
   // Server-side capture collects one full integration window of fresh samples
   // before responding. Show a generous wait estimate so the user knows the
-  // request hasn't hung — round up and add a small buffer for round-tripping.
+  // request hasn't hung - round up and add a small buffer for round-tripping.
   const expectedWaitSeconds = frame
     ? Math.max(2, Math.ceil(frame.integration_seconds + 1))
     : null;
@@ -148,147 +152,124 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   // While the user is picking on the sky map, hide the Radix dialog so the
   // map is unobscured. The wizard component stays mounted so state survives
   // the round-trip, and a custom popover (rendered below) takes the dialog's
-  // place — positioned next to the sky map without blocking it.
+  // place - positioned next to the sky map without blocking it.
   const dialogOpen = open && step !== 'pick';
 
   return (
     <>
-    {open && step === 'pick' && (
-      <BaselinePickPopover
-        onCancel={() => { track('baseline_pick_cancelled'); onOpenChange(false); }}
-        onConfirm={() => { track('baseline_pick_confirmed'); setStep('capture'); }}
-      />
-    )}
-    <Dialog.Root open={dialogOpen} onOpenChange={(o) => { if (!o) close('cancel'); else onOpenChange(o); }}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="baseline-overlay" />
-        <Dialog.Content className="baseline-dialog" aria-describedby="baseline-desc">
-          <div className="baseline-header">
-            <Dialog.Title className="baseline-title">
-              {step === 'done' ? 'Baseline ready' : 'Set up baseline'}
-            </Dialog.Title>
-            <Dialog.Close className="baseline-close" aria-label="Close">
-              <X size={16} />
-            </Dialog.Close>
-          </div>
-
-          {step === 'intro' && (
-            <div id="baseline-desc" className="baseline-body">
-              <p>
-                Radio receivers have their own "shape" — even with no signal at all, the spectrum
-                from a real antenna isn't flat. <strong>Baseline correction</strong> stores a
-                reference trace of that shape and divides it out of live data, so real features
-                like the hydrogen line stand out instead of getting lost in the bandpass curve.
-              </p>
-              <p className="baseline-prompt">
-                We'll capture one by pointing somewhere quiet and freezing the trace. If you just
-                want to see the effect, you can load a saved baseline instead.
-              </p>
-              <div className="baseline-actions baseline-actions-stack">
-                <button type="button" className="baseline-btn-primary" onClick={chooseCapture}>
-                  <Camera size={14} /> Walk me through capturing one
-                </button>
-                <button
-                  type="button"
-                  className="baseline-btn-secondary"
-                  onClick={() => void chooseLoad()}
-                  disabled={busy}
-                >
-                  <FolderOpen size={14} /> {busy ? 'Loading…' : 'Load a saved baseline'}
-                </button>
-                <button type="button" className="baseline-btn-ghost" onClick={() => close('cancel')}>
-                  Not right now
-                </button>
-              </div>
+      {open && step === 'pick' && (
+        <BaselinePickPopover
+          onCancel={() => { track('baseline_pick_cancelled'); onOpenChange(false); }}
+          onConfirm={() => { track('baseline_pick_confirmed'); setStep('capture'); }}
+        />
+      )}
+      <Dialog.Root open={dialogOpen} onOpenChange={(o) => { if (!o) close('cancel'); else onOpenChange(o); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="baseline-overlay" />
+          <Dialog.Content className="baseline-dialog" aria-describedby="baseline-desc">
+            <div className="baseline-header">
+              <Dialog.Title className="baseline-title">
+                {step === 'done' ? tourCopy.baselineWizard.dialog.readyTitle : tourCopy.baselineWizard.dialog.setupTitle}
+              </Dialog.Title>
+              <Dialog.Close className="baseline-close" aria-label="Close">
+                <X size={16} />
+              </Dialog.Close>
             </div>
-          )}
 
-          {step === 'capture' && (
-            <div id="baseline-desc" className="baseline-body">
-              <p className="baseline-step-label">Step 2 of 2 — Trigger the capture</p>
-              <p>
-                Once the dish has finished slewing onto your empty patch, trigger the
-                capture. The hardware service will then collect a full integration window of
-                fresh samples and return the baseline when it's done — no need to time it
-                yourself.
-              </p>
-              {busy && expectedWaitSeconds != null && (
-                <div className="baseline-countdown" role="status" aria-live="polite">
-                  Capturing… waiting for the hardware service to integrate
-                  {' '}<strong>~{expectedWaitSeconds}s</strong> of samples.
+            {step === 'intro' && (
+              <div id="baseline-desc" className="baseline-body">
+                <p>{tourCopy.baselineWizard.intro.body}</p>
+                <p className="baseline-prompt">{tourCopy.baselineWizard.intro.prompt}</p>
+                <div className="baseline-actions baseline-actions-stack">
+                  <button type="button" className="baseline-btn-primary" onClick={chooseCapture}>
+                    <Camera size={14} /> {tourCopy.baselineWizard.intro.buttons.capture}
+                  </button>
+                  <button
+                    type="button"
+                    className="baseline-btn-secondary"
+                    onClick={() => void chooseLoad()}
+                    disabled={busy}
+                  >
+                    <FolderOpen size={14} /> {busy ? tourCopy.baselineWizard.intro.buttons.loading : tourCopy.baselineWizard.intro.buttons.load}
+                  </button>
+                  <button type="button" className="baseline-btn-ghost" onClick={() => close('cancel')}>
+                    {tourCopy.baselineWizard.intro.buttons.cancel}
+                  </button>
                 </div>
-              )}
-              {frame && (
-                <p className="baseline-meta">
-                  Integration window: {frame.integration_seconds.toFixed(1)} s
-                  {' · '}
-                  Center: {frame.center_freq_mhz.toFixed(2)} MHz
-                </p>
-              )}
-              {!frame && (
-                <p className="baseline-warn">
-                  No spectrum frame received yet — wait a moment for the first one to arrive.
-                </p>
-              )}
-              <div className="baseline-actions">
-                <button
-                  type="button"
-                  className="baseline-btn-ghost"
-                  onClick={() => setStep('pick')}
-                  disabled={busy}
-                >
-                  Back to map
-                </button>
-                <button
-                  type="button"
-                  className="baseline-btn-primary"
-                  onClick={() => void capture()}
-                  disabled={!frame || busy}
-                >
-                  <Camera size={14} /> {busy ? 'Capturing…' : 'Trigger capture'}
-                </button>
               </div>
-            </div>
-          )}
+            )}
 
-          {step === 'done' && (
-            <div id="baseline-desc" className="baseline-body">
-              <p>
-                Done — the live spectrum is now drawn with this baseline corrected. The bandpass
-                curve should flatten out, so anything left poking up is a real feature in the sky
-                rather than the receiver's shape.
-              </p>
-              <p className="baseline-meta">
-                Look around 1420.4 MHz: a narrow bump that <em>persists</em> as a vertical streak
-                in the waterfall is the hydrogen line.
-              </p>
-              <div className="baseline-actions">
-                <button type="button" className="baseline-btn-primary" onClick={() => close('done')}>
-                  Close
-                </button>
+            {step === 'capture' && (
+              <div id="baseline-desc" className="baseline-body">
+                <p className="baseline-step-label">{tourCopy.baselineWizard.capture.stepLabel}</p>
+                <p>{tourCopy.baselineWizard.capture.body}</p>
+                {busy && expectedWaitSeconds != null && (
+                  <div className="baseline-countdown" role="status" aria-live="polite">
+                    {tourCopy.baselineWizard.capture.countdownPrefix}
+                    {' '}<strong>~{expectedWaitSeconds}s</strong> {tourCopy.baselineWizard.capture.countdownSuffix}
+                  </div>
+                )}
+                {frame && (
+                  <p className="baseline-meta">
+                    Integration window: {frame.integration_seconds.toFixed(1)} s
+                    {' | '}
+                    Center: {frame.center_freq_mhz.toFixed(2)} MHz
+                  </p>
+                )}
+                {!frame && (
+                  <p className="baseline-warn">
+                    {tourCopy.baselineWizard.capture.noFrame}
+                  </p>
+                )}
+                <div className="baseline-actions">
+                  <button
+                    type="button"
+                    className="baseline-btn-ghost"
+                    onClick={() => setStep('pick')}
+                    disabled={busy}
+                  >
+                    {tourCopy.baselineWizard.capture.buttons.back}
+                  </button>
+                  <button
+                    type="button"
+                    className="baseline-btn-primary"
+                    onClick={() => void capture()}
+                    disabled={!frame || busy}
+                  >
+                    <Camera size={14} /> {busy ? tourCopy.baselineWizard.capture.buttons.capturing : tourCopy.baselineWizard.capture.buttons.trigger}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {step === 'load_failed' && (
-            <div id="baseline-desc" className="baseline-body">
-              <p>
-                There's no saved baseline on the server yet (or it couldn't be loaded). You can
-                capture your own — it only takes a minute.
-              </p>
-              <div className="baseline-actions">
-                <button type="button" className="baseline-btn-ghost" onClick={() => close('cancel')}>
-                  Cancel
-                </button>
-                <button type="button" className="baseline-btn-primary" onClick={chooseCapture}>
-                  <Camera size={14} /> Capture instead
-                </button>
+            {step === 'done' && (
+              <div id="baseline-desc" className="baseline-body">
+                <p>{tourCopy.baselineWizard.done.body}</p>
+                <p className="baseline-meta">{tourCopy.baselineWizard.done.meta}</p>
+                <div className="baseline-actions">
+                  <button type="button" className="baseline-btn-primary" onClick={() => close('done')}>
+                    {tourCopy.baselineWizard.done.buttons.close}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+            )}
+
+            {step === 'load_failed' && (
+              <div id="baseline-desc" className="baseline-body">
+                <p>{tourCopy.baselineWizard.loadFailed.body}</p>
+                <div className="baseline-actions">
+                  <button type="button" className="baseline-btn-ghost" onClick={() => close('cancel')}>
+                    {tourCopy.baselineWizard.loadFailed.buttons.cancel}
+                  </button>
+                  <button type="button" className="baseline-btn-primary" onClick={chooseCapture}>
+                    <Camera size={14} /> {tourCopy.baselineWizard.loadFailed.buttons.capture}
+                  </button>
+                </div>
+              </div>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   );
 }
@@ -342,18 +323,16 @@ function BaselinePickPopover({ onCancel, onConfirm }: {
 
   return createPortal(
     <div className="baseline-pick-popover" style={style} role="dialog" aria-modal="false">
-      <strong className="baseline-pick-popover-title">Pick an empty patch of sky</strong>
+      <strong className="baseline-pick-popover-title">{tourCopy.baselineWizard.pick.title}</strong>
       <p className="baseline-pick-popover-desc">
-        Use the sky map to choose somewhere quiet — high in the sky, away from the Sun and
-        the shaded Milky Way band (clicks inside it are blocked). Click a point on the map to
-        load it as your target, then hit the Slew button to drive the dish there.
+        {tourCopy.baselineWizard.pick.description}
       </p>
       <div className="baseline-pick-popover-actions">
         <button type="button" className="rt-tour-btn rt-tour-btn-ghost" onClick={onCancel}>
-          Cancel
+          {tourCopy.baselineWizard.pick.buttons.cancel}
         </button>
         <button type="button" className="rt-tour-btn rt-tour-btn-primary" onClick={onConfirm}>
-          I've picked a spot
+          {tourCopy.baselineWizard.pick.buttons.confirm}
         </button>
       </div>
     </div>,

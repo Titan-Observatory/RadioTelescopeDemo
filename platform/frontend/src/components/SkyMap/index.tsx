@@ -15,6 +15,8 @@ import {
   surveyToneClass,
 } from './spectrum/surveys';
 
+const FORCE_HYDROGEN_SURVEY_EVENT = 'rt-force-hydrogen-survey';
+
 
 // ─── Component ────────────────────────────────────────────────────────────────
 interface SkyMapProps {
@@ -77,6 +79,14 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
   useEffect(() => { onClearTargetRef.current = onClearTarget ?? null; }, [onClearTarget]);
   useEffect(() => { onNoticeRef.current  = onNotice;  }, [onNotice]);
   useEffect(() => { surveyRef.current    = survey;    }, [survey]);
+  useEffect(() => {
+    const forceHydrogenSurvey = () => {
+      setSurvey(HYDROGEN_SURVEY_ID);
+      setViewSelectorOpen(false);
+    };
+    window.addEventListener(FORCE_HYDROGEN_SURVEY_EVENT, forceHydrogenSurvey);
+    return () => window.removeEventListener(FORCE_HYDROGEN_SURVEY_EVENT, forceHydrogenSurvey);
+  }, []);
   useEffect(() => {
     if (!tooltipsEnabled) setHoverTooltip(null);
   }, [tooltipsEnabled]);

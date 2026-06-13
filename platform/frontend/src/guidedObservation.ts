@@ -1,6 +1,8 @@
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 
+import tourCopy from './data/tourCopy.json';
+
 type DriverObj = ReturnType<typeof driver>;
 
 const GUIDED_OBS_SEEN_KEY = 'rt-guided-obs-seen';
@@ -18,14 +20,14 @@ export function hasSeenGuidedObservation(): boolean {
 // reliable without time-of-day gating.
 //
 // Reference: Coma, near the North Galactic Pole. Looking "up" out of the
-// galactic disk, where almost no hydrogen lies along the line of sight — a
+// galactic disk, where almost no hydrogen lies along the line of sight - a
 // good "no signal" patch to learn the receiver's own response.
 const REFERENCE_RA_DEG = 192.86;
 const REFERENCE_DEC_DEG = 27.13;
 
-// Target: Cygnus area, near galactic longitude 80°, latitude 0°. Long column
-// of hydrogen gas through the disk — one of the strongest 21 cm directions
-// accessible from northern latitudes.
+// Target: Cygnus area, near galactic longitude 80 deg, latitude 0 deg. Long
+// column of hydrogen gas through the disk - one of the strongest 21 cm
+// directions accessible from northern latitudes.
 const TARGET_RA_DEG = 305.0;
 const TARGET_DEC_DEG = 40.7;
 
@@ -51,12 +53,12 @@ function appendSlewButton(
   btn.className = 'rt-tour-btn rt-tour-btn-primary rt-tour-btn-slew';
   btn.onclick = async () => {
     btn.disabled = true;
-    btn.textContent = 'Slewing…';
+    btn.textContent = tourCopy.guidedObservation.buttons.slewing;
     try {
       await slew(raDeg, decDeg);
     } catch {
       // The notice banner in the app already surfaces slew errors. Advance
-      // anyway — the user can re-slew manually if needed.
+      // anyway - the user can re-slew manually if needed.
     } finally {
       driverObj.moveNext();
     }
@@ -76,24 +78,22 @@ export function startGuidedObservation(slewToRaDec: SlewFn) {
     allowClose: true,
     overlayOpacity: 0.65,
     popoverClass: 'rt-tour-popover',
-    nextBtnText: 'Next',
-    prevBtnText: 'Back',
-    doneBtnText: 'Done',
-    progressText: 'Step {{current}} of {{total}}',
+    nextBtnText: tourCopy.guidedObservation.buttons.next,
+    prevBtnText: tourCopy.guidedObservation.buttons.back,
+    doneBtnText: tourCopy.guidedObservation.buttons.done,
+    progressText: tourCopy.guidedObservation.progressText,
     steps: [
       {
         popover: {
-          title: 'Observe hydrogen',
-          description:
-            "We'll point the dish at two patches of sky and look for the faint radio glow given off by hydrogen gas at 1420 MHz — the most common element in the galaxy. The whole thing takes about three minutes.",
+          title: tourCopy.guidedObservation.steps.intro.title,
+          description: tourCopy.guidedObservation.steps.intro.description,
         },
       },
       {
         element: '.spectrum-section',
         popover: {
-          title: 'Live radio signal',
-          description:
-            "This yellow trace shows the radio energy the dish is hearing right now. The vertical green marker at 1420.4 MHz is where pure hydrogen emits. We're looking for a small bump that lines up with — or shifts slightly off — that marker.",
+          title: tourCopy.guidedObservation.steps.liveSignal.title,
+          description: tourCopy.guidedObservation.steps.liveSignal.description,
           side: 'left',
           align: 'start',
         },
@@ -101,22 +101,27 @@ export function startGuidedObservation(slewToRaDec: SlewFn) {
       {
         element: '.spectrum-section',
         popover: {
-          title: 'Aim at empty sky',
-          description:
-            "First we point somewhere with very little hydrogen, to learn what the receiver sounds like on its own. We picked the sky near the North Galactic Pole — looking \"up\" out of our galaxy, where almost no hydrogen gas lies in the way.",
+          title: tourCopy.guidedObservation.steps.emptySky.title,
+          description: tourCopy.guidedObservation.steps.emptySky.description,
           side: 'left',
           align: 'start',
           onPopoverRender: (popover) => {
-            appendSlewButton(obs, popover, 'Slew to reference', slewToRaDec, REFERENCE_RA_DEG, REFERENCE_DEC_DEG);
+            appendSlewButton(
+              obs,
+              popover,
+              tourCopy.guidedObservation.buttons.slewReference,
+              slewToRaDec,
+              REFERENCE_RA_DEG,
+              REFERENCE_DEC_DEG,
+            );
           },
         },
       },
       {
         element: '.spectrum-toolbar',
         popover: {
-          title: "Save what 'empty' looks like",
-          description:
-            "Click \"Set up baseline\" below. This stores the current trace as a reference, so when we slew somewhere with real hydrogen the signal pops out clearly against this flat background. Then press Next.",
+          title: tourCopy.guidedObservation.steps.saveBaseline.title,
+          description: tourCopy.guidedObservation.steps.saveBaseline.description,
           side: 'top',
           align: 'start',
         },
@@ -124,22 +129,27 @@ export function startGuidedObservation(slewToRaDec: SlewFn) {
       {
         element: '.spectrum-section',
         popover: {
-          title: 'Aim at the Milky Way',
-          description:
-            "Now we'll swing to a thick part of our galaxy's disk, in Cygnus. There's a huge column of hydrogen gas between us and the far side of the galaxy, all emitting at 1420 MHz. Watch the yellow trace once the dish settles — a bump should grow near the green marker.",
+          title: tourCopy.guidedObservation.steps.milkyWay.title,
+          description: tourCopy.guidedObservation.steps.milkyWay.description,
           side: 'left',
           align: 'start',
           onPopoverRender: (popover) => {
-            appendSlewButton(obs, popover, 'Slew to galactic plane', slewToRaDec, TARGET_RA_DEG, TARGET_DEC_DEG);
+            appendSlewButton(
+              obs,
+              popover,
+              tourCopy.guidedObservation.buttons.slewGalacticPlane,
+              slewToRaDec,
+              TARGET_RA_DEG,
+              TARGET_DEC_DEG,
+            );
           },
         },
       },
       {
         element: '.spectrum-chart-wrap',
         popover: {
-          title: 'You did it',
-          description:
-            'The bump you see is hydrogen gas tens of thousands of light-years away. If it sits slightly off the green marker, that gas is moving toward or away from us — the Doppler effect — and the velocity readout under the chart tells you how fast. Slew elsewhere any time to compare.',
+          title: tourCopy.guidedObservation.steps.done.title,
+          description: tourCopy.guidedObservation.steps.done.description,
           side: 'left',
           align: 'start',
         },
