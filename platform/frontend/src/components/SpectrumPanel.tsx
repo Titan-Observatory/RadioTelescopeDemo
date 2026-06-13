@@ -88,6 +88,14 @@ const H1_REST_MHZ = HYDROGEN_LINE_MHZ;
 // useful as a "look here" hint.
 const H1_SEARCH_HALF_WIDTH_MHZ = 0.5;
 
+// How much spectrum we actually draw on the x-axis. The SDR captures the full
+// ~2–3 MHz bandwidth, but the edges are dominated by the receiver's bandpass
+// roll-off; zooming to ±0.75 MHz (≈ ±158 km/s of Doppler) fills the plot with
+// the H I search band and its immediate context instead of crushing the
+// feature into the centre few pixels. Clamped to the captured band below so a
+// narrow-bandwidth dongle still shows everything it has.
+const H1_DISPLAY_HALF_WIDTH_MHZ = 0.75;
+
 // Default locked y-range, chosen so the median-subtracted trace fits a
 // freshly-tuned RTL-SDR's typical noise floor without clipping.
 const DEFAULT_Y_RANGE: [number, number] = [-8, 8];
@@ -273,7 +281,9 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
       : target;
     yRangeInitRef.current = true;
     yRangeRef.current = next;
+    const win = displayWindow(frame);
     chart.setOption({
+      xAxis: win ? { min: win.xMin, max: win.xMax } : {},
       yAxis: { min: round2(next[0]), max: round2(next[1]) },
       series: [{ data }],
     });
@@ -367,10 +377,24 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const lutMaxIdx = (lut.length / 4) - 1;
     const stride = plotW * 4;
 
+    // Map each pixel column through the same x-axis window the line chart uses
+    // so the waterfall stays frequency-aligned with the trace above it. Bins
+    // are evenly spaced across [dataMin, dataMax]; a pixel's frequency is a
+    // linear interpolation over the visible window, then back to a bin index.
+    const win = displayWindow(frame);
+    const xMin = win ? win.xMin : frame.freqs_mhz[0];
+    const xMax = win ? win.xMax : frame.freqs_mhz[binsMaxIdx];
+    const dataMin = win ? win.dataMin : frame.freqs_mhz[0];
+    const dataMax = win ? win.dataMax : frame.freqs_mhz[binsMaxIdx];
+    const freqSpan = dataMax - dataMin;
+
     for (let px = 0; px < plotW; px++) {
       const ratio = plotW === 1 ? 0 : px / (plotW - 1);
-      const binF = ratio * binsMaxIdx;
-      const i = Math.min(binsMaxIdx, Math.floor(binF));
+      const freq = xMin + ratio * (xMax - xMin);
+      const binF = freqSpan > 0
+        ? ((freq - dataMin) / freqSpan) * binsMaxIdx
+        : ratio * binsMaxIdx;
+      const i = Math.min(binsMaxIdx, Math.max(0, Math.floor(binF)));
       const t = binF - i;
       const a = displayed[i];
       const b = displayed[Math.min(binsMaxIdx, i + 1)];
@@ -406,7 +430,10 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   const integrationStats = useMemo(() => {
     if (!frame) return null;
     const bins = frame.freqs_mhz.length;
-    const binHz = bins > 0 ? (frame.sample_rate_mhz * 1e6) / bins : 0;
+    // Bin spacing from the axis itself, not sample_rate / bins — the backend
+    // crops each frame to the displayed H I window, so the array no longer
+    // spans the full sample rate.
+    const binHz = bins > 1 ? (frame.freqs_mhz[1] - frame.freqs_mhz[0]) * 1e6 : 0;
     const frameHz = frame.frame_duration_s > 0 ? 1 / frame.frame_duration_s : 0;
     const effectiveFrames = Math.min(frame.frames_seen, frame.integration_frames);
     return {
@@ -418,12 +445,13 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     };
   }, [frame]);
   const hydrogenGuide = useMemo(() => {
-    if (!frame || frame.freqs_mhz.length < 2) return null;
-    const min = frame.freqs_mhz[0];
-    const max = frame.freqs_mhz[frame.freqs_mhz.length - 1];
-    const span = max - min;
-    if (span <= 0 || H1_REST_MHZ < min || H1_REST_MHZ > max) return null;
-    const toPct = (mhz: number) => `${Math.max(0, Math.min(100, ((mhz - min) / span) * 100))}%`;
+    if (!frame) return null;
+    const win = displayWindow(frame);
+    if (!win) return null;
+    const { xMin, xMax } = win;
+    const span = xMax - xMin;
+    if (span <= 0 || H1_REST_MHZ < xMin || H1_REST_MHZ > xMax) return null;
+    const toPct = (mhz: number) => `${Math.max(0, Math.min(100, ((mhz - xMin) / span) * 100))}%`;
     return {
       lineLeft: toPct(H1_REST_MHZ),
       bandLeft: toPct(H1_REST_MHZ - H1_SEARCH_HALF_WIDTH_MHZ),
@@ -474,15 +502,15 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   // percentages within the plot inset box (the same box the hydrogen guide
   // occupies), so the marker tracks the peak as the axis refits.
   let peakMarker: { left: string; top: string } | null = null;
-  if (frame && detection?.detected && hydrogenGuide) {
-    const min = frame.freqs_mhz[0];
-    const max = frame.freqs_mhz[frame.freqs_mhz.length - 1];
-    const span = max - min;
+  const peakWindow = frame ? displayWindow(frame) : null;
+  if (frame && detection?.detected && hydrogenGuide && peakWindow) {
+    const { xMin, xMax } = peakWindow;
+    const span = xMax - xMin;
     const [yMin, yMax] = yRangeRef.current;
     if (span > 0 && yMax > yMin) {
       const clamp = (v: number) => Math.max(0, Math.min(100, v));
       peakMarker = {
-        left: `${clamp(((detection.freqMhz - min) / span) * 100)}%`,
+        left: `${clamp(((detection.freqMhz - xMin) / span) * 100)}%`,
         top: `${clamp(((yMax - detection.peakDb) / (yMax - yMin)) * 100)}%`,
       };
     }
@@ -673,6 +701,28 @@ function robustYRange(values: number[]): [number, number] {
 
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
+}
+
+// Frequency window actually drawn on the x-axis: the H I display band clamped
+// to the captured bandwidth. Returns the view bounds plus the full data bounds
+// so the waterfall and overlay markers can map pixels the same way the chart
+// does (bins are evenly spaced across [dataMin, dataMax]).
+function displayWindow(
+  frame: SpectrumFrame,
+): { xMin: number; xMax: number; dataMin: number; dataMax: number } | null {
+  const bins = frame.freqs_mhz.length;
+  if (bins < 2) return null;
+  const dataMin = frame.freqs_mhz[0];
+  const dataMax = frame.freqs_mhz[bins - 1];
+  let xMin = Math.max(dataMin, H1_REST_MHZ - H1_DISPLAY_HALF_WIDTH_MHZ);
+  let xMax = Math.min(dataMax, H1_REST_MHZ + H1_DISPLAY_HALF_WIDTH_MHZ);
+  // Rest line outside the captured band (mistuned SDR): fall back to the full
+  // span rather than collapsing to an empty window.
+  if (xMax <= xMin) {
+    xMin = dataMin;
+    xMax = dataMax;
+  }
+  return { xMin, xMax, dataMin, dataMax };
 }
 
 function baseOption(yRange: [number, number]): EChartsOption {

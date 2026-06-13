@@ -46,6 +46,13 @@ BASELINE_F32 = _STATE_DIR / "spectrum_baseline.f32"
 BASELINE_F32_TMP = _STATE_DIR / "spectrum_baseline.f32.tmp"
 POWER_FLOOR = 1e-12
 
+# 21 cm neutral-hydrogen rest frequency (MHz). The frontend zooms its spectrum
+# x-axis to a fixed window around this line; the service crops each published
+# spectrum to the same window (see SpectrumService._compute_display_slice) so it
+# isn't median-filtering / serialising bins the chart will clip. Mirrors
+# HYDROGEN_LINE_MHZ in frontend/src/lib/astro.ts.
+HYDROGEN_LINE_MHZ = 1420.4058
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,7 +85,9 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         self._latest: SpectrumFrame | None = None
         self._frames_seen: int = 0
         self._publish_period_s: float = 1.0 / max(cfg.publish_rate_hz, 1e-3)
-        self._freqs_mhz = self._build_freq_axis()
+        # Full FFT frequency axis plus the cached crop to the displayed H I
+        # window (indices + pre-built MHz list), refreshed on any layout change.
+        self._rebuild_freq_axis()
         # Whether the live flowgraph was spawned with a baseline file present,
         # i.e. whether the frames it emits are baseline-corrected.
         self._baseline_active: bool = False
@@ -228,7 +237,7 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             changed = True
 
         if axis_changed:
-            self._freqs_mhz = self._build_freq_axis()
+            self._rebuild_freq_axis()
             # The baseline is keyed off the FFT layout; an axis change makes the
             # stored vector the wrong length, so drop it. The single reconnect
             # below respawns the flowgraph without it.
@@ -265,6 +274,37 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         bin_hz = self._cfg.sample_rate_hz / self._cfg.fft_size
         k = np.arange(self._cfg.fft_size, dtype=np.float64) - self._cfg.fft_size / 2.0
         return ((self._cfg.center_freq_hz + k * bin_hz) / 1e6).astype(np.float32)
+
+    def _compute_display_slice(self) -> tuple[int, int]:
+        """``[start, stop)`` FFT-bin range inside the displayed H I window.
+
+        The frontend only ever shows ``HYDROGEN_LINE_MHZ ± display_half_width_mhz``,
+        so cropping the published spectrum to this slice avoids median-filtering
+        and JSON-encoding bins the chart will clip. The axis is monotonically
+        increasing, so a pair of ``searchsorted`` calls locate the edges. Falls
+        back to the full axis when the rest line sits outside the captured band
+        (a mistuned SDR) so we never publish an empty spectrum.
+        """
+        freqs = self._freqs_mhz
+        half = float(self._cfg.display_half_width_mhz)
+        start = int(np.searchsorted(freqs, HYDROGEN_LINE_MHZ - half, side="left"))
+        stop = int(np.searchsorted(freqs, HYDROGEN_LINE_MHZ + half, side="right"))
+        if stop - start < 2:
+            return 0, int(freqs.size)
+        return start, stop
+
+    def _rebuild_freq_axis(self) -> None:
+        """Recompute the frequency axis and the cached display crop.
+
+        Called at init and on any FFT-layout change. ``_freqs_mhz`` stays the
+        *full* axis (the baseline sidecar is full-width); the crop slice and the
+        pre-built MHz list it produces are what every published frame reuses, so
+        we never rebuild that Python list per frame.
+        """
+        self._freqs_mhz = self._build_freq_axis()
+        self._display_slice: tuple[int, int] = self._compute_display_slice()
+        start, stop = self._display_slice
+        self._freqs_mhz_display_list: list[float] = self._freqs_mhz[start:stop].tolist()
 
     # ── Public lifecycle entry points ────────────────────────────────────
 
@@ -806,6 +846,12 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
 
     def _publish_frame(self, power_db: np.ndarray) -> None:
         cfg = self._cfg
+        # The frontend only shows the H I window, so crop the full FFT output to
+        # that slice before any per-frame work — at the default 3 Msps this
+        # halves the median filter, dB rounding/serialisation and WebSocket
+        # payload. The slice is a view; the median filter copies.
+        start, stop = self._display_slice
+        power_db = power_db[start:stop]
         # Reject narrowband spurs/RFI (1-2 bin spikes) that don't divide out of
         # the baseline cleanly. The hydrogen line is far wider than this window,
         # so it survives untouched.
@@ -821,7 +867,9 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             frame_duration_s=self._publish_period_s,
             integration_seconds=float(cfg.integration_seconds),
             mode=self.mode,
-            freqs_mhz=self._freqs_mhz.tolist(),
+            # Cached cropped axis — constant between layout changes, so it isn't
+            # rebuilt per frame.
+            freqs_mhz=self._freqs_mhz_display_list,
             power_db=spectrum.round(3).tolist(),
             baseline_corrected=self._baseline_active,
         )

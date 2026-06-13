@@ -139,6 +139,14 @@ class SDRConfig(BaseModel):
     # the baseline cleanly, while leaving the broad hydrogen line (hundreds of
     # bins wide) untouched. Forced odd; 0 or 1 disables it.
     spur_median_bins: int = Field(default=5, ge=0, le=51)
+    # Half-width (MHz) of the spectrum actually shown around the 21 cm line. The
+    # frontend zooms its x-axis to ±this about 1420.4058 MHz, so the service
+    # crops each published spectrum to this window before median-filtering /
+    # JSON-encoding it — at the default 3 Msps that halves the per-frame work
+    # and the WebSocket payload. The FFT itself still runs full-width (see
+    # sdr_pipeline). Widen to inspect more of the band; the crop falls back to
+    # the full span if the rest line sits outside the captured bandwidth.
+    display_half_width_mhz: float = Field(default=0.75, gt=0)
 
     @property
     def integration_frames(self) -> int:
