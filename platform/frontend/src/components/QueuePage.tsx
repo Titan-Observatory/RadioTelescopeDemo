@@ -368,38 +368,36 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
       <line x1={fToX(H1_REST_MHZ)} y1={SURVEY_MAIN_PEAK_Y} x2={fToX(H1_REST_MHZ)} y2={HERO_BASE_Y} stroke="#ffbc42" strokeWidth="1.35" strokeDasharray="5,4" opacity="0.72" />
       {/* Secondary blueshifted emission peak in the supplied LAB profile:
           neutral hydrogen in the Perseus Arm. */}
-      <a href="#h1-doppler-section" style={{ cursor: 'pointer' }}>
-        <title>Neutral hydrogen in the Perseus Arm, a spiral arm of the Milky Way, blueshifted by galactic rotation at l = 110°. Click to learn more about the Doppler effect.</title>
-        <g>
-          <rect
-            x={SURVEY_DOPPLER_PEAK_X - 72}
-            y={HERO_PERSEUS_LABEL_Y}
-            width="144"
-            height="36"
-            rx="5"
-            fill="#08172e"
-            stroke="#5ba4f5"
-            strokeWidth="1"
-            opacity="0.82"
-          />
-          <text
-            x={SURVEY_DOPPLER_PEAK_X} y={HERO_PERSEUS_LABEL_Y + 16}
-            textAnchor="middle"
-            fill="#c5ddfb" fontSize="12" fontWeight="700"
-            fontFamily="ui-monospace,monospace"
-          >
-            Perseus Arm
-          </text>
-          <text
-            x={SURVEY_DOPPLER_PEAK_X} y={HERO_PERSEUS_LABEL_Y + 30}
-            textAnchor="middle"
-            fill="#7ab8f7" fontSize="9.5"
-            fontFamily="ui-monospace,monospace"
-          >
-            Milky Way spiral arm
-          </text>
-        </g>
-      </a>
+      <g>
+        <title>Neutral hydrogen in the Perseus Arm, a spiral arm of the Milky Way, blueshifted by galactic rotation at l = 110°.</title>
+        <rect
+          x={SURVEY_DOPPLER_PEAK_X - 84}
+          y={HERO_PERSEUS_LABEL_Y - 2}
+          width="168"
+          height="40"
+          rx="5"
+          fill="#08172e"
+          stroke="#5ba4f5"
+          strokeWidth="1"
+          opacity="0.82"
+        />
+        <text
+          x={SURVEY_DOPPLER_PEAK_X} y={HERO_PERSEUS_LABEL_Y + 16}
+          textAnchor="middle"
+          fill="#c5ddfb" fontSize="12" fontWeight="700"
+          fontFamily="ui-monospace,monospace"
+        >
+          Perseus Arm
+        </text>
+        <text
+          x={SURVEY_DOPPLER_PEAK_X} y={HERO_PERSEUS_LABEL_Y + 32}
+          textAnchor="middle"
+          fill="#7ab8f7" fontSize="9.5"
+          fontFamily="ui-monospace,monospace"
+        >
+          Spiral arm of the Milky Way
+        </text>
+      </g>
       {/* Sideways bracket spanning the gap between the main (local-arm) peak
           and the H I rest marker, linking out to the Doppler explainer. */}
       {(() => {
@@ -414,7 +412,7 @@ const HeroSpectrum = memo(function HeroSpectrum({ paused = false }: { paused?: b
         const linkBoxY = labelY - 15;
         return (
           <a href="#h1-doppler-section" style={{ cursor: 'pointer' }}>
-            <title>The received peak is offset from the 1420.4 MHz rest line — that gap is the Doppler shift. Click to learn more.</title>
+            <title>The received peak is offset from the 1420.4 MHz rest line due to the Doppler shift. Click to learn more.</title>
             <path
               d={`M ${leftX} ${prongY} L ${leftX} ${barY} L ${rightX} ${barY} L ${rightX} ${prongY} M ${midX} ${barY} L ${midX} ${tickY}`}
               fill="none"
@@ -1482,10 +1480,6 @@ export function QueuePage({
               </p>
             </div>
           </div>
-          <a className="h1-scroll-cue" href="#h1-history-section" aria-label="Scroll to the next section">
-            <span>scroll</span>
-            <span className="h1-scroll-cue-chevron" aria-hidden="true">▾</span>
-          </a>
         </section>
 
         {/* ── Radio Astronomy History section ─────────────────────────────────────────────── */}

@@ -1980,155 +1980,91 @@ h2.panel-header {
    whole control reads as one vertical track with three detents; each row is
    still a full-size radio button for easy pointer and keyboard use.
    ========================================================================= */
-.speed-toggle {
-  --speed-steps: 3;
-  --speed-active: 1;
-  --speed-track-x: 22px;
-  /* Centre of a detent counted from the bottom of the body. Shared by the
-     track ends, fill height and thumb so they all sit on their dots. */
-  --speed-step-h: calc(100% / var(--speed-steps));
-  --speed-active-y: calc((var(--speed-active) + 0.5) * var(--speed-step-h));
+/* Slew-rate selector — a vertical slider. A light rail runs the full height;
+   it fills dark from the bottom up to a round white thumb, with the rate names
+   stacked alongside. The thumb centre, fill height and active label all sit on
+   the same detent: the i-th step from the bottom lands at (i + 0.5) / steps. */
+.speed-slider {
   display: flex;
-  flex-direction: column;
   flex: 0 0 auto;
-  width: 88px;
-  gap: 7px;
-  padding: 8px 7px 10px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-md);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
-    var(--surface-1);
+  gap: 12px;
+  min-height: 150px;
+  --thumb: 16px;
+  --rail-w: 4px;
+  --detent: calc((var(--active) + 0.5) / var(--steps) * 100%);
 }
 
-.speed-toggle-heading {
-  padding: 0 2px;
-  color: var(--fg-subtle);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  line-height: 1;
-  text-align: left;
-  text-transform: uppercase;
-}
-
-.speed-toggle-body {
+.speed-slider-rail {
   position: relative;
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 104px;
+  flex: 0 0 var(--thumb);
 }
-
-.speed-toggle-track {
+/* The light, unfilled track — fades out toward the top edge. */
+.speed-slider-rail::before {
+  content: "";
   position: absolute;
-  left: var(--speed-track-x);
-  /* Span exactly between the top and bottom dot centres. */
-  top: calc(var(--speed-step-h) / 2);
-  bottom: calc(var(--speed-step-h) / 2);
-  width: 4px;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: var(--rail-w);
   transform: translateX(-50%);
   border-radius: 999px;
-  background: rgba(83, 96, 150, 0.36);
-  pointer-events: none;
+  background: linear-gradient(180deg, rgba(220, 220, 220, 0) 0%, #d8d8d8 16%);
 }
-
-.speed-toggle-fill {
+/* The dark fill, from the bottom up to the thumb. */
+.speed-slider-fill {
   position: absolute;
-  left: 0;
-  right: 0;
-  /* Run from the lowest dot up to the active dot. */
-  bottom: calc(var(--speed-step-h) / 2);
-  height: calc(var(--speed-active) * var(--speed-step-h));
-  min-height: 0;
+  left: 50%;
+  bottom: 0;
+  width: var(--rail-w);
+  height: var(--detent);
+  transform: translateX(-50%);
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--accent-strong), var(--accent-line));
-  box-shadow: 0 0 10px rgba(255, 198, 61, 0.26);
+  background: #141414;
   transition: height var(--t-fast);
 }
-
-.speed-toggle-thumb {
+.speed-slider-thumb {
   position: absolute;
-  left: var(--speed-track-x);
-  bottom: var(--speed-active-y);
-  width: 17px;
-  transition: bottom var(--t-fast);
-  height: 17px;
+  left: 50%;
+  bottom: var(--detent);
+  width: var(--thumb);
+  height: var(--thumb);
   transform: translate(-50%, 50%);
-  border: 2px solid rgba(255, 221, 120, 0.45);
   border-radius: 999px;
-  background: var(--accent-strong);
-  box-shadow:
-    0 0 0 3px rgba(255, 198, 61, 0.13),
-    0 0 14px rgba(255, 198, 61, 0.38);
+  background: #fff;
+  border: 1px solid #c4c4c4;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: bottom var(--t-fast);
 }
 
-.speed-toggle-btn {
-  position: relative;
+.speed-slider-scale {
   display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.speed-slider-tick {
+  display: flex;
+  flex: 1;
   align-items: center;
   justify-content: flex-start;
-  flex: 1;
-  min-height: 32px;
-  padding: 0 6px 0 44px;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  border: 0;
+  border-radius: 4px;
   background: transparent;
-  color: var(--fg-subtle);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  white-space: nowrap;
+  color: #8c8c8c;
+  font-size: 13px;
+  font-weight: 400;
   cursor: pointer;
-  transition:
-    background var(--t-fast),
-    border-color var(--t-fast),
-    color var(--t-fast);
+  transition: color var(--t-fast);
 }
-
-.speed-toggle-dot {
-  position: absolute;
-  left: var(--speed-track-x);
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  border: 3px solid var(--surface-1);
-  background: #6571b8;
-  box-shadow: 0 0 0 1px rgba(101, 113, 184, 0.42);
-  transition:
-    background var(--t-fast),
-    box-shadow var(--t-fast);
+.speed-slider-tick:hover:not(:disabled) {
+  color: #c8c8c8;
 }
-.speed-toggle-btn.is-lit .speed-toggle-dot {
-  background: var(--accent-strong);
-  box-shadow: 0 0 0 1px var(--accent-edge);
+.speed-slider-tick.is-active {
+  color: #f2f2f2;
+  font-weight: 500;
 }
-
-.speed-toggle-btn:hover:not(:disabled) {
-  color: var(--fg);
-  background: rgba(255, 255, 255, 0.035);
-  border-color: transparent;
-}
-.speed-toggle-btn.is-active {
-  color: var(--accent);
-  background: transparent;
-  border-color: transparent;
-}
-.speed-toggle-btn.is-active .speed-toggle-dot {
-  opacity: 0;
-}
-.speed-toggle-label {
-  display: block;
-  min-width: 36px;
-  text-align: left;
-}
-.speed-toggle-btn:focus-visible { outline: none; }
-.speed-toggle-btn:focus-visible {
+.speed-slider-tick:focus-visible {
+  outline: none;
   box-shadow: 0 0 0 2px var(--accent-soft);
-  background: rgba(255, 198, 61, 0.08);
 }
 /* =========================================================================
    Axis status — two-column readout sitting next to the d-pad. Same height
@@ -3816,47 +3752,6 @@ h2.panel-header {
     opacity: 1;
     transform: none;
   }
-}
-
-/* Scroll cue at the bottom of the hero. */
-.h1-scroll-cue {
-  position: absolute;
-  left: 50%;
-  bottom: 10px;
-  transform: translateX(-50%);
-  z-index: 1;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  padding: 6px 12px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  text-decoration: none;
-  color: var(--fg-subtle);
-  transition: color 160ms ease;
-}
-
-.h1-scroll-cue:hover { color: var(--accent); }
-
-.h1-scroll-cue-chevron {
-  font-size: 13px;
-  letter-spacing: 0;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .h1-scroll-cue-chevron { animation: h1-scroll-cue-bob 2.1s ease-in-out infinite; }
-}
-
-@keyframes h1-scroll-cue-bob {
-  0%, 100% { transform: translateY(0); opacity: 0.55; }
-  50%      { transform: translateY(5px); opacity: 1; }
-}
-
-@media (max-width: 760px) {
-  .h1-scroll-cue { display: none; }
 }
 
 /* Scroll-progress needle along the bottom edge of the sticky header. Width is

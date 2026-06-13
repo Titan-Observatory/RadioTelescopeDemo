@@ -401,7 +401,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   }, [frame, displayed, baselineApplies]);
 
   const chartEmptyMessage = !connected
-    ? 'Spectrum websocket is offline.'
+    ? 'Waiting for spectrum stream to start'
     : null;
   const integrationStats = useMemo(() => {
     if (!frame) return null;
@@ -586,7 +586,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           <div className="spectrum-chart" ref={chartRef} />
           {chartEmptyMessage && (
             <div className="spectrum-chart-empty">
-              <span className="spectrum-chart-empty-dot" aria-hidden />
               {chartEmptyMessage}
             </div>
           )}
