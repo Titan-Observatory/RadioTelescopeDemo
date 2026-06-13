@@ -102,6 +102,13 @@ def _load_baseline_reciprocal(baseline_path: str | None, fft_size: int) -> list[
 def _build_source(soapy, sdr):
     """Construct the configured Soapy source (Airspy or RTL-SDR) with
     gain/tuning applied."""
+    logger.info(
+        "Opening SDR source: device=%s sample_rate=%.0f center_freq=%.0f gain=%s",
+        sdr.device_string,
+        float(sdr.sample_rate_hz),
+        float(sdr.center_freq_hz),
+        "AGC" if sdr.gain_db is None else f"{float(sdr.gain_db):.1f}",
+    )
     source = soapy.source(
         sdr.device_string,  # e.g. "driver=airspy" or "driver=rtlsdr"
         "fc32",  # complex float32 sample format
@@ -111,15 +118,21 @@ def _build_source(soapy, sdr):
         [""],     # tune_args
         [""],     # other_settings
     )
+    logger.info("SDR source constructed; setting sample rate")
     source.set_sample_rate(0, float(sdr.sample_rate_hz))
+    logger.info("Sample rate applied; setting center frequency")
     source.set_frequency(0, float(sdr.center_freq_hz))
+    logger.info("Center frequency applied; setting gain mode")
     if sdr.gain_db is None:
         source.set_gain_mode(0, True)  # AGC on
+        logger.info("AGC enabled")
     else:
         source.set_gain_mode(0, False)
+        logger.info("Manual gain mode enabled; setting gain")
         # Clamp to the driver's gain range (Airspy: 0-21 linearity index;
         # RTL-SDR: 0-49.6 dB tuner gain).
         source.set_gain(0, max(0.0, min(sdr.gain_max, float(sdr.gain_db))))
+        logger.info("Manual gain applied")
     # Bias-tee state is owned by the FastAPI service via airspy_gpio / rtl_biast
     # (see rt_hardware.hardware.sdr); we don't touch it here so the toggle
     # remains available while the pipeline is running.
