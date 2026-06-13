@@ -337,25 +337,16 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             if (
                 proc_task is not None
                 and not proc_task.done()
+                and self._proc is None
                 and self.subscriber_count > 0
                 and not self._shutting_down
-                and (
-                    self._proc is None       # backoff wait between respawns
-                    or self._mode == "starting"  # subprocess is warming up
-                )
             ):
                 logger.info(
-                    "%s reconnect skipped; pipeline already starting/pending (mode=%s)",
+                    "%s reconnect skipped; pipeline restart already pending (mode=%s)",
                     self.name,
                     self._mode,
                 )
                 return self.mode
-            # Clear the cached frame so the status endpoint returns
-            # latest_frame_age_s=null while the new subprocess warms up.
-            # Without this, the stale timestamp keeps ageStale=true on the
-            # frontend, which fires another reconnect every 5 s and kills the
-            # subprocess before it can produce its first frame.
-            self._latest = None
             await self._kill_subprocess_locked()
             if self.subscriber_count > 0 and not self._shutting_down:
                 await self._spawn_subprocess_locked()
@@ -788,10 +779,6 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             self._proc = proc
             self._mode = "starting"
             self._fault_detail = None
-            # Clear the cached frame so the status reports latest_frame_age_s=null
-            # while the new subprocess warms up, preventing the frontend from
-            # firing another reconnect before the first frame arrives.
-            self._latest = None
             self._stderr_task = asyncio.create_task(
                 self._pipe_stderr(proc), name=f"{self.name}-stderr",
             )

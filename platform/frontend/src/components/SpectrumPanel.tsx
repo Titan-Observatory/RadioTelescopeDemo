@@ -273,16 +273,18 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     return () => { cancelled = true; window.clearInterval(id); };
   }, [enabled]);
 
-  // Kick the SDR when it's in an explicitly bad mode (fault, disconnected,
-  // etc.). The hardware service owns frame-level recovery via its ZMQ recv
-  // timeout and backoff-respawn loop — the frontend doesn't need to race
-  // against that with an age-stale trigger. This only fires on bad modes so
-  // it can reset the backoff counter sooner than the 30 s max wait.
-  // The endpoint requires control; a 403 from spectators is harmless.
+  // Auto-recover the SDR when frames stop flowing. We avoid hammering the
+  // reconnect endpoint unconditionally — tearing down and re-opening the
+  // dongle while it's healthy would actually *interrupt* the stream. Only
+  // fire when the receiver is in a non-streaming state or no frame has
+  // arrived in the last ~6 s, and throttle to one attempt every 5 s.
+  // The endpoint requires control; for spectators the 403 is harmless.
   useEffect(() => {
     if (!status || !status.enabled) return;
-    const SDR_HEALTHY_MODES = new Set(['airspy', 'remote', 'idle']);
-    if (SDR_HEALTHY_MODES.has(status.mode)) return;
+    const SDR_HEALTHY_MODES = new Set(['airspy', 'remote']);
+    const ageStale = status.latest_frame_age_s != null && status.latest_frame_age_s > 6;
+    const modeStale = !SDR_HEALTHY_MODES.has(status.mode);
+    if (!ageStale && !modeStale) return;
 
     let cancelled = false;
     let inFlight = false;
@@ -297,7 +299,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     void attempt();
     const id = window.setInterval(attempt, 5000);
     return () => { cancelled = true; window.clearInterval(id); };
-  }, [status?.enabled, status?.mode]);
+  }, [status?.enabled, status?.mode, (status?.latest_frame_age_s ?? 0) > 6]);
 
   // WebSocket subscription. Each frame is a fully-integrated spectrum from
   // the backend — we swap the series wholesale rather than appending.
