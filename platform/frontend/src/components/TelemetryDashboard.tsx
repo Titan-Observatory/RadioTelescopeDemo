@@ -94,7 +94,7 @@ export function TelemetryDashboard({
         aria-label={collapsed ? 'Expand telemetry panel' : 'Collapse telemetry panel'}
         onClick={() => setCollapsed((value) => !value)}
       >
-        {collapsed ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+        {collapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
       </button>
       <div id={panelId} className="telemetry-collapse-body">
         <div className="telemetry-dense">

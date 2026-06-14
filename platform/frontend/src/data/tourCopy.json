@@ -18,11 +18,11 @@
     "steps": {
       "trace": {
         "title": "The trace",
-        "description": "Each point is the radio power the dish hears (vertical axis, in dB) at a given frequency (horizontal axis, in MHz). The live line rides on a noise floor; a real signal pokes up as a bump above it."
+        "description": "This graph represents "
       },
       "hydrogenMarker": {
-        "title": "The 1420 MHz marker",
-        "description": "Hydrogen atoms emit at exactly 1420.406 MHz when at rest. This vertical marker is where a stationary hydrogen cloud would appear - your reference point for everything else."
+        "title": "Reference Frequency",
+        "description": "Neutral hydrogen atoms in a lab will emit radio waves at exactly 1420.406 MHz. This can be used as a reference to determine doppler shift."
       },
       "searchBand": {
         "title": "The search band",

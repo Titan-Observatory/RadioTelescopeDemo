@@ -70,6 +70,10 @@ class JsonWsBridge(Broadcaster[dict]):
     def upstream_url(self) -> str:
         return f"{self._ws_base}{self._path}"
 
+    def clear_latest(self) -> None:
+        """Drop any cached frame so the next subscriber cannot get a replay."""
+        self._latest = None
+
     def subscribe(self, maxsize: int | None = None) -> asyncio.Queue[dict]:
         # Replay the most recent frame so a brand-new subscriber doesn't have
         # to wait up to one publish interval before seeing anything. Matches
@@ -141,6 +145,11 @@ class JsonWsBridge(Broadcaster[dict]):
         except asyncio.CancelledError:
             pass
         self._connected = False
+        # Drop the cached frame: once the upstream is gone (idle-close or
+        # shutdown), the next subscriber must not be handed a stale replay.
+        # Otherwise a fresh page load during the hardware's cold-start gap
+        # sees a frozen old frame instead of "waiting for stream".
+        self._latest = None
 
     async def _safe_run(self) -> None:
         try:
@@ -188,6 +197,10 @@ class JsonWsBridge(Broadcaster[dict]):
                 )
             finally:
                 self._connected = False
+                # The upstream just dropped; invalidate the replay cache so a
+                # subscriber that reconnects before frames resume isn't shown a
+                # stale frame (which would suppress the "waiting" placeholder).
+                self._latest = None
             await asyncio.sleep(_RECONNECT_DELAY_S)
 
 

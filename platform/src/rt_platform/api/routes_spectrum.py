@@ -147,6 +147,16 @@ async def spectrum_ws(ws: WebSocket):
     if bridge is None:
         await ws.close(code=1011)
         return
+    bridge.clear_latest()
+    if bridge.connected or bridge.subscriber_count > 0:
+        try:
+            r = await _hardware(ws).request("POST", "/api/spectrum/reset", timeout=15.0)
+            r.raise_for_status()
+        except Exception as exc:
+            logger.warning("Spectrum reset before websocket subscribe failed: %s", exc)
+            await ws.close(code=1011, reason="Spectrum reset failed")
+            return
+        bridge.clear_latest()
     q = bridge.subscribe()
     try:
         while True:

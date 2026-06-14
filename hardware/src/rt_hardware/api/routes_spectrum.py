@@ -120,6 +120,10 @@ async def spectrum_ws(ws: WebSocket):
     if service is None:
         await ws.close(code=1011)
         return
+    mode = await service.reset_integration()
+    if mode in ("unavailable", "fault"):
+        await ws.close(code=1011)
+        return
     q = service.subscribe()
     try:
         while True:

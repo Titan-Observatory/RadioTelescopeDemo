@@ -26,6 +26,8 @@ Live flowgraph::
         ▼
     blocks.integrate_ff(K, fft_size)            # block-average K raw FFTs
         ▼
+    _SpurReject(fft_size)                        # despur (before the EMA sees it)
+        ▼
     filter.single_pole_iir_filter_ff(α, fft_size)   # rolling EMA window
         ▼
     blocks.multiply_const_vff(1 / baseline)     # baseline division (no-op if none)
@@ -46,7 +48,7 @@ frame, and writes a single float32[fft_size] vector to ``<path>`` before
 exiting::
 
     soapy → s2v → fft → mag² → integrate_ff(total) → multiply_const_vff(K/total)
-          → head(1) → file_sink(<path>)
+          → _SpurReject → head(1) → file_sink(<path>)
 
 The live flowgraph then loads that file and divides by it. Because the captured
 baseline has the same magnitude as a settled live frame, ``power / baseline ≈ 1``
@@ -74,6 +76,111 @@ logger = logging.getLogger(__name__)
 # (zero power) doesn't blow the division up to infinity. Matches the floor the
 # service uses when persisting the baseline JSON sidecar.
 POWER_FLOOR = 1e-12
+
+
+def _moving_average(values: np.ndarray, window: int) -> np.ndarray:
+    """Edge-padded moving average across frequency bins, O(n) via cumsum.
+
+    ``window`` is forced odd; 0 or 1 is a no-op. Used as the slowly-varying
+    spectral trend that spur rejection measures spikes against — cheap enough
+    to run on every integrated frame even at tens of thousands of bins.
+    """
+    if window <= 1 or values.size == 0:
+        return values.astype(np.float32, copy=False)
+    k = int(window) | 1  # force odd
+    if k >= values.size:
+        return np.full_like(values, float(np.mean(values)), dtype=np.float32)
+    pad = k // 2
+    padded = np.pad(values, pad, mode="edge")
+    csum = np.cumsum(padded, dtype=np.float64)
+    sums = csum[k - 1:] - np.concatenate(([0.0], csum[:-k]))
+    return (sums / k).astype(np.float32)
+
+
+def despur_spectrum(
+    power: np.ndarray,
+    sample_rate_hz: float,
+    threshold_db: float,
+    max_width_khz: float,
+) -> np.ndarray:
+    """Replace narrowband spurs in a linear-power spectrum with the local trend.
+
+    Operates on the FFT-shifted (monotonic-frequency) integrated power vector,
+    in the linear domain GNU Radio hands us — so it slots in before the dB
+    conversion, the EMA window and any baseline division. Spurs are judged in dB
+    against a wide moving-average trend (which steps over the handful of bins a
+    birdie spans yet still follows the broad hydrogen line): a bin rising more
+    than ``threshold_db`` above the trend, inside a contiguous run no wider than
+    ``max_width_khz``, has its power overwritten by the trend power. Runs wider
+    than that are real structure and are left alone. Width is reasoned about in
+    frequency, so the reject behaves identically at any fft_size / sample rate.
+
+    Returns a new array; the input is not mutated.
+    """
+    n = int(power.size)
+    if threshold_db <= 0 or max_width_khz <= 0 or n < 8:
+        return np.asarray(power, dtype=np.float32)
+    bin_hz = float(sample_rate_hz) / n
+    if bin_hz <= 0:
+        return np.asarray(power, dtype=np.float32)
+    max_width_bins = max(1, round(max_width_khz * 1e3 / bin_hz))
+
+    floored = np.maximum(np.asarray(power, dtype=np.float32), POWER_FLOOR)
+    db = (10.0 * np.log10(floored)).astype(np.float32)
+    # Trend window several times wider than the widest spur so a birdie sitting
+    # inside it can't drag the local average up to itself.
+    trend_window = min(n - 1, max(3, 6 * max_width_bins))
+    trend_db = _moving_average(db, trend_window)
+    flagged = (db - trend_db) > threshold_db
+
+    out = np.array(power, dtype=np.float32)  # copy; never mutate the input
+    i = 0
+    while i < n:
+        if not flagged[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and flagged[j]:
+            j += 1
+        if (j - i) <= max_width_bins:
+            # Overwrite the spur bins with the trend *power* (back out of dB).
+            out[i:j] = (10.0 ** (trend_db[i:j] / 10.0)).astype(np.float32)
+        i = j
+    return out
+
+
+def _build_despur_block(sdr, fft_size: int):
+    """Embedded GNU Radio block that runs :func:`despur_spectrum` per frame.
+
+    A vector ``sync_block`` (float32[fft_size] in/out) so it drops straight into
+    the chain after ``integrate_ff``. Constructed lazily — imports ``gr`` — so
+    the surrounding module stays importable without GNU Radio.
+    """
+    from gnuradio import gr  # type: ignore[import-not-found]
+
+    sample_rate_hz = float(sdr.sample_rate_hz)
+    threshold_db = float(sdr.spur_threshold_db)
+    max_width_khz = float(sdr.spur_max_width_khz)
+
+    class _SpurReject(gr.sync_block):  # type: ignore[misc]
+        def __init__(self) -> None:
+            gr.sync_block.__init__(
+                self,
+                name="spur_reject",
+                in_sig=[(np.float32, fft_size)],
+                out_sig=[(np.float32, fft_size)],
+            )
+
+        def work(self, input_items, output_items):  # noqa: D401 — GR signature
+            inp = input_items[0]
+            out = output_items[0]
+            for k in range(inp.shape[0]):
+                out[k, :] = despur_spectrum(
+                    inp[k], sample_rate_hz, threshold_db, max_width_khz,
+                )
+            return inp.shape[0]
+
+    return _SpurReject()
 
 
 def _load_baseline_reciprocal(baseline_path: str | None, fft_size: int) -> list[float] | None:
@@ -173,7 +280,16 @@ def build_flowgraph(cfg, baseline_path: str | None = None):
     integrator = blocks.integrate_ff(integrate_k, fft_size)
     ema = single_pole_iir(alpha, fft_size)
 
-    chain = [source, s2v, fft_block, mag2, integrator, ema]
+    chain = [source, s2v, fft_block, mag2, integrator]
+
+    # ── Spur rejection ────────────────────────────────────────────────
+    # Strip narrowband birdies / RFI from each integrated FFT *before* the EMA
+    # window or any baseline division sees them, so a transient spur can neither
+    # smear into the rolling trace nor get baked into a captured baseline.
+    if sdr.spur_reject_enabled:
+        chain.append(_build_despur_block(sdr, fft_size))
+
+    chain.append(ema)
 
     # ── Baseline division ─────────────────────────────────────────────
     # multiply_const_vff by 1/baseline is an element-wise vector divide. When
@@ -266,7 +382,15 @@ def build_capture_flowgraph(cfg, output_path: str):
     sink = blocks.file_sink(gr.sizeof_float * fft_size, output_path, False)
     sink.set_unbuffered(True)
 
-    tb.connect(source, s2v, fft_block, mag2, integrator, scale, head, sink)
+    # Despur the integrated baseline before it's written, so a spur present
+    # during capture is never baked into the stored reference (the live
+    # flowgraph divides by this file, so a baked-in spur would notch the trace).
+    chain = [source, s2v, fft_block, mag2, integrator, scale]
+    if sdr.spur_reject_enabled:
+        chain.append(_build_despur_block(sdr, fft_size))
+    chain += [head, sink]
+
+    tb.connect(*chain)
 
     logger.info(
         "Capture flowgraph built: integrating %d FFTs (~%.1f s) → %s",

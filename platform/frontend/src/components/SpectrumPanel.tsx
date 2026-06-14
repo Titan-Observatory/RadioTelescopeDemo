@@ -214,11 +214,19 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   const waterfallRowRef = useRef<ImageData | null>(null);
   const [status, setStatus] = useState<SpectrumStatus | null>(null);
   const [frame, setFrame] = useState<SpectrumFrame | null>(null);
-  // Current displayed y-range, auto-fitted to the data each frame and shared
-  // with the waterfall so their colour scale matches the line chart. Held in a
-  // ref (not state) so per-frame refits don't trigger React re-renders.
+  // Chart-axis y-range: parks the trace in the bottom half of the plot, leaving
+  // the upper half clear for annotations. EMA-smoothed toward the target each
+  // frame so it tracks the noise floor continuously without jitter or jumps.
+  // Held in a ref (not state) so per-frame updates don't trigger React
+  // re-renders.
   const yRangeRef = useRef<[number, number]>(DEFAULT_Y_RANGE);
   const yRangeInitRef = useRef(false);
+  // Signature of the FFT layout + baseline state the range is tracking. When it
+  // changes the dB scale shifts wholesale, so we snap rather than slide across.
+  const yRangeSigRef = useRef<string>('');
+  // Tight y-range used only for the waterfall colour mapping, so the inferno
+  // palette spans the full trace rather than just the bottom third of the axis.
+  const waterfallRangeRef = useRef<[number, number]>(DEFAULT_Y_RANGE);
   const [baseline, setBaseline] = useState<Baseline | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [waterfallOpen, setWaterfallOpen] = useState(false);
@@ -324,23 +332,31 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const chart = chartInstance.current;
     if (!chart || !frame || !displayed) return;
     const data = frame.freqs_mhz.map((f, i) => [f, displayed[i]] as [number, number]);
-    // Robustly auto-fit the y-axis to the data so the noise floor and the
-    // hydrogen bump fill the plot, instead of being crushed into a fixed ±8 dB
-    // window. Percentiles discard any residual spur bins so a single spike
-    // can't blow the range back open. EMA-smooth frame-to-frame so the axis
-    // doesn't jitter; snap immediately on the first frame.
-    const target = robustYRange(displayed);
-    const prev = yRangeRef.current;
-    const next: [number, number] = yRangeInitRef.current
-      ? [prev[0] + (target[0] - prev[0]) * 0.15, prev[1] + (target[1] - prev[1]) * 0.15]
-      : target;
+    // Fit the y-axis so the trace sits in the bottom half of the plot, leaving
+    // the upper half clear for annotations. The target is a robust percentile
+    // fit (spurs/dead bins can't blow it open) that we EMA-smooth toward each
+    // frame, so the axis tracks the noise floor continuously without jitter or
+    // jumps. We snap (skip the EMA) only when the FFT layout / baseline state
+    // changes, since the dB scale shifts wholesale there and sliding across it
+    // would look wrong. The waterfall keeps its own tight colour range so its
+    // inferno palette still spans the full trace.
+    const axisTarget = bottomHalfYRange(displayed);
+    const wfTarget = robustYRange(displayed);
+    const sig = `${frame.center_freq_mhz.toFixed(6)}|${frame.sample_rate_mhz.toFixed(6)}|${frame.freqs_mhz.length}|${baselineApplies ? 'baseline' : 'raw'}`;
+    const fresh = !yRangeInitRef.current || sig !== yRangeSigRef.current;
+    const k = 0.15;
+    const ema = (cur: [number, number], target: [number, number]): [number, number] =>
+      fresh ? target : [cur[0] + (target[0] - cur[0]) * k, cur[1] + (target[1] - cur[1]) * k];
+    yRangeRef.current = ema(yRangeRef.current, axisTarget);
+    waterfallRangeRef.current = ema(waterfallRangeRef.current, wfTarget);
+    yRangeSigRef.current = sig;
     yRangeInitRef.current = true;
-    yRangeRef.current = next;
+    const [yMin, yMax] = yRangeRef.current;
     const win = displayWindow(frame);
     const traceColor = baselineApplies ? NORMAL_TRACE_COLOR : ALERT_TRACE_COLOR;
     chart.setOption({
       xAxis: win ? { min: win.xMin, max: win.xMax } : {},
-      yAxis: { min: round2(next[0]), max: round2(next[1]) },
+      yAxis: { min: round2(yMin), max: round2(yMax) },
       series: [{ data, ...traceStyle(traceColor) }],
     });
   }, [frame, displayed, baselineApplies]);
@@ -417,7 +433,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     // Build the new top row directly in an ImageData buffer. Compute each
     // column's colour once and replicate it down rowH rows so the new band
     // is a solid stripe of constant colour per frequency.
-    const [yMin, yMax] = yRangeRef.current;
+    const [yMin, yMax] = waterfallRangeRef.current;
     const yScale = yMax > yMin ? 1 / (yMax - yMin) : 1;
     const bins = displayed.length;
     const binsMaxIdx = bins - 1;
@@ -611,13 +627,15 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
 
       <div className="spectrum-chart-wrap">
         <div className="spectrum-chart-head">
-          <button
-            type="button"
-            className="spectrum-learn-link"
-            onClick={() => startSpectrumTour()}
-          >
-            How to read this chart
-          </button>
+          {baselineApplies && (
+            <button
+              type="button"
+              className="spectrum-learn-link"
+              onClick={() => startSpectrumTour()}
+            >
+              How to read this chart
+            </button>
+          )}
           <div className="spectrum-chart-caption">
             <span className="spectrum-chart-title">Power vs. frequency</span>
             {integrationStats && (
@@ -637,7 +655,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           {baseline && baselineApplies && (
             <div className="spectrum-chart-note">Baseline corrected</div>
           )}
-          {hydrogenGuide && (
+          {baselineApplies && hydrogenGuide && (
             <div
               className="spectrum-hydrogen-guide"
               style={{
@@ -751,22 +769,20 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   );
 }
 
-// Robust y-range for the spectrum: fit to the bulk of the data via percentiles
-// so the noise floor + hydrogen bump fill the plot, while a handful of residual
-// spur bins (or a dead bin) can't blow the range open. A minimum span keeps a
-// dead-flat spectrum from zooming so far in that pure noise looks like signal.
-function robustYRange(values: number[]): [number, number] {
+// Robust bulk bounds for the spectrum: the percentile band that contains the
+// noise floor and hydrogen bump, with spur bins / dead bins rejected and a
+// minimum span enforced so a dead-flat spectrum doesn't collapse to a sliver.
+// Reject low outliers (p2), not just the single lowest bin. Since the spectrum
+// is cropped to the flat H I window, the band-edge roll-off that used to
+// populate the bottom of the plot is gone, so a 0.5th-percentile floor just
+// tracks sparse RFI notches / the DC dip and leaves dead space below the trace.
+// p2 anchors on the real noise floor and is steadier frame-to-frame. The top
+// stays at p99.5 — the broad hydrogen bump is far wider than 0.5% of the bins,
+// so this never clips the signal peak.
+function robustBulkBounds(values: number[]): [number, number] {
   const n = values.length;
-  if (n === 0) return DEFAULT_Y_RANGE;
   const sorted = Float64Array.from(values).sort();
   const at = (p: number) => sorted[Math.min(n - 1, Math.max(0, Math.round(p * (n - 1))))];
-  // Reject low outliers (p2), not just the single lowest bin. Since the
-  // spectrum is now cropped to the flat H I window, the band-edge roll-off that
-  // used to populate the bottom of the plot is gone, so a 0.5th-percentile
-  // floor just tracks sparse RFI notches / the DC dip and leaves dead space
-  // below the trace. p2 anchors on the real noise floor and is steadier
-  // frame-to-frame. The top stays at p99.5 — the broad hydrogen bump is far
-  // wider than 0.5% of the bins, so this never clips the signal peak.
   let lo = at(0.02);
   let hi = at(0.995);
   const MIN_SPAN = 1.5;
@@ -775,8 +791,30 @@ function robustYRange(values: number[]): [number, number] {
     lo = mid - MIN_SPAN / 2;
     hi = mid + MIN_SPAN / 2;
   }
+  return [lo, hi];
+}
+
+// Tight y-range that fits the bulk of the data with a little padding. Used for
+// the waterfall colour mapping so the inferno palette spans the full trace.
+function robustYRange(values: number[]): [number, number] {
+  if (values.length === 0) return DEFAULT_Y_RANGE;
+  const [lo, hi] = robustBulkBounds(values);
   const pad = 0.18 * (hi - lo);
   return [lo - pad, hi + pad];
+}
+
+// Chart-axis y-range that parks the trace in the bottom half of the plot,
+// leaving the upper half clear for annotations. The bulk band [lo, hi] (plus a
+// sliver of pad below) is sized to occupy the lowest ~1/2 of the axis; the rest
+// is headroom above the trace.
+function bottomHalfYRange(values: number[]): [number, number] {
+  if (values.length === 0) return DEFAULT_Y_RANGE;
+  const [lo, hi] = robustBulkBounds(values);
+  const span = hi - lo;
+  const padBelow = 0.15 * span;
+  const axisMin = lo - padBelow;
+  const axisMax = axisMin + 2 * (span + padBelow);
+  return [axisMin, axisMax];
 }
 
 function round2(x: number): number {

@@ -134,11 +134,19 @@ class SDRConfig(BaseModel):
     # additive dB shift on the output. Defaults are no-ops.
     baseline_scale: float = Field(default=1.0, ge=0.1, le=10.0)
     baseline_offset_db: float = Field(default=0.0, ge=-30.0, le=30.0)
-    # Width (in bins) of the median spur-reject applied to the displayed
-    # spectrum. Removes narrowband SDR birdies / RFI that don't divide out of
-    # the baseline cleanly, while leaving the broad hydrogen line (hundreds of
-    # bins wide) untouched. Forced odd; 0 or 1 disables it.
-    spur_median_bins: int = Field(default=5, ge=0, le=51)
+    # Narrowband spur rejection, applied inside the GNU Radio flowgraph on each
+    # integrated FFT *before* the rolling EMA window and the baseline capture
+    # ever see it — so a transient SDR birdie / RFI carrier can't get integrated
+    # into the live trace or baked into a baseline (which would later leave a
+    # notch when the spur moves on). The discriminator is *width*: a spike a few
+    # kHz wide is never real sky signal — the 21 cm hydrogen line is hundreds of
+    # kHz wide — so a bin rising more than spur_threshold_db above the local
+    # spectral trend, in a contiguous run no wider than spur_max_width_khz, is
+    # replaced by that trend. Width is in frequency, not FFT bins, so the reject
+    # behaves the same regardless of fft_size / sample rate.
+    spur_reject_enabled: bool = True
+    spur_threshold_db: float = Field(default=6.0, ge=0.0, le=60.0)
+    spur_max_width_khz: float = Field(default=50.0, gt=0.0, le=2000.0)
     # Half-width (MHz) of the spectrum actually shown around the 21 cm line. The
     # frontend zooms its x-axis to ±this about 1420.4058 MHz, so the service
     # crops each published spectrum to this window before median-filtering /

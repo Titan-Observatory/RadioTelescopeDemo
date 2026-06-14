@@ -112,7 +112,7 @@ def test_publish_frame_forwards_db_spectrum_verbatim(tmp_path):
     # Wide display window disables the H I crop so this stays a pure-forwarder
     # check (crop behaviour is exercised separately below).
     service = SpectrumService(
-        SDRConfig(fft_size=64, spur_median_bins=0, display_half_width_mhz=10.0),
+        SDRConfig(fft_size=64, display_half_width_mhz=10.0),
         tmp_path / "config.toml",
     )
     power_db = np.linspace(-5.0, 5.0, 64).astype(np.float32)
@@ -121,28 +121,11 @@ def test_publish_frame_forwards_db_spectrum_verbatim(tmp_path):
 
     latest = service.latest
     assert latest is not None
-    # Pure forwarder: no linear power, no in-service dB recomputation.
+    # Pure forwarder: no linear power, no in-service dB recomputation, spur
+    # rejection already happened upstream in the flowgraph.
     assert "power_linear" not in latest
     assert latest["power_db"] == pytest.approx(power_db.round(3).tolist())
     assert latest["baseline_corrected"] is False
-
-
-def test_publish_frame_rejects_single_bin_spurs(tmp_path):
-    service = SpectrumService(
-        SDRConfig(fft_size=64, spur_median_bins=5, display_half_width_mhz=10.0),
-        tmp_path / "config.toml",
-    )
-    power_db = np.zeros(64, dtype=np.float32)
-    power_db[30] = 40.0   # narrowband birdie (spur up)
-    power_db[31] = -40.0  # spur down
-
-    service._publish_frame(power_db)
-
-    latest = service.latest
-    assert latest is not None
-    # The median window flattens the isolated spikes back to the 0 dB floor.
-    assert latest["power_db"][30] == pytest.approx(0.0, abs=1e-3)
-    assert latest["power_db"][31] == pytest.approx(0.0, abs=1e-3)
 
 
 def test_publish_frame_crops_to_display_window(tmp_path):
@@ -151,7 +134,7 @@ def test_publish_frame_crops_to_display_window(tmp_path):
     # must be cropped to that slice, power and frequency axes staying aligned.
     cfg = SDRConfig(
         fft_size=64, center_freq_hz=1.4204e9, sample_rate_hz=3.0e6,
-        spur_median_bins=0, display_half_width_mhz=0.75,
+        display_half_width_mhz=0.75,
     )
     service = SpectrumService(cfg, tmp_path / "config.toml")
     start, stop = service._display_slice
@@ -175,7 +158,7 @@ def test_publish_frame_keeps_full_span_when_line_out_of_band(tmp_path):
     # so the crop degrades to the full axis rather than an empty spectrum.
     cfg = SDRConfig(
         fft_size=64, center_freq_hz=1.3e9, sample_rate_hz=3.0e6,
-        spur_median_bins=0, display_half_width_mhz=0.75,
+        display_half_width_mhz=0.75,
     )
     service = SpectrumService(cfg, tmp_path / "config.toml")
     assert service._display_slice == (0, cfg.fft_size)
@@ -184,17 +167,6 @@ def test_publish_frame_keeps_full_span_when_line_out_of_band(tmp_path):
     latest = service.latest
     assert latest is not None
     assert len(latest["power_db"]) == 64
-
-
-def test_median_filter_preserves_broad_features(tmp_path):
-    from rt_hardware.services.spectrum import _median_filter_1d
-
-    values = np.zeros(200, dtype=np.float32)
-    values[80:120] = 6.0  # a broad bump (40 bins) like the hydrogen line
-    out = _median_filter_1d(values, 5)
-    # The bump survives a 5-bin median nearly intact.
-    assert out[100] == pytest.approx(6.0, abs=1e-3)
-    assert out[0] == pytest.approx(0.0, abs=1e-3)
 
 
 def test_publish_frame_reports_baseline_corrected_from_active_flag(tmp_path):

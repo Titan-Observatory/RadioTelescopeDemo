@@ -2815,6 +2815,8 @@ h2.panel-header {
   justify-content: center;
   width: 28px;
   height: 28px;
+  min-width: 28px;
+  min-height: 0;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--hairline-strong) 78%, transparent);
   border-radius: 999px;
@@ -2822,7 +2824,7 @@ h2.panel-header {
   color: var(--fg-muted);
   box-shadow: 0 10px 24px rgb(0 0 0 / 0.22);
   backdrop-filter: blur(10px);
-  transform: translate(-50%, calc(-100% + 4px));
+  transform: translate(-50%, -100%);
   transition:
     color 0.18s ease,
     background 0.18s ease,
@@ -2834,7 +2836,7 @@ h2.panel-header {
   color: var(--fg);
   background: color-mix(in srgb, var(--surface-2) 92%, transparent);
   border-color: var(--hairline-strong);
-  transform: translate(-50%, calc(-100% + 4px)) scale(1.06);
+  transform: translate(-50%, -100%) scale(1.06);
 }
 
 .telemetry-collapse-toggle:focus-visible {
