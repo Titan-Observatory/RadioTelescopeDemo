@@ -123,8 +123,12 @@ async def spectrum_ws(ws: WebSocket):
         await ws.close(code=1011)
         return
     q = service.subscribe()
-    mode = await service.reset_integration()
-    if mode in ("unavailable", "fault"):
+    # Ensure the pipeline is up without bouncing a running/warming one. Closing
+    # here on a transient "fault" would just make the bridge reconnect and bounce
+    # again, so only bail when the pipeline is genuinely unavailable (no SDR
+    # binary / pyzmq) — a "fault" is left to self-heal via the consumer backoff.
+    mode = await service.ensure_started()
+    if mode == "unavailable":
         await ws.close(code=1011)
         service.unsubscribe(q)
         return

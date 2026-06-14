@@ -148,14 +148,14 @@ def test_api_accepts_alt_az_goto(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         response = client.post(
             "/api/telescope/goto",
-            json={"altitude_deg": 30, "azimuth_deg": 45, "speed_qpps": 6000, "accel_qpps2": 7000},
+            json={"altitude_deg": 30, "azimuth_deg": 55, "speed_qpps": 6000, "accel_qpps2": 7000},
         )
 
     body = response.json()
     assert response.status_code == 200
     assert body["ok"] is True
     assert body["command_id"] == "speed_accel_decel_position_m1m2"
-    assert body["response"]["m1_position"] == 550
+    assert body["response"]["m1_position"] == 650
     assert body["response"]["m2_position"] == 800
     assert body["response"]["az_speed_qpps"] == 6000
     assert body["response"]["alt_speed_qpps"] == 6000
@@ -336,7 +336,7 @@ pointing_limit_altaz = [
         # so reach in and flip the simulated client's connection mode so the
         # guard engages.
         client.app.state.roboclaw_service.client.connection.mode = "ok"
-        rejected = client.post("/api/telescope/goto", json={"altitude_deg": 5, "azimuth_deg": 90})
+        rejected = client.post("/api/telescope/goto", json={"altitude_deg": 70, "azimuth_deg": 55})
 
     assert rejected.status_code == 400
     assert "outside configured pointing limits" in rejected.json()["detail"]
@@ -385,6 +385,28 @@ def test_api_rejects_out_of_range_alt_az(simulated_config_path):
         response = client.post("/api/telescope/goto", json={"altitude_deg": 91, "azimuth_deg": 45})
 
     assert response.status_code == 422
+
+
+def test_api_rejects_goto_outside_hard_safety_limits(simulated_config_path):
+    with TestClient(create_app(simulated_config_path)) as client:
+        low_alt = client.post("/api/telescope/goto", json={"altitude_deg": 29, "azimuth_deg": 100})
+        high_alt = client.post("/api/telescope/goto", json={"altitude_deg": 71, "azimuth_deg": 100})
+        low_az = client.post("/api/telescope/goto", json={"altitude_deg": 45, "azimuth_deg": 54})
+        high_az = client.post("/api/telescope/goto", json={"altitude_deg": 45, "azimuth_deg": 191})
+
+    for response in [low_alt, high_alt, low_az, high_az]:
+        assert response.status_code == 400
+        assert "outside hard safety limits" in response.json()["detail"]
+
+
+def test_api_rejects_radec_goto_outside_hard_safety_limits(simulated_config_path, monkeypatch):
+    monkeypatch.setattr("rt_hardware.api.routes_roboclaw.radec_to_altaz", lambda *_args: (45.0, 191.0))
+
+    with TestClient(create_app(simulated_config_path)) as client:
+        response = client.post("/api/telescope/goto_radec", json={"ra_deg": 12.0, "dec_deg": 34.0})
+
+    assert response.status_code == 400
+    assert "outside hard safety limits" in response.json()["detail"]
 
 
 # ─── Motion safety helper ─────────────────────────────────────────────────

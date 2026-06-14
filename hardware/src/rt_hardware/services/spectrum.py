@@ -409,6 +409,19 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         self._frames_seen = 0
         return await self.reconnect()
 
+    async def ensure_started(self) -> str:
+        """Spawn the pipeline if it isn't running, WITHOUT bouncing a running or
+        warming-up one, and return the current mode.
+
+        Used by the ``/ws/spectrum`` subscribe path. Bouncing the subprocess on
+        every (re)connect — as ``reset_integration`` does — meant a flapping
+        bridge would repeatedly kill the RTL-SDR pipeline before its ~10 s
+        startup ever produced a frame, so frames never flowed and the connection
+        kept getting reaped. Leaving a warming-up pipeline alone lets it recover.
+        """
+        await self._ensure_running()
+        return self.mode
+
     # ── Baseline capture / load / clear ──────────────────────────────────
 
     async def capture_baseline(self) -> dict[str, Any] | None:
@@ -460,11 +473,18 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             return baseline
 
     async def clear_baseline(self) -> None:
-        """Drop the in-memory baseline and respawn the flowgraph uncorrected."""
+        """Drop the in-memory baseline and respawn the flowgraph uncorrected.
+
+        Only bounces the subprocess when a baseline was actually applied. The
+        platform calls this on every queue control-handover, but most users
+        never capture one — reconnecting unconditionally would thrash the SDR
+        (and the bridge) on every handover for nothing.
+        """
+        had_baseline = self._baseline_power is not None or self._baseline_active
         self._baseline_power = None
         self._baseline_cfg_key = None
         self._delete_baseline_files()
-        if self._capturing or self._shutting_down:
+        if self._capturing or self._shutting_down or not had_baseline:
             return
         await self.reconnect()
 

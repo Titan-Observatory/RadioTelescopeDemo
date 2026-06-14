@@ -67,6 +67,8 @@ const ALT_RINGS = [15, 30, 45, 60, 75];
 const AZ_LINES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 export const ALTITUDE_LIMIT_MIN_DEG = 30;
 export const ALTITUDE_LIMIT_MAX_DEG = 70;
+export const AZIMUTH_LIMIT_MIN_DEG = 55;
+export const AZIMUTH_LIMIT_MAX_DEG = 190;
 
 export function buildHorizonSamples(config: TelescopeConfig, date: Date): {
   horizonRaDec: RaDecTarget[];
@@ -175,11 +177,35 @@ function drawProjectedPolyline(
 // To swap in a real panorama, replace the fillStyle block in drawGround with
 // ctx.drawImage(panoramaImg, …) mapped to the same clipping polygon.
 
-function buildAltitudeRing(config: TelescopeConfig, date: Date, altitudeDeg: number, stepDeg = 3): RaDecTarget[] {
+function buildAltitudeBoundary(
+  config: TelescopeConfig,
+  date: Date,
+  altitudeDeg: number,
+  minAzDeg: number,
+  maxAzDeg: number,
+  stepDeg = 3,
+): RaDecTarget[] {
   const samples: RaDecTarget[] = [];
-  for (let az = 0; az < 360; az += stepDeg) {
+  for (let az = minAzDeg; az < maxAzDeg; az += stepDeg) {
     samples.push(altAzToRaDec({ altitude_deg: altitudeDeg, azimuth_deg: az }, config, date));
   }
+  samples.push(altAzToRaDec({ altitude_deg: altitudeDeg, azimuth_deg: maxAzDeg }, config, date));
+  return samples;
+}
+
+function buildAzimuthBoundary(
+  config: TelescopeConfig,
+  date: Date,
+  azimuthDeg: number,
+  minAltDeg: number,
+  maxAltDeg: number,
+  stepDeg = 2,
+): RaDecTarget[] {
+  const samples: RaDecTarget[] = [];
+  for (let alt = minAltDeg; alt < maxAltDeg; alt += stepDeg) {
+    samples.push(altAzToRaDec({ altitude_deg: alt, azimuth_deg: azimuthDeg }, config, date));
+  }
+  samples.push(altAzToRaDec({ altitude_deg: maxAltDeg, azimuth_deg: azimuthDeg }, config, date));
   return samples;
 }
 
@@ -189,6 +215,8 @@ function buildAltitudeBandQuads(
   date: Date,
   minAltDeg: number,
   maxAltDeg: number,
+  minAzDeg: number,
+  maxAzDeg: number,
   w: number,
   h: number,
 ): [number, number][][] {
@@ -208,10 +236,10 @@ function buildAltitudeBandQuads(
     Math.min(...quad.map(([, y]) => y)) <= h;
 
   const quads: [number, number][][] = [];
-  let prevMin = project(minAltDeg, 0);
-  let prevMax = project(maxAltDeg, 0);
-  for (let az = 3; az <= 360; az += 3) {
-    const nextAz = az === 360 ? 0 : az;
+  let prevMin = project(minAltDeg, minAzDeg);
+  let prevMax = project(maxAltDeg, minAzDeg);
+  for (let az = minAzDeg + 3; az <= maxAzDeg; az += 3) {
+    const nextAz = Math.min(az, maxAzDeg);
     const min = project(minAltDeg, nextAz);
     const max = project(maxAltDeg, nextAz);
     if (prevMin && prevMax && min && max) {
@@ -262,6 +290,8 @@ export const drawAltitudeLimitOverlay: Layer = ({
     date,
     ALTITUDE_LIMIT_MIN_DEG,
     ALTITUDE_LIMIT_MAX_DEG,
+    AZIMUTH_LIMIT_MIN_DEG,
+    AZIMUTH_LIMIT_MAX_DEG,
     w,
     h,
   );
@@ -293,7 +323,24 @@ export const drawAltitudeLimitOverlay: Layer = ({
   ctx.strokeStyle = 'rgba(232, 238, 244, 0.62)';
   ctx.lineWidth = 1.35;
   for (const alt of [ALTITUDE_LIMIT_MIN_DEG, ALTITUDE_LIMIT_MAX_DEG]) {
-    drawProjectedPolyline(ctx, aladin, buildAltitudeRing(config, date, alt), true, w, h);
+    drawProjectedPolyline(
+      ctx,
+      aladin,
+      buildAltitudeBoundary(config, date, alt, AZIMUTH_LIMIT_MIN_DEG, AZIMUTH_LIMIT_MAX_DEG),
+      false,
+      w,
+      h,
+    );
+  }
+  for (const az of [AZIMUTH_LIMIT_MIN_DEG, AZIMUTH_LIMIT_MAX_DEG]) {
+    drawProjectedPolyline(
+      ctx,
+      aladin,
+      buildAzimuthBoundary(config, date, az, ALTITUDE_LIMIT_MIN_DEG, ALTITUDE_LIMIT_MAX_DEG),
+      false,
+      w,
+      h,
+    );
   }
   ctx.restore();
 };

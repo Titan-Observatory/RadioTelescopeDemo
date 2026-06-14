@@ -117,6 +117,7 @@ const SPEED_OF_LIGHT_KMS = 299792.458;
 // as a hydrogen detection. Below this the "peak" is just the tallest noise
 // bin, and quoting a velocity for it would be misleading.
 const DETECTION_MIN_DB = 1.5;
+const TRACE_BOXCAR_BINS = 5;
 
 interface SpectrumFrame {
   timestamp: number;
@@ -240,6 +241,14 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   }, [baseline, frame]);
 
   const displayed = useMemo(() => {
+    if (!frame) return null;
+    const values = frame.baseline_corrected === true
+      ? zeroBaselineSpectrum(frame.power_db)
+      : frame.power_db;
+    return boxcarSmooth(values, TRACE_BOXCAR_BINS);
+  }, [frame]);
+
+  const waterfallDisplayed = useMemo(() => {
     if (!frame) return null;
     if (frame.baseline_corrected === true) {
       return zeroBaselineSpectrum(frame.power_db);
@@ -393,7 +402,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   // Paint one new row at the top of the waterfall per incoming frame.
   useEffect(() => {
     const canvas = waterfallCanvasRef.current;
-    if (!canvas || !frame || !displayed) return;
+    if (!canvas || !frame || !waterfallDisplayed) return;
 
     // Only paint genuine new frames. yRange changes re-fire this effect but
     // shouldn't shove a duplicate row into the rolling history.
@@ -441,7 +450,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     // is a solid stripe of constant colour per frequency.
     const [yMin, yMax] = waterfallRangeRef.current;
     const yScale = yMax > yMin ? 1 / (yMax - yMin) : 1;
-    const bins = displayed.length;
+    const bins = waterfallDisplayed.length;
     const binsMaxIdx = bins - 1;
 
     if (!waterfallRowRef.current ||
@@ -474,8 +483,8 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         : ratio * binsMaxIdx;
       const i = Math.min(binsMaxIdx, Math.max(0, Math.floor(binF)));
       const t = binF - i;
-      const a = displayed[i];
-      const b = displayed[Math.min(binsMaxIdx, i + 1)];
+      const a = waterfallDisplayed[i];
+      const b = waterfallDisplayed[Math.min(binsMaxIdx, i + 1)];
       const v = a + (b - a) * t;
       let norm = (v - yMin) * yScale;
       if (norm < 0) norm = 0; else if (norm > 1) norm = 1;
@@ -500,7 +509,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
       }
     }
     ctx.putImageData(row, plotLeft, 0);
-  }, [frame, displayed, baselineApplies]);
+  }, [frame, waterfallDisplayed, baselineApplies]);
 
   const chartEmptyMessage = !connected || !frame
     ? 'Waiting for spectrum stream to start'
@@ -827,6 +836,20 @@ function zeroBaselineSpectrum(values: number[]): number[] {
   const sorted = Float64Array.from(values).sort();
   const baselineDb = sorted[sorted.length >> 1];
   return values.map(value => value - baselineDb);
+}
+
+function boxcarSmooth(values: number[], windowBins: number): number[] {
+  if (values.length < 3 || windowBins < 3) return values;
+  const radius = Math.floor(windowBins / 2);
+  return values.map((_, i) => {
+    const start = Math.max(0, i - radius);
+    const end = Math.min(values.length - 1, i + radius);
+    let sum = 0;
+    for (let j = start; j <= end; j++) {
+      sum += values[j];
+    }
+    return sum / (end - start + 1);
+  });
 }
 
 function zeroBaselineYRange(values: number[]): [number, number] {

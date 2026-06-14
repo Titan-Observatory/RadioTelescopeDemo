@@ -36,6 +36,10 @@ JOG_COMMANDS: dict[str, str] = {
     "down": "backward_m2",
 }
 JOG_HEARTBEAT_TIMEOUT_S = 1.0
+HARD_ALTITUDE_MIN_DEG = 30.0
+HARD_ALTITUDE_MAX_DEG = 70.0
+HARD_AZIMUTH_MIN_DEG = 55.0
+HARD_AZIMUTH_MAX_DEG = 190.0
 
 
 def _position_targets(command_id: str, args: dict[str, int | bool]) -> dict[str, int | None] | None:
@@ -92,6 +96,24 @@ def _enforce_pointing_limits(altitude_deg: float, azimuth_deg: float, request: R
         raise HTTPException(
             status_code=400,
             detail=f"Target is outside configured pointing limits (alt={altitude_deg:.1f} deg, az={azimuth_deg:.1f} deg)",
+        )
+
+
+def _enforce_hard_safety_limits(altitude_deg: float, azimuth_deg: float) -> None:
+    if (
+        altitude_deg < HARD_ALTITUDE_MIN_DEG
+        or altitude_deg > HARD_ALTITUDE_MAX_DEG
+        or azimuth_deg < HARD_AZIMUTH_MIN_DEG
+        or azimuth_deg > HARD_AZIMUTH_MAX_DEG
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Target is outside hard safety limits "
+                f"(alt={altitude_deg:.1f} deg, az={azimuth_deg:.1f} deg; "
+                f"allowed alt={HARD_ALTITUDE_MIN_DEG:.0f}-{HARD_ALTITUDE_MAX_DEG:.0f} deg, "
+                f"az={HARD_AZIMUTH_MIN_DEG:.0f}-{HARD_AZIMUTH_MAX_DEG:.0f} deg)"
+            ),
         )
 
 
@@ -227,8 +249,8 @@ async def goto_alt_az_info(request: Request):
     return {
         "method": "POST",
         "body": {
-            "altitude_deg": "0..90",
-            "azimuth_deg": "0..360",
+            "altitude_deg": f"{HARD_ALTITUDE_MIN_DEG:.0f}..{HARD_ALTITUDE_MAX_DEG:.0f}",
+            "azimuth_deg": f"{HARD_AZIMUTH_MIN_DEG:.0f}..{HARD_AZIMUTH_MAX_DEG:.0f}",
             "speed_qpps": f"optional; default = controller stored QPPS, fallback {cfg.goto_speed_qpps}",
             "accel_qpps2": "optional; defaults to resolved speed",
             "decel_qpps2": "optional; defaults to resolved speed",
@@ -254,6 +276,7 @@ async def _execute_goto_altaz(
 ) -> CommandResult:
     cfg = request.app.state.config.mount
     azimuth = 0.0 if azimuth_deg == 360 else azimuth_deg
+    _enforce_hard_safety_limits(altitude_deg, azimuth)
     _enforce_pointing_limits(altitude_deg, azimuth, request)
     _enforce_max_slew(altitude_deg, azimuth, request)
     m1_position = round(cfg.az_zero_count + azimuth * cfg.az_counts_per_degree)

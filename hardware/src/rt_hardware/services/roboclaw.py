@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 class PositionTarget:
     m1: int | None = None
     m2: int | None = None
+    m1_stopped: bool = False
+    m2_stopped: bool = False
+    m1_last_delta: int | None = None
+    m2_last_delta: int | None = None
 
 
 class RoboClawService:
@@ -233,17 +237,47 @@ class RoboClawService:
         if target is None:
             return
         tolerance = self._mount_cfg.goto_arrival_tolerance_counts if self._mount_cfg is not None else 1
-        if not _target_reached(snap, target, tolerance):
+        m1_delta = _motor_target_delta(snap, "m1", target.m1)
+        m2_delta = _motor_target_delta(snap, "m2", target.m2)
+        reached_m1 = not target.m1_stopped and _axis_target_reached(m1_delta, target.m1_last_delta, tolerance)
+        reached_m2 = not target.m2_stopped and _axis_target_reached(m2_delta, target.m2_last_delta, tolerance)
+        if not reached_m1 and not reached_m2:
+            self._position_target = PositionTarget(
+                m1=target.m1,
+                m2=target.m2,
+                m1_stopped=target.m1_stopped,
+                m2_stopped=target.m2_stopped,
+                m1_last_delta=m1_delta if not target.m1_stopped else target.m1_last_delta,
+                m2_last_delta=m2_delta if not target.m2_stopped else target.m2_last_delta,
+            )
             return
 
-        self._position_target = None
-        result = await self.stop_all()
-        failed = [item.error or item.command_id for item in result.values() if not item.ok]
+        failed: list[str] = []
+        if reached_m1:
+            result = await self.execute("forward_m1", {"speed": 0})
+            if not result.ok:
+                failed.append(result.error or result.command_id)
+        if reached_m2:
+            result = await self.execute("forward_m2", {"speed": 0})
+            if not result.ok:
+                failed.append(result.error or result.command_id)
         if failed:
-            logger.warning("Failed to stop after reaching target %s: %s", target, "; ".join(failed))
-            self._position_target = target
+            logger.warning("Failed to stop reached target axis for %s: %s", target, "; ".join(failed))
             return
-        logger.info("Stopped motors after reaching target m1=%s m2=%s", target.m1, target.m2)
+
+        target = PositionTarget(
+            m1=target.m1,
+            m2=target.m2,
+            m1_stopped=target.m1_stopped or reached_m1,
+            m2_stopped=target.m2_stopped or reached_m2,
+            m1_last_delta=m1_delta,
+            m2_last_delta=m2_delta,
+        )
+        if (target.m1 is None or target.m1_stopped) and (target.m2 is None or target.m2_stopped):
+            self._position_target = None
+        else:
+            self._position_target = target
+        logger.info("Stopped reached target axis m1=%s m2=%s", reached_m1, reached_m2)
 
     async def _poll_loop(self) -> None:
         interval = 1.0 / self._rate
@@ -252,13 +286,18 @@ class RoboClawService:
             await asyncio.sleep(interval)
 
 
-def _target_reached(snap: RoboClawTelemetry, target: PositionTarget, tolerance: int) -> bool:
-    for motor_id, encoder_target in (("m1", target.m1), ("m2", target.m2)):
-        if encoder_target is None:
-            continue
-        motor = snap.motors.get(motor_id)
-        if motor is None or motor.encoder is None:
-            return False
-        if abs(motor.encoder - encoder_target) > tolerance:
-            return False
-    return True
+def _motor_target_delta(snap: RoboClawTelemetry, motor_id: str, encoder_target: int | None) -> int | None:
+    if encoder_target is None:
+        return None
+    motor = snap.motors.get(motor_id)
+    if motor is None or motor.encoder is None:
+        return None
+    return motor.encoder - encoder_target
+
+
+def _axis_target_reached(delta: int | None, last_delta: int | None, tolerance: int) -> bool:
+    if delta is None:
+        return False
+    if abs(delta) <= tolerance:
+        return True
+    return last_delta is not None and (last_delta < 0 < delta or last_delta > 0 > delta)

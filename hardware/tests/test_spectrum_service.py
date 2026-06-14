@@ -96,6 +96,29 @@ async def test_ensure_running_skips_when_consumer_is_in_backoff(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ensure_started_does_not_bounce_running_pipeline(tmp_path):
+    """The WS subscribe path must not kill a running/warming pipeline — that was
+    the bridge reconnect → RTL-restart loop. ensure_started leaves _proc alone."""
+    service = SpectrumService(SDRConfig(), tmp_path / "config.toml")
+    Broadcaster.subscribe(service)
+    proc = object()
+    service._proc = cast("subprocess.Popen[bytes]", proc)
+
+    killed = False
+
+    async def fake_kill() -> None:
+        nonlocal killed
+        killed = True
+
+    service._kill_subprocess_locked = fake_kill  # type: ignore[assignment]
+
+    await service.ensure_started()
+
+    assert killed is False
+    assert service._proc is proc
+
+
+@pytest.mark.asyncio
 async def test_reconnect_is_noop_while_capturing(tmp_path):
     service = SpectrumService(SDRConfig(), tmp_path / "config.toml")
     Broadcaster.subscribe(service)
