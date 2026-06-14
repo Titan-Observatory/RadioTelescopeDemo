@@ -59,6 +59,9 @@ POWER_FLOOR = 1e-12
 # isn't median-filtering / serialising bins the chart will clip. Mirrors
 # HYDROGEN_LINE_MHZ in frontend/src/lib/astro.ts.
 HYDROGEN_LINE_MHZ = 1420.4058
+BROAD_RFI_MIN_DB = 0.08
+BROAD_RFI_SIGNAL_WIDTH_KHZ = 120.0
+BROAD_RFI_TREND_WIDTH_KHZ = 600.0
 
 logger = logging.getLogger(__name__)
 
@@ -949,7 +952,7 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         cfg = self._cfg
         # Crop the finished dB spectrum to the displayed H I window — at the
         # default 3 Msps that more than halves the per-frame work and the
-        # WebSocket payload. We never alter the trace: narrowband RFI is *flagged*
+        # WebSocket payload. We never alter the trace: RFI is *flagged*
         # (reported as frequency bands) so the frontend can shade it, leaving the
         # underlying spectrum intact for the viewer to judge.
         start, stop = self._display_slice
@@ -976,7 +979,7 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             # rebuilt per frame.
             freqs_mhz=self._freqs_mhz_display_list,
             power_db=spectrum.round(3).tolist(),
-            # [lo_mhz, hi_mhz] frequency bands where narrowband RFI was detected.
+            # [lo_mhz, hi_mhz] frequency bands where RFI was detected.
             # Empty when flagging is disabled or the spectrum is clean.
             rfi_bands=rfi_bands,
             baseline_corrected=self._baseline_active,
@@ -1011,22 +1014,23 @@ def _flag_rfi(
     sigma: float,
     max_width_khz: float,
 ) -> list[list[float]]:
-    """Detect narrowband RFI in a dB spectrum, returning ``[lo_mhz, hi_mhz]`` bands.
+    """Detect RFI in a dB spectrum, returning ``[lo_mhz, hi_mhz]`` bands.
 
     The standard radio-astronomy spike detector (the same idea as
     ``astropy.stats.sigma_clip`` with median centre + MAD spread):
 
-    1. Detrend with a wide moving average so the receiver bandpass and the broad
-       hydrogen line aren't mistaken for spikes.
+    1. Detrend with a wide moving average so receiver bandpass and broad
+       structure do not inflate the narrow-spike pass.
     2. Estimate the noise from the median absolute deviation of the residual —
        ``σ ≈ 1.4826 · MAD`` — which spurs can't inflate the way a plain stdev
        would.
     3. Flag bins more than ``sigma`` robust-σ above the residual median.
 
-    Each contiguous flagged run no wider than ``max_width_khz`` is reported as one
-    ``[lo_mhz, hi_mhz]`` band (the run's bin centres, widened by half a bin on
-    each edge so a single-bin spur still has visible width); wider runs are real
-    structure and ignored. Width is in frequency, so detection behaves the same at
+    Each contiguous narrow run no wider than ``max_width_khz`` is reported as one
+    ``[lo_mhz, hi_mhz]`` band. A second broad-excess pass catches shallow wide
+    bumps against the local trend, because hydrogen-line shaped features should
+    also travel through ``rfi_bands`` for the frontend label path. Width is in
+    frequency, so detection behaves the same at
     any fft_size / sample rate. The spectrum itself is *never* modified — this
     only describes where the RFI is so the frontend can shade it.
     """
@@ -1059,7 +1063,61 @@ def _flag_rfi(
             hi = float(freqs_mhz[j - 1]) + half_bin_mhz
             bands.append([round(lo, 6), round(hi, 6)])
         i = j
+    bands.extend(_flag_broad_rfi(vals, freqs_mhz, bin_hz, max_width_bins, half_bin_mhz))
+    return _merge_bands(bands)
+
+
+def _flag_broad_rfi(
+    values_db: np.ndarray,
+    freqs_mhz: list[float],
+    bin_hz: float,
+    min_width_bins: int,
+    half_bin_mhz: float,
+) -> list[list[float]]:
+    n = int(values_db.size)
+    signal_bins = max(3, round(BROAD_RFI_SIGNAL_WIDTH_KHZ * 1e3 / bin_hz))
+    trend_bins = max(signal_bins * 3, round(BROAD_RFI_TREND_WIDTH_KHZ * 1e3 / bin_hz))
+    if n < trend_bins or min_width_bins <= 0:
+        return []
+
+    vals = np.asarray(values_db, dtype=np.float32)
+    smoothed = _moving_average(vals, signal_bins)
+    trend = _moving_average(vals, trend_bins)
+    excess = smoothed - trend
+    med = float(np.median(excess))
+    robust_sigma = 1.4826 * float(np.median(np.abs(excess - med)))
+    threshold = med + max(BROAD_RFI_MIN_DB, 3.0 * robust_sigma)
+    flagged = excess > threshold
+
+    bands: list[list[float]] = []
+    i = 0
+    while i < n:
+        if not flagged[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and flagged[j]:
+            j += 1
+        if (j - i) > min_width_bins:
+            lo = float(freqs_mhz[i]) - half_bin_mhz
+            hi = float(freqs_mhz[j - 1]) + half_bin_mhz
+            bands.append([round(lo, 6), round(hi, 6)])
+        i = j
     return bands
+
+
+def _merge_bands(bands: list[list[float]]) -> list[list[float]]:
+    if not bands:
+        return []
+    ordered = sorted(bands, key=lambda band: band[0])
+    merged = [ordered[0][:]]
+    for lo, hi in ordered[1:]:
+        last = merged[-1]
+        if lo <= last[1]:
+            last[1] = max(last[1], hi)
+        else:
+            merged.append([lo, hi])
+    return [[round(lo, 6), round(hi, 6)] for lo, hi in merged]
 
 
 class _PipelineDied(RuntimeError):

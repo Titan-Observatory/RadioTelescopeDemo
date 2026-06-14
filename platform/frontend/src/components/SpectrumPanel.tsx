@@ -582,8 +582,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const velocityKms = SPEED_OF_LIGHT_KMS * (H1_REST_MHZ - freqMhz) / H1_REST_MHZ;
     return { freqMhz, peakDb, prominenceDb, velocityKms, detected: prominenceDb >= DETECTION_MIN_DB };
   }, [frame, displayed]);
-  const rfiBandCount = frame?.rfi_bands?.length ?? 0;
-
   if (status && !status.enabled) {
     return (
       <section className="spectrum-section">
@@ -684,11 +682,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           )}
           <div className="spectrum-chart-caption">
             <span className="spectrum-chart-title">Power vs. frequency</span>
-            {rfiBandCount > 0 && (
-              <span className="spectrum-rfi-flag" title="Narrowband interference detected; the shaded bands are likely terrestrial, not astronomical.">
-                {rfiBandCount} RFI {rfiBandCount === 1 ? 'band' : 'bands'} flagged
-              </span>
-            )}
             {integrationStats && (
               <p className="spectrum-stats" aria-label="Integration statistics">
                 Integrating <strong>{integrationStats.windowSeconds.toFixed(1)} s</strong>
@@ -1009,10 +1002,24 @@ function baseOption(yRange: [number, number]): EChartsOption {
 // spectrum is clean) so ECharts' merge clears stale bands instead of leaving
 // them painted. `silent` keeps the bands from stealing the trace's tooltip.
 function rfiMarkArea(bands: number[][] | undefined) {
-  const data = (bands ?? []).map(([lo, hi]) => [{ xAxis: lo }, { xAxis: hi }]);
+  const data = (bands ?? []).map(([lo, hi]) => [{ name: 'RFI', xAxis: lo }, { xAxis: hi }]);
   return {
     silent: true,
     itemStyle: { color: RFI_BAND_COLOR },
+    label: {
+      show: true,
+      formatter: 'RFI',
+      position: 'insideTop',
+      distance: 5,
+      color: '#ffd2d4',
+      fontSize: 11,
+      fontWeight: 700,
+      backgroundColor: 'rgba(16, 18, 24, 0.74)',
+      borderColor: 'rgba(255, 90, 95, 0.52)',
+      borderWidth: 1,
+      borderRadius: 3,
+      padding: [2, 5],
+    },
     data,
   };
 }

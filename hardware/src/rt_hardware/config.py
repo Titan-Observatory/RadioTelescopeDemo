@@ -136,10 +136,11 @@ class SDRConfig(BaseModel):
     # Narrowband RFI flagging: a robust (median/MAD) sigma clip run over the
     # integrated spectrum, the standard way to spot obvious birdies / carriers.
     # A bin rising more than spur_sigma robust standard deviations above the
-    # detrended noise floor, in a contiguous run no wider than spur_max_width_khz
-    # (the 21 cm line is hundreds of kHz wide, so it's never flagged), is reported
-    # as an RFI band in the published frame so the frontend can shade it — the
-    # spectrum itself is left untouched, never bridged or removed. Width is in
+    # detrended noise floor, in a contiguous run no wider than spur_max_width_khz,
+    # is reported as an RFI band in the published frame so the frontend can
+    # shade it. The spectrum itself is left untouched, never bridged or removed.
+    # A second broad-excess pass also reports shallow wide bumps like the 21 cm
+    # line through the same band path. Width is in
     # frequency, not FFT bins, so flagging behaves the same regardless of
     # fft_size / sample rate. spur_sigma is high by default so only *obvious* RFI
     # is flagged; lower it to be more aggressive, or set spur_reject_enabled =

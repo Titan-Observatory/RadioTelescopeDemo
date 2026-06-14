@@ -221,17 +221,21 @@ def test_flag_rfi_flags_obvious_spike():
     assert lo < hi
 
 
-def test_flag_rfi_ignores_broad_hydrogen_line():
+def test_flag_rfi_flags_broad_hydrogen_line_shape():
     from rt_hardware.services.spectrum import _flag_rfi
 
-    # A gentle ~275 kHz-wide bump like the 21 cm line: far wider than the width
-    # gate and gradual enough that MAD never flags it.
+    # A gentle ~275 kHz-wide bump like the 21 cm line: far wider than the
+    # narrow-spur gate, but still surfaced as a band for the frontend label path.
     x = np.arange(1024)
     spectrum = (4.0 * np.exp(-0.5 * ((x - 512) / 70.0) ** 2)).astype(np.float32)
+    freqs = _freqs_for(1024)
 
-    bands = _flag_rfi(spectrum, _freqs_for(1024), _BIN_HZ, sigma=6.0, max_width_khz=50.0)
+    bands = _flag_rfi(spectrum, freqs, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
 
-    assert bands == []
+    assert len(bands) == 1
+    lo, hi = bands[0]
+    assert lo <= freqs[512] <= hi
+    assert (hi - lo) * 1e3 > 50.0
 
 
 def test_flag_rfi_does_not_mutate_input():

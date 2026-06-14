@@ -1508,22 +1508,6 @@ h2.panel-header.spectrum-title-lg {
 .spectrum-chart-caption .spectrum-stats {
   margin: 0;
 }
-/* RFI flag chip: signals the shaded bands on the trace are flagged interference,
-   not real signal. Slate-red to match the band shading without shouting. */
-.spectrum-rfi-flag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 8px;
-  border: 1px solid rgba(255, 90, 95, 0.35);
-  border-radius: 999px;
-  background: rgba(255, 90, 95, 0.1);
-  color: #ff8d90;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  cursor: default;
-}
 .spectrum-learn-link {
   grid-column: 1;
   justify-self: start;
@@ -1743,9 +1727,11 @@ h2.panel-header.spectrum-title-lg {
    "baseline setup" control rather than floating loose against the chart. */
 .spectrum-baseline-row {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   flex-wrap: nowrap;
   gap: 8px 12px;
+  box-sizing: border-box;
+  height: 32px;
   margin-top: 8px;
   padding: 0;
   background: var(--surface-2);
@@ -1760,6 +1746,7 @@ h2.panel-header.spectrum-title-lg {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  align-self: stretch;
   flex-shrink: 0;
   padding-left: 12px;
   color: var(--fg-muted);
@@ -1785,10 +1772,12 @@ h2.panel-header.spectrum-title-lg {
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  padding-block: 9px;
   color: var(--fg-subtle);
   font-size: 11px;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The card is surface-2, so the action needs a darker base (and a darker
    hover) to stay legible as a button rather than melting into the card. */
@@ -1796,7 +1785,7 @@ h2.panel-header.spectrum-title-lg {
   align-self: stretch;
   flex-shrink: 0;
   margin-left: auto;
-  min-height: 100%;
+  min-height: 0;
   padding-inline: 14px;
   background: var(--surface-1);
   border-width: 0 0 0 1px;
@@ -4339,23 +4328,8 @@ h2.panel-header {
   .pad-btn { min-height: 52px; }
   .target-form { grid-template-columns: 1fr 1fr; }
   .target-form button[type="submit"] { grid-column: 1 / -1; }
-  .spectrum-baseline-row {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0 10px;
-  }
-  .spectrum-baseline-state { padding-top: 9px; }
-  .spectrum-baseline-hint {
-    flex-basis: 100%;
-    grid-column: 1 / -1;
-    order: 3;
-    padding: 0 12px 9px;
-  }
   .spectrum-baseline-row .ghost-btn {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-    min-height: 40px;
+    padding-inline: 12px;
   }
   .spectrum-readouts { gap: 6px 18px; }
   .dashboard-rightcol .spectrum-panel-host .spectrum-chart-wrap,
