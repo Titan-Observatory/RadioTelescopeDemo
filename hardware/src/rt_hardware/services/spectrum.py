@@ -11,8 +11,11 @@ This service owns the subprocess lifecycle (lazy spawn on first subscriber,
 idle-close after the last leaves) and orchestrates baseline capture: it stops
 the live flowgraph, runs a one-shot capture flowgraph that writes the baseline
 to a local ``.f32`` file, then respawns the live flowgraph which divides by that
-file. The captured baseline is also mirrored to a JSON sidecar so the HTTP API
-and frontend can read it.
+file. The captured baseline is held in memory only (``_baseline_power``); it is
+never persisted to disk, so each service process — and, via the platform queue's
+control-handover reset, each user session — starts uncorrected. The ``.f32`` on
+disk is just the IPC handoff to the subprocess, rewritten from memory on each
+spawn.
 """
 from __future__ import annotations
 
@@ -32,12 +35,17 @@ from rt_hardware.hardware.sdr import LnaController
 from rt_hardware.models.state import LnaStatus
 from rt_hardware.services._pubsub import Broadcaster
 
-# Baseline cache lives next to where the server was launched so it survives
-# restarts. Override the directory with RT_STATE_DIR when running in a container
-# so the files land on a mounted volume rather than the ephemeral container FS.
-# Two files: a JSON sidecar (read by the HTTP API / frontend) and a raw float32
-# vector (read by the GNU Radio live flowgraph to divide against).
+# The baseline ``.f32`` is the IPC handoff between the capture subprocess (which
+# writes it) and the live subprocess (which reads it with ``--baseline``). It
+# lives next to where the server was launched; override the directory with
+# RT_STATE_DIR when running from a read-only checkout or a container so the file
+# lands on a writable/mounted path. The baseline is in-memory truth — this file
+# is rewritten from ``_baseline_power`` on every spawn and is not relied on
+# across restarts.
 _STATE_DIR = Path(os.environ.get("RT_STATE_DIR", "."))
+# Legacy JSON sidecar from when the baseline was persisted; no longer written,
+# kept here only so _delete_baseline_files removes a stale one left by an older
+# build after an upgrade.
 BASELINE_CACHE = _STATE_DIR / "spectrum_baseline.json"
 BASELINE_F32 = _STATE_DIR / "spectrum_baseline.f32"
 # Capture writes here first, then we atomically rename onto BASELINE_F32 so the
@@ -450,10 +458,6 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
                     else:
                         self._mode = "idle"
             return baseline
-
-    def load_baseline(self) -> dict[str, Any] | None:
-        """Baseline is in-memory only; there is no persisted sidecar to load."""
-        return None
 
     async def clear_baseline(self) -> None:
         """Drop the in-memory baseline and respawn the flowgraph uncorrected."""

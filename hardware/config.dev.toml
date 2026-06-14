@@ -16,8 +16,9 @@ port = "/dev/ttyACM0"
 update_rate_hz = 5
 
 [mount]
-az_counts_per_degree = 1000.0
+az_counts_per_degree = -8.0
 alt_counts_per_degree = 1000.0
+az_zero_count = 1540
 max_slew_deg_per_command = 45.0
 
 [observer]

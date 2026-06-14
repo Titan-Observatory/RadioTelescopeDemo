@@ -62,15 +62,6 @@ async def spectrum_status(request: Request):
     }
 
 
-@router.get("/api/spectrum/baseline")
-async def get_baseline(request: Request):
-    service = _service(request)
-    baseline = service.load_baseline()
-    if baseline is None:
-        raise HTTPException(404, "No baseline has been captured yet")
-    return baseline
-
-
 @router.post("/api/spectrum/baseline")
 async def capture_baseline(request: Request):
     service = _service(request)

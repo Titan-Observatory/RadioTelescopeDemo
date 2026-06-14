@@ -50,6 +50,17 @@ async def lifespan(app: FastAPI):
     status_service = TelescopeStatusService(Path(cfg.telescope_status_path))
     app.state.status_service = status_service
 
+    hardware = HardwareClient(cfg.hardware_url)
+    app.state.hardware_client = hardware
+
+    async def _clear_baseline_on_handover() -> None:
+        # The spectrum baseline is per-controller; drop it when control passes
+        # to the next user so they start from the raw receiver bandpass.
+        try:
+            await hardware.request("DELETE", "/api/spectrum/baseline", timeout=15.0)
+        except Exception as exc:
+            logger.warning("Failed to clear baseline on control handover: %s", exc)
+
     queue = QueueService(
         max_session_seconds=cfg.queue.max_session_seconds,
         idle_timeout_seconds=cfg.queue.idle_timeout_seconds,
@@ -57,11 +68,9 @@ async def lifespan(app: FastAPI):
         max_sessions_per_ip=cfg.queue.max_sessions_per_ip,
         join_cooldown_seconds=cfg.queue.join_cooldown_seconds,
         is_open=lambda: status_service.is_operational,
+        on_control_change=_clear_baseline_on_handover,
     )
     app.state.queue_service = queue
-
-    hardware = HardwareClient(cfg.hardware_url)
-    app.state.hardware_client = hardware
 
     # One lazy bridge per hardware stream. Only the stream matching the
     # hardware's observation mode will ever see subscribers; the other stays

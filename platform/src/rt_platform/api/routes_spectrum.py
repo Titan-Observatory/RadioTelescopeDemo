@@ -91,11 +91,6 @@ async def spectrum_status(request: Request) -> JSONResponse:
         )
 
 
-@router.get("/api/spectrum/baseline", dependencies=[Depends(require_active_queue_session)])
-async def get_baseline(request: Request) -> JSONResponse:
-    return await _proxy_json("GET", request, "/api/spectrum/baseline")
-
-
 @router.post("/api/spectrum/baseline", dependencies=[Depends(require_control)])
 async def capture_baseline(request: Request) -> JSONResponse:
     # Capture integrates a full window (integration_seconds) then bounces the

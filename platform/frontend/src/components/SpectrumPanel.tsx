@@ -242,7 +242,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   const displayed = useMemo(() => {
     if (!frame) return null;
     if (frame.baseline_corrected === true) {
-      return zeroFloorSpectrum(frame.power_db);
+      return zeroBaselineSpectrum(frame.power_db);
     }
     return frame.power_db;
   }, [frame]);
@@ -337,15 +337,16 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const data = frame.freqs_mhz.map((f, i) => [f, displayed[i]] as [number, number]);
     // Raw spectra still use the dynamic lower-half fit so receiver bandpass
     // shape remains legible. Baseline-corrected frames are rendered relative
-    // to their own robust floor (see zeroFloorSpectrum), so the floor remains
-    // visually pinned at 0 dB even if receiver gain or temperature drifts.
+    // to their own robust median (see zeroBaselineSpectrum), so the trace
+    // baseline remains visually pinned at 0 dB even if receiver gain or
+    // temperature drifts.
     // Both targets are robust percentile fits (spurs/dead bins can't blow them
     // open) that we EMA-smooth toward each frame, so the axis tracks without
     // jitter or jumps. We snap (skip the EMA) only when the FFT layout /
     // baseline state changes, since the dB scale shifts wholesale there and
     // sliding across it would look wrong. The waterfall keeps its own tight
     // colour range so its inferno palette still spans the full trace.
-    const axisTarget = frame.baseline_corrected === true ? zeroFloorYRange(displayed) : bottomHalfYRange(displayed);
+    const axisTarget = frame.baseline_corrected === true ? zeroBaselineYRange(displayed) : bottomHalfYRange(displayed);
     const wfTarget = robustYRange(displayed);
     const sig = `${frame.center_freq_mhz.toFixed(6)}|${frame.sample_rate_mhz.toFixed(6)}|${frame.freqs_mhz.length}|${baselineApplies ? 'baseline' : 'raw'}`;
     const fresh = !yRangeInitRef.current || sig !== yRangeSigRef.current;
@@ -821,17 +822,18 @@ function bottomHalfYRange(values: number[]): [number, number] {
   return [axisMin, axisMax];
 }
 
-function zeroFloorSpectrum(values: number[]): number[] {
+function zeroBaselineSpectrum(values: number[]): number[] {
   if (values.length === 0) return values;
-  const [floorDb] = robustBulkBounds(values);
-  return values.map(value => value - floorDb);
+  const sorted = Float64Array.from(values).sort();
+  const baselineDb = sorted[sorted.length >> 1];
+  return values.map(value => value - baselineDb);
 }
 
-function zeroFloorYRange(values: number[]): [number, number] {
-  if (values.length === 0) return [0, DEFAULT_Y_RANGE[1]];
-  const [, hi] = robustBulkBounds(values);
-  const max = Math.max(1.5, hi * 1.18);
-  return [0, max];
+function zeroBaselineYRange(values: number[]): [number, number] {
+  if (values.length === 0) return DEFAULT_Y_RANGE;
+  const [lo, hi] = robustBulkBounds(values);
+  const extent = Math.max(1.5, Math.abs(lo), Math.abs(hi));
+  return [-extent, extent];
 }
 
 function round2(x: number): number {

@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { Camera, FolderOpen, X } from 'lucide-react';
+import { Camera, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -55,12 +55,10 @@ interface Props {
   onBaselineReady: (baseline: Baseline) => void;
 }
 
-type Step = 'intro' | 'pick' | 'capture' | 'done' | 'load_failed';
-type Path = 'capture' | 'load';
+type Step = 'intro' | 'pick' | 'capture' | 'done';
 
 export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: Props) {
   const [step, setStep] = useState<Step>('intro');
-  const [path, setPath] = useState<Path | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,7 +67,6 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   useEffect(() => {
     if (open) {
       setStep('intro');
-      setPath(null);
       setBusy(false);
       setError(null);
       track('baseline_wizard_opened');
@@ -95,14 +92,13 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   }, [open, step]);
 
   function close(reason: 'cancel' | 'done') {
-    track('baseline_wizard_closed', { reason, step, path });
+    track('baseline_wizard_closed', { reason, step });
     onOpenChange(false);
   }
 
   function chooseCapture() {
     window.dispatchEvent(new Event(FORCE_HYDROGEN_SURVEY_EVENT));
     track('baseline_path_chosen', { path: 'capture' });
-    setPath('capture');
     setStep('pick');
   }
 
@@ -112,34 +108,6 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   const expectedWaitSeconds = frame
     ? Math.max(2, Math.ceil(frame.integration_seconds + 1))
     : null;
-
-  async function chooseLoad() {
-    track('baseline_path_chosen', { path: 'load' });
-    setPath('load');
-    setBusy(true);
-    try {
-      const r = await fetch('/api/spectrum/baseline');
-      if (r.status === 404) {
-        track('baseline_load_result', { result: 'not_found' });
-        setStep('load_failed');
-        return;
-      }
-      if (!r.ok) {
-        track('baseline_load_result', { result: 'error', status: r.status });
-        setStep('load_failed');
-        return;
-      }
-      const baseline = await r.json() as Baseline;
-      onBaselineReady(baseline);
-      track('baseline_load_result', { result: 'success' });
-      setStep('done');
-    } catch {
-      track('baseline_load_result', { result: 'error' });
-      setStep('load_failed');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function capture() {
     if (!frame) return;
@@ -204,14 +172,6 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
                   <button type="button" className="baseline-btn-primary" onClick={chooseCapture}>
                     <Camera size={14} /> {tourCopy.baselineWizard.intro.buttons.capture}
                   </button>
-                  <button
-                    type="button"
-                    className="baseline-btn-secondary"
-                    onClick={() => void chooseLoad()}
-                    disabled={busy}
-                  >
-                    <FolderOpen size={14} /> {busy ? tourCopy.baselineWizard.intro.buttons.loading : tourCopy.baselineWizard.intro.buttons.load}
-                  </button>
                   <button type="button" className="baseline-btn-ghost" onClick={() => close('cancel')}>
                     {tourCopy.baselineWizard.intro.buttons.cancel}
                   </button>
@@ -272,20 +232,6 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
                 <div className="baseline-actions">
                   <button type="button" className="baseline-btn-primary" onClick={() => close('done')}>
                     {tourCopy.baselineWizard.done.buttons.close}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {step === 'load_failed' && (
-              <div id="baseline-desc" className="baseline-body">
-                <p>{tourCopy.baselineWizard.loadFailed.body}</p>
-                <div className="baseline-actions">
-                  <button type="button" className="baseline-btn-ghost" onClick={() => close('cancel')}>
-                    {tourCopy.baselineWizard.loadFailed.buttons.cancel}
-                  </button>
-                  <button type="button" className="baseline-btn-primary" onClick={chooseCapture}>
-                    <Camera size={14} /> {tourCopy.baselineWizard.loadFailed.buttons.capture}
                   </button>
                 </div>
               </div>

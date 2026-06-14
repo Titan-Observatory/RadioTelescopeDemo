@@ -35,6 +35,24 @@ async def test_queue_promotes_after_leave():
     assert queue.is_active(b)
 
 
+async def test_control_change_fires_on_each_new_controller():
+    changes = 0
+
+    async def on_change() -> None:
+        nonlocal changes
+        changes += 1
+
+    queue = QueueService(
+        max_session_seconds=60, idle_timeout_seconds=30, max_queue_size=10,
+        on_control_change=on_change,
+    )
+    a = await queue.join("1.1.1.1")   # promoted immediately → 1 handover
+    await queue.join("2.2.2.2")       # queued behind a → no handover
+    assert changes == 1
+    await queue.leave(a)              # b promoted → 1 handover
+    assert changes == 2
+
+
 async def test_queue_full_raises():
     from rt_platform.services.queue import QueueFullError
 
@@ -154,7 +172,6 @@ def test_control_endpoint_requires_lease(platform_config_path):
     "path",
     [
         "/api/spectrum/status",
-        "/api/spectrum/baseline",
         "/api/roboclaw/status",
         "/api/roboclaw/commands",
         "/api/telescope/goto",

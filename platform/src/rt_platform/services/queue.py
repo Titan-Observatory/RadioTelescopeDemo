@@ -13,7 +13,7 @@ import logging
 import secrets
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel
@@ -67,6 +67,7 @@ class QueueService:
         max_sessions_per_ip: int = 3,
         join_cooldown_seconds: int = 5,
         is_open: Callable[[], bool] | None = None,
+        on_control_change: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.max_session_seconds = max_session_seconds
         self.idle_timeout_seconds = idle_timeout_seconds
@@ -76,6 +77,11 @@ class QueueService:
         # When provided, returns False to refuse new joins (e.g. maintenance mode).
         # Existing sessions and active controllers are left alone.
         self._is_open = is_open or (lambda: True)
+        # Fired (outside the lock) whenever a *new* session becomes the active
+        # controller, so per-controller state on the hardware (e.g. the spectrum
+        # baseline) can be reset between users.
+        self._on_control_change = on_control_change
+        self._control_handover_pending = False
 
         self._sessions: dict[str, _Session] = {}
         self._queue: deque[str] = deque()
@@ -138,6 +144,7 @@ class QueueService:
             self._queue.append(token)
             self._last_join_by_ip[ip] = now
             self._promote_if_idle()
+        await self._fire_control_handover()
         await self._broadcast()
         return token
 
@@ -155,6 +162,7 @@ class QueueService:
         async with self._lock:
             self._drop_locked(token)
             self._promote_if_idle()
+        await self._fire_control_handover()
         await self._broadcast()
 
     async def mark_command(self, token: str) -> None:
@@ -251,6 +259,7 @@ class QueueService:
                 self._drop_locked(token)
                 self._promote_if_idle()
         if known:
+            await self._fire_control_handover()
             await self._broadcast()
         return known
 
@@ -303,6 +312,7 @@ class QueueService:
             while not self._stopped:
                 await asyncio.sleep(1.0)
                 changed = await self._tick()
+                await self._fire_control_handover()
                 if changed:
                     await self._broadcast()
         except asyncio.CancelledError:
@@ -382,9 +392,28 @@ class QueueService:
                 self._active = candidate
                 self._active_lease_started_at = now
                 self._active_last_command_at = now
+                # A different user now holds control — flag a handover so the
+                # caller resets per-controller hardware state after the lock.
+                self._control_handover_pending = True
                 logger.info("Promoting %s to active controller", candidate[:8])
                 return True
         return False
+
+    async def _fire_control_handover(self) -> None:
+        """Run the control-change callback once per pending handover.
+
+        Called after the lock is released (the callback does network I/O to the
+        hardware service, which must not happen under the queue lock).
+        """
+        if not self._control_handover_pending:
+            return
+        self._control_handover_pending = False
+        if self._on_control_change is None:
+            return
+        try:
+            await self._on_control_change()
+        except Exception:
+            logger.exception("Queue control-change callback failed")
 
 
 class QueueFullError(Exception):
