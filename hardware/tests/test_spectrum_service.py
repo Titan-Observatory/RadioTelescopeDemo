@@ -147,6 +147,7 @@ def test_publish_frame_forwards_db_spectrum_verbatim(tmp_path):
     # recomputation — the frame is forwarded verbatim.
     assert "power_linear" not in latest
     assert latest["power_db"] == pytest.approx(power_db.round(3).tolist())
+    assert latest["rfi_bands"] == []
     assert latest["baseline_corrected"] is False
 
 
@@ -191,55 +192,63 @@ def test_publish_frame_keeps_full_span_when_line_out_of_band(tmp_path):
     assert len(latest["power_db"]) == 64
 
 
-# ── RFI sigma-clip (median/MAD) ──────────────────────────────────────────
+# ── RFI flagging (median/MAD) ────────────────────────────────────────────
 
 
 # 1 MHz over 1024 bins ≈ 977 Hz/bin, so a single bin ≈ 1 kHz wide.
 _BIN_HZ = 1.0e6 / 1024
 
 
-def test_clean_rfi_removes_obvious_spike():
-    from rt_hardware.services.spectrum import _clean_rfi
+def _freqs_for(n: int, bin_hz: float = _BIN_HZ) -> list[float]:
+    """An ascending MHz axis spanning ``n`` bins at ``bin_hz`` spacing."""
+    return [(1420.0e6 + i * bin_hz) / 1e6 for i in range(n)]
+
+
+def test_flag_rfi_flags_obvious_spike():
+    from rt_hardware.services.spectrum import _flag_rfi
 
     rng = np.random.default_rng(0)
     spectrum = rng.normal(0.0, 0.1, 1024).astype(np.float32)  # flat dB noise floor
     spectrum[400:404] += 12.0  # an obvious ~4 kHz birdie, well above the noise
+    freqs = _freqs_for(1024)
 
-    out = _clean_rfi(spectrum, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
+    bands = _flag_rfi(spectrum, freqs, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
 
-    # Bridged back down to the surrounding floor (near 0), not left as a spike.
-    assert np.max(np.abs(out[400:404])) < 0.5
-    # Bins away from the spur are untouched.
-    assert out[200] == pytest.approx(spectrum[200], abs=1e-4)
+    # Exactly one band, bracketing the spur's bin centres (± half a bin).
+    assert len(bands) == 1
+    lo, hi = bands[0]
+    assert lo <= freqs[400] and hi >= freqs[403]
+    assert lo < hi
 
 
-def test_clean_rfi_preserves_broad_hydrogen_line():
-    from rt_hardware.services.spectrum import _clean_rfi
+def test_flag_rfi_ignores_broad_hydrogen_line():
+    from rt_hardware.services.spectrum import _flag_rfi
 
     # A gentle ~275 kHz-wide bump like the 21 cm line: far wider than the width
     # gate and gradual enough that MAD never flags it.
     x = np.arange(1024)
     spectrum = (4.0 * np.exp(-0.5 * ((x - 512) / 70.0) ** 2)).astype(np.float32)
 
-    out = _clean_rfi(spectrum, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
+    bands = _flag_rfi(spectrum, _freqs_for(1024), _BIN_HZ, sigma=6.0, max_width_khz=50.0)
 
-    assert out == pytest.approx(spectrum, abs=1e-3)
+    assert bands == []
 
 
-def test_clean_rfi_does_not_mutate_input():
-    from rt_hardware.services.spectrum import _clean_rfi
+def test_flag_rfi_does_not_mutate_input():
+    from rt_hardware.services.spectrum import _flag_rfi
 
     spectrum = np.zeros(1024, dtype=np.float32)
     spectrum[500] = 20.0
     before = spectrum.copy()
 
-    _clean_rfi(spectrum, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
+    _flag_rfi(spectrum, _freqs_for(1024), _BIN_HZ, sigma=6.0, max_width_khz=50.0)
 
     assert np.array_equal(spectrum, before)
 
 
-def test_publish_frame_sigma_clips_rfi(tmp_path):
-    # End to end: a birdie in the raw dB frame is gone from the published trace.
+def test_publish_frame_flags_rfi_without_altering_trace(tmp_path):
+    # End to end: a birdie stays in the published trace, but its frequency is
+    # reported as an RFI band for the frontend to shade.
     service = SpectrumService(
         SDRConfig(fft_size=2048, sample_rate_hz=2.0e6, display_half_width_mhz=10.0,
                   spur_sigma=6.0),
@@ -253,10 +262,14 @@ def test_publish_frame_sigma_clips_rfi(tmp_path):
 
     latest = service.latest
     assert latest is not None
-    assert max(latest["power_db"][1000:1010]) < 1.0  # spur removed
+    # The spur is preserved in the trace — not removed or bridged.
+    assert max(latest["power_db"][1000:1010]) > 10.0
+    # …and flagged as a band covering the spur frequency.
+    spur_freq = latest["freqs_mhz"][1005]
+    assert any(lo <= spur_freq <= hi for lo, hi in latest["rfi_bands"])
 
 
-def test_publish_frame_keeps_rfi_when_reject_disabled(tmp_path):
+def test_publish_frame_no_rfi_bands_when_reject_disabled(tmp_path):
     service = SpectrumService(
         SDRConfig(fft_size=2048, sample_rate_hz=2.0e6, display_half_width_mhz=10.0,
                   spur_reject_enabled=False),
@@ -270,6 +283,7 @@ def test_publish_frame_keeps_rfi_when_reject_disabled(tmp_path):
     latest = service.latest
     assert latest is not None
     assert latest["power_db"][1005] == pytest.approx(15.0, abs=1e-3)  # untouched
+    assert latest["rfi_bands"] == []  # flagging off → nothing reported
 
 
 def test_publish_frame_reports_baseline_corrected_from_active_flag(tmp_path):

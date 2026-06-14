@@ -133,15 +133,17 @@ class SDRConfig(BaseModel):
     # additive dB shift on the output. Defaults are no-ops.
     baseline_scale: float = Field(default=1.0, ge=0.1, le=10.0)
     baseline_offset_db: float = Field(default=0.0, ge=-30.0, le=30.0)
-    # Narrowband RFI rejection: a robust (median/MAD) sigma clip applied to the
-    # integrated spectrum, the standard way to flag obvious birdies / carriers.
+    # Narrowband RFI flagging: a robust (median/MAD) sigma clip run over the
+    # integrated spectrum, the standard way to spot obvious birdies / carriers.
     # A bin rising more than spur_sigma robust standard deviations above the
     # detrended noise floor, in a contiguous run no wider than spur_max_width_khz
-    # (the 21 cm line is hundreds of kHz wide, so it's never touched), is bridged
-    # from its clean neighbours. Width is in frequency, not FFT bins, so the
-    # reject behaves the same regardless of fft_size / sample rate. spur_sigma is
-    # high by default so only *obvious* RFI is removed; lower it to be more
-    # aggressive, or set spur_reject_enabled = false to disable.
+    # (the 21 cm line is hundreds of kHz wide, so it's never flagged), is reported
+    # as an RFI band in the published frame so the frontend can shade it — the
+    # spectrum itself is left untouched, never bridged or removed. Width is in
+    # frequency, not FFT bins, so flagging behaves the same regardless of
+    # fft_size / sample rate. spur_sigma is high by default so only *obvious* RFI
+    # is flagged; lower it to be more aggressive, or set spur_reject_enabled =
+    # false to disable flagging entirely.
     spur_reject_enabled: bool = True
     spur_sigma: float = Field(default=6.0, gt=0.0, le=50.0)
     spur_max_width_khz: float = Field(default=50.0, gt=0.0, le=2000.0)

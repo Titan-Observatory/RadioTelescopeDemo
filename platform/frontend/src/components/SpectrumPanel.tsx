@@ -7,12 +7,13 @@ import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
   GridComponent,
+  MarkAreaComponent,
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 
-import { Sliders, Sparkles } from 'lucide-react';
+import { RefreshCw, Sliders, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -24,6 +25,7 @@ import { BaselineWizard } from './BaselineWizard';
 echarts.use([
   LineChart,
   GridComponent,
+  MarkAreaComponent,
   TooltipComponent,
   CanvasRenderer,
 ]);
@@ -111,6 +113,10 @@ const TRACE_RGB: Record<string, string> = {
   [ALERT_TRACE_COLOR]: '255, 90, 95',
 };
 
+// Shading for flagged narrowband RFI bands. A translucent slate-red wash that
+// reads as "ignore this stretch" without obscuring the trace running through it.
+const RFI_BAND_COLOR = 'rgba(255, 90, 95, 0.14)';
+
 const SPEED_OF_LIGHT_KMS = 299792.458;
 
 // Minimum prominence (dB above the spectrum median) before we report a peak
@@ -130,6 +136,10 @@ interface SpectrumFrame {
   mode: string;
   freqs_mhz: number[];
   power_db: number[];
+  // [lo_mhz, hi_mhz] frequency bands flagged as narrowband RFI by the hardware.
+  // The trace is left intact; the frontend shades these so viewers can discount
+  // them by eye rather than having them silently scrubbed.
+  rfi_bands?: number[][];
   baseline_corrected?: boolean;
 }
 
@@ -219,12 +229,28 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   const waterfallRangeRef = useRef<[number, number]>(DEFAULT_Y_RANGE);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [waterfallOpen, setWaterfallOpen] = useState(false);
+  const [integrationRestarting, setIntegrationRestarting] = useState(false);
+  const [integrationRestartError, setIntegrationRestartError] = useState<string | null>(null);
 
   // The hardware tells us, per frame, whether the live stream is baseline-
   // corrected (`baseline_corrected`). That flag is the single source of truth:
   // it stays correct across page refreshes and for viewers who didn't capture
   // the baseline themselves, neither of which any local UI state can track.
   const baselineApplies = frame?.baseline_corrected === true;
+
+  const restartIntegration = async () => {
+    if (integrationRestarting) return;
+    setIntegrationRestarting(true);
+    setIntegrationRestartError(null);
+    try {
+      const r = await fetch('/api/spectrum/reset', { method: 'POST' });
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    } catch {
+      setIntegrationRestartError('Integration restart failed. Try again in a moment.');
+    } finally {
+      setIntegrationRestarting(false);
+    }
+  };
 
   const displayed = useMemo(() => {
     if (!frame) return null;
@@ -321,7 +347,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     waterfallSigRef.current = '';
     yRangeInitRef.current = false;
     chartInstance.current?.setOption({
-      series: [{ data: [] }],
+      series: [{ data: [], markArea: rfiMarkArea([]) }],
     });
   }, [connected, status?.latest_frame_age_s]);
 
@@ -358,7 +384,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     chart.setOption({
       xAxis: win ? { min: win.xMin, max: win.xMax } : {},
       yAxis: { min: round2(yMin), max: round2(yMax) },
-      series: [{ data, ...traceStyle(traceColor) }],
+      series: [{ data, ...traceStyle(traceColor), markArea: rfiMarkArea(frame.rfi_bands) }],
     });
   }, [frame, displayed, baselineApplies]);
 
@@ -556,6 +582,8 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const velocityKms = SPEED_OF_LIGHT_KMS * (H1_REST_MHZ - freqMhz) / H1_REST_MHZ;
     return { freqMhz, peakDb, prominenceDb, velocityKms, detected: prominenceDb >= DETECTION_MIN_DB };
   }, [frame, displayed]);
+  const rfiBandCount = frame?.rfi_bands?.length ?? 0;
+
   if (status && !status.enabled) {
     return (
       <section className="spectrum-section">
@@ -593,8 +621,21 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         <div className="spectrum-head-titles">
           <div className="spectrum-head-row">
             <h2 className="panel-header head-amber spectrum-title-lg">
-              Hydrogen line spectrum
+              Hydrogen Observation
             </h2>
+            <button
+              type="button"
+              className="spectrum-restart-integration"
+              onClick={restartIntegration}
+              disabled={!connected || integrationRestarting}
+              title={!connected ? 'Waiting for SDR stream' : 'Restart integration without clearing the baseline'}
+            >
+              <RefreshCw
+                size={13}
+                className={integrationRestarting ? 'is-spinning' : undefined}
+              />
+              {integrationRestarting ? 'Restarting' : 'Restart integration'}
+            </button>
             {onStartGuided && (
               <button
                 type="button"
@@ -636,8 +677,18 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
               How to read this chart
             </button>
           )}
+          {integrationRestartError && (
+            <p className="spectrum-notice" role="status">
+              {integrationRestartError}
+            </p>
+          )}
           <div className="spectrum-chart-caption">
             <span className="spectrum-chart-title">Power vs. frequency</span>
+            {rfiBandCount > 0 && (
+              <span className="spectrum-rfi-flag" title="Narrowband interference detected; the shaded bands are likely terrestrial, not astronomical.">
+                {rfiBandCount} RFI {rfiBandCount === 1 ? 'band' : 'bands'} flagged
+              </span>
+            )}
             {integrationStats && (
               <p className="spectrum-stats" aria-label="Integration statistics">
                 Integrating <strong>{integrationStats.windowSeconds.toFixed(1)} s</strong>
@@ -679,7 +730,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           )}
           {!baselineApplies && frame && (
             <div className="spectrum-baseline-overlay" aria-hidden>
-              Baseline capture needed
+              Baseline Needed
             </div>
           )}
         </div>
@@ -950,6 +1001,19 @@ function baseOption(yRange: [number, number]): EChartsOption {
         data: [] as [number, number][],
       },
     ],
+  };
+}
+
+// Translucent shaded bands over the stretches the hardware flagged as
+// narrowband RFI. Returned fresh each frame (with an empty data array when the
+// spectrum is clean) so ECharts' merge clears stale bands instead of leaving
+// them painted. `silent` keeps the bands from stealing the trace's tooltip.
+function rfiMarkArea(bands: number[][] | undefined) {
+  const data = (bands ?? []).map(([lo, hi]) => [{ xAxis: lo }, { xAxis: hi }]);
+  return {
+    silent: true,
+    itemStyle: { color: RFI_BAND_COLOR },
+    data,
   };
 }
 

@@ -474,7 +474,7 @@ function galacticStripePattern(ctx: CanvasRenderingContext2D): CanvasPattern | n
   return stripePattern;
 }
 
-export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, galacticExclusion }) => {
+export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, config, date, galacticExclusion }) => {
   if (!galacticExclusion) return;
 
   const L = GALACTIC_PLANE_EXCLUSION_DEG;
@@ -511,6 +511,28 @@ export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, galacticExclus
   // when the window is a full hemisphere.
   const span = lEnd - lStart;
   const step = Math.max(fovX / 120, span / GAL_MAX_QUADS, 0.02);
+  const limits = config.hard_safety_limits;
+  const hardWindowQuads = buildAltitudeBandQuads(
+    aladin,
+    config,
+    date,
+    limits.altitude_min_deg,
+    limits.altitude_max_deg,
+    limits.azimuth_min_deg,
+    limits.azimuth_max_deg,
+    w,
+    h,
+  );
+  if (hardWindowQuads.length === 0) return;
+
+  ctx.save();
+  ctx.beginPath();
+  for (const quad of hardWindowQuads) {
+    ctx.moveTo(quad[0][0], quad[0][1]);
+    for (const [x, y] of quad.slice(1)) ctx.lineTo(x, y);
+    ctx.closePath();
+  }
+  ctx.clip();
 
   // A quad is on-screen iff its bounding box overlaps the viewport. (The old
   // "all four corners off-screen" test wrongly culled the screen-spanning quad
@@ -581,6 +603,7 @@ export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, galacticExclus
     ctx.fillText('Milky Way — too noisy', best.p[0], best.p[1]);
     ctx.restore();
   }
+  ctx.restore();
 };
 
 

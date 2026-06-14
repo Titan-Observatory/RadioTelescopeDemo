@@ -1198,13 +1198,47 @@ input:focus-visible {
 .spectrum-head-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 8px;
 }
 h2.panel-header.spectrum-title-lg {
   font-size: 26px;
   line-height: 1.1;
+  margin-right: 4px;
+}
+
+.spectrum-restart-integration {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.spectrum-restart-integration:hover:not(:disabled) {
+  border-color: var(--accent-line, var(--sect-amber-soft));
+  color: var(--accent);
+}
+.spectrum-restart-integration:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.spectrum-restart-integration .is-spinning {
+  animation: spectrum-spin 700ms linear infinite;
+}
+
+@keyframes spectrum-spin {
+  to { transform: rotate(360deg); }
 }
 
 .spectrum-disconnected {
@@ -1473,6 +1507,22 @@ h2.panel-header.spectrum-title-lg {
 /* Integration specs sit directly under the centered graph title. */
 .spectrum-chart-caption .spectrum-stats {
   margin: 0;
+}
+/* RFI flag chip: signals the shaded bands on the trace are flagged interference,
+   not real signal. Slate-red to match the band shading without shouting. */
+.spectrum-rfi-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid rgba(255, 90, 95, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 90, 95, 0.1);
+  color: #ff8d90;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: default;
 }
 .spectrum-learn-link {
   grid-column: 1;

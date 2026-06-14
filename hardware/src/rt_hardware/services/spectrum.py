@@ -949,12 +949,16 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         cfg = self._cfg
         # Crop the finished dB spectrum to the displayed H I window — at the
         # default 3 Msps that more than halves the per-frame work and the
-        # WebSocket payload — then sigma-clip obvious narrowband RFI out of it.
+        # WebSocket payload. We never alter the trace: narrowband RFI is *flagged*
+        # (reported as frequency bands) so the frontend can shade it, leaving the
+        # underlying spectrum intact for the viewer to judge.
         start, stop = self._display_slice
         spectrum = np.asarray(power_db[start:stop], dtype=np.float32)
+        rfi_bands: list[list[float]] = []
         if cfg.spur_reject_enabled:
-            spectrum = _clean_rfi(
+            rfi_bands = _flag_rfi(
                 spectrum,
+                self._freqs_mhz_display_list,
                 cfg.sample_rate_hz / cfg.fft_size,
                 float(cfg.spur_sigma),
                 float(cfg.spur_max_width_khz),
@@ -972,6 +976,9 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             # rebuilt per frame.
             freqs_mhz=self._freqs_mhz_display_list,
             power_db=spectrum.round(3).tolist(),
+            # [lo_mhz, hi_mhz] frequency bands where narrowband RFI was detected.
+            # Empty when flagging is disabled or the spectrum is clean.
+            rfi_bands=rfi_bands,
             baseline_corrected=self._baseline_active,
         )
         self._latest = frame
@@ -997,15 +1004,16 @@ def _moving_average(values: np.ndarray, window: int) -> np.ndarray:
     return (sums / k).astype(np.float32)
 
 
-def _clean_rfi(
+def _flag_rfi(
     values_db: np.ndarray,
+    freqs_mhz: list[float],
     bin_hz: float,
     sigma: float,
     max_width_khz: float,
-) -> np.ndarray:
-    """Robust (median/MAD) sigma-clip of narrowband RFI from a dB spectrum.
+) -> list[list[float]]:
+    """Detect narrowband RFI in a dB spectrum, returning ``[lo_mhz, hi_mhz]`` bands.
 
-    The standard radio-astronomy spike filter (the same idea as
+    The standard radio-astronomy spike detector (the same idea as
     ``astropy.stats.sigma_clip`` with median centre + MAD spread):
 
     1. Detrend with a wide moving average so the receiver bandpass and the broad
@@ -1015,15 +1023,16 @@ def _clean_rfi(
        would.
     3. Flag bins more than ``sigma`` robust-σ above the residual median.
 
-    Contiguous flagged runs no wider than ``max_width_khz`` are bridged from
-    their clean neighbours (so a flat floor stays flat and a sloped bandpass
-    keeps its slope); wider runs are real structure and left untouched. Width is
-    in frequency, so the filter behaves the same at any fft_size / sample rate.
-    Returns a new array; the input is not mutated.
+    Each contiguous flagged run no wider than ``max_width_khz`` is reported as one
+    ``[lo_mhz, hi_mhz]`` band (the run's bin centres, widened by half a bin on
+    each edge so a single-bin spur still has visible width); wider runs are real
+    structure and ignored. Width is in frequency, so detection behaves the same at
+    any fft_size / sample rate. The spectrum itself is *never* modified — this
+    only describes where the RFI is so the frontend can shade it.
     """
     n = int(values_db.size)
-    if sigma <= 0 or max_width_khz <= 0 or bin_hz <= 0 or n < 8:
-        return np.asarray(values_db, dtype=np.float32)
+    if sigma <= 0 or max_width_khz <= 0 or bin_hz <= 0 or n < 8 or len(freqs_mhz) != n:
+        return []
     max_width_bins = max(1, round(max_width_khz * 1e3 / bin_hz))
     vals = np.asarray(values_db, dtype=np.float32)
 
@@ -1032,10 +1041,11 @@ def _clean_rfi(
     med = float(np.median(resid))
     robust_sigma = 1.4826 * float(np.median(np.abs(resid - med)))
     if robust_sigma <= 0:
-        return vals.copy()
+        return []
     flagged = (resid - med) > sigma * robust_sigma
 
-    out = np.array(vals, dtype=np.float32)  # copy; never mutate the input
+    half_bin_mhz = (bin_hz / 1e6) / 2.0
+    bands: list[list[float]] = []
     i = 0
     while i < n:
         if not flagged[i]:
@@ -1045,19 +1055,11 @@ def _clean_rfi(
         while j < n and flagged[j]:
             j += 1
         if (j - i) <= max_width_bins:
-            left, right = i - 1, j
-            if left < 0 and right >= n:
-                pass  # whole vector flagged (degenerate) — leave it
-            elif left < 0:
-                out[i:j] = vals[right]
-            elif right >= n:
-                out[i:j] = vals[left]
-            else:
-                out[i:j] = np.interp(
-                    np.arange(i, j), [left, right], [vals[left], vals[right]],
-                ).astype(np.float32)
+            lo = float(freqs_mhz[i]) - half_bin_mhz
+            hi = float(freqs_mhz[j - 1]) + half_bin_mhz
+            bands.append([round(lo, 6), round(hi, 6)])
         i = j
-    return out
+    return bands
 
 
 class _PipelineDied(RuntimeError):
