@@ -156,8 +156,8 @@ function PointingPad({ jog, stopJog, speed, onStop }: {
 // Authentic telescope hand-controller rate names rather than generic
 // slow/med/fast: Guide (fine tracking), Set (centring), Slew (full traverse).
 const SPEED_PRESETS: { id: 'fine' | 'coarse' | 'slew'; label: string; value: number }[] = [
-  { id: 'fine',   label: 'Guide', value: 10 },
-  { id: 'coarse', label: 'Set',   value: 40 },
+  { id: 'fine',   label: 'Fine', value: 10 },
+  { id: 'coarse', label: 'Coarse',   value: 40 },
   { id: 'slew',   label: 'Slew',  value: 85 },
 ];
 

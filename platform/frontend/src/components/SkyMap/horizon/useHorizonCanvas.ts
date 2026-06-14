@@ -8,6 +8,7 @@ import {
   buildHorizonSamples,
   computeFwhmHoverZones,
   computeGroundIsInside,
+  drawAltitudeLimitOverlay,
   drawAltAzGrid,
   drawCardinals,
   drawGalacticExclusion,
@@ -38,10 +39,11 @@ interface UseHorizonCanvasOptions {
 // sit underneath later ones. computeFwhmHoverZones must run last so it sees
 // the final pending/telemetry state for that frame.
 const LAYERS: Layer[] = [
+  drawGalacticExclusion,
   drawGround,
+  drawAltitudeLimitOverlay,
   drawAltAzGrid,
   drawHorizonLine,
-  drawGalacticExclusion,
   drawCardinals,
   drawSlewPath,
   drawSunAndMoon,

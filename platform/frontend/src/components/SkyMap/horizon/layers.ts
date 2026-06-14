@@ -65,6 +65,8 @@ export type Layer = (state: FrameState) => void;
 
 const ALT_RINGS = [15, 30, 45, 60, 75];
 const AZ_LINES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+const ALTITUDE_LIMIT_MIN_DEG = 30;
+const ALTITUDE_LIMIT_MAX_DEG = 70;
 
 export function buildHorizonSamples(config: TelescopeConfig, date: Date): {
   horizonRaDec: RaDecTarget[];
@@ -173,6 +175,85 @@ function drawProjectedPolyline(
 // To swap in a real panorama, replace the fillStyle block in drawGround with
 // ctx.drawImage(panoramaImg, …) mapped to the same clipping polygon.
 
+function buildAltitudeRing(config: TelescopeConfig, date: Date, altitudeDeg: number, stepDeg = 3): RaDecTarget[] {
+  const samples: RaDecTarget[] = [];
+  for (let az = 0; az < 360; az += stepDeg) {
+    samples.push(altAzToRaDec({ altitude_deg: altitudeDeg, azimuth_deg: az }, config, date));
+  }
+  return samples;
+}
+
+function buildAltitudeBandQuads(
+  aladin: AladinInstance,
+  config: TelescopeConfig,
+  date: Date,
+  minAltDeg: number,
+  maxAltDeg: number,
+  w: number,
+  h: number,
+): [number, number][][] {
+  const maxCoord = 50 * Math.max(w, h);
+  const project = (altitude_deg: number, azimuth_deg: number): [number, number] | null => {
+    const { ra_deg, dec_deg } = altAzToRaDec({ altitude_deg, azimuth_deg }, config, date);
+    const p = aladin.world2pix(ra_deg, dec_deg);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1])) return null;
+    if (Math.abs(p[0]) > maxCoord || Math.abs(p[1]) > maxCoord) return null;
+    return [p[0], p[1]];
+  };
+
+  const overlapsScreen = (quad: [number, number][]) =>
+    Math.max(...quad.map(([x]) => x)) >= 0 &&
+    Math.min(...quad.map(([x]) => x)) <= w &&
+    Math.max(...quad.map(([, y]) => y)) >= 0 &&
+    Math.min(...quad.map(([, y]) => y)) <= h;
+
+  const quads: [number, number][][] = [];
+  let prevMin = project(minAltDeg, 0);
+  let prevMax = project(maxAltDeg, 0);
+  for (let az = 3; az <= 360; az += 3) {
+    const nextAz = az === 360 ? 0 : az;
+    const min = project(minAltDeg, nextAz);
+    const max = project(maxAltDeg, nextAz);
+    if (prevMin && prevMax && min && max) {
+      const quad = [prevMin, min, max, prevMax];
+      if (overlapsScreen(quad)) quads.push(quad);
+    }
+    prevMin = min;
+    prevMax = max;
+  }
+  return quads;
+}
+
+export const drawAltitudeLimitOverlay: Layer = ({ ctx, aladin, w, h, config, date }) => {
+  const validBandQuads = buildAltitudeBandQuads(
+    aladin,
+    config,
+    date,
+    ALTITUDE_LIMIT_MIN_DEG,
+    ALTITUDE_LIMIT_MAX_DEG,
+    w,
+    h,
+  );
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  for (const quad of validBandQuads) {
+    ctx.moveTo(quad[0][0], quad[0][1]);
+    for (const [x, y] of quad.slice(1)) ctx.lineTo(x, y);
+    ctx.closePath();
+  }
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+  ctx.fill('evenodd');
+
+  ctx.strokeStyle = 'rgba(232, 238, 244, 0.72)';
+  ctx.lineWidth = 1.5;
+  for (const alt of [ALTITUDE_LIMIT_MIN_DEG, ALTITUDE_LIMIT_MAX_DEG]) {
+    drawProjectedPolyline(ctx, aladin, buildAltitudeRing(config, date, alt), true, w, h);
+  }
+  ctx.restore();
+};
+
 export const drawGround: Layer = ({ ctx, w, h, horizonPx, groundIsInside }) => {
   ctx.beginPath();
   if (!groundIsInside) {
@@ -182,7 +263,7 @@ export const drawGround: Layer = ({ ctx, w, h, horizonPx, groundIsInside }) => {
   ctx.moveTo(horizonPx[0][0], horizonPx[0][1]);
   for (const [x, y] of horizonPx.slice(1)) ctx.lineTo(x, y);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(18, 38, 14, 0.82)';
+  ctx.fillStyle = 'rgba(18, 38, 14, 0.94)';
   ctx.fill('evenodd');
 };
 

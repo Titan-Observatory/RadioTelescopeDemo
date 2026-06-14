@@ -687,7 +687,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         {!baselineApplies ? (
           <div className="spectrum-baseline-row spectrum-baseline-callout" aria-label="Baseline correction">
             <span className="spectrum-baseline-state">
-              <span className="spectrum-baseline-dot" aria-hidden />
               No baseline
             </span>
             <span className="spectrum-baseline-hint">

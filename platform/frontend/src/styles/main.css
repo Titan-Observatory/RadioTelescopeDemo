@@ -820,7 +820,7 @@ input:focus-visible {
 .motion-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .motion-head {
   display: flex;
@@ -1688,27 +1688,28 @@ h2.panel-header.spectrum-title-lg {
 /* Baseline correction — one quiet row: state dot, one-line hint, action.
    The guided tour anchors on .spectrum-toolbar, so keep that class here. */
 /* Group state + hint + action into one contained card so it reads as the
-   "baseline setup" control rather than floating loose against the chart. A
-   left accent bar keys the whole card to the current state (faint = none,
-   teal = applied) so the eye can register status before reading any text. */
+   "baseline setup" control rather than floating loose against the chart. */
 .spectrum-baseline-row {
+  display: flex;
+  align-items: stretch;
   flex-wrap: nowrap;
   gap: 8px 12px;
   margin-top: 8px;
-  padding: 9px 12px;
+  padding: 0;
   background: var(--surface-2);
   border: 1px solid var(--hairline);
-  border-left: 2px solid var(--fg-faint);
   border-radius: var(--r-sm);
+  overflow: hidden;
 }
 .spectrum-baseline-row:has(.spectrum-baseline-state.is-applied) {
-  border-left-color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--hairline));
 }
 .spectrum-baseline-state {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   flex-shrink: 0;
+  padding-left: 12px;
   color: var(--fg-muted);
   font-size: 11px;
   font-weight: 700;
@@ -1728,8 +1729,11 @@ h2.panel-header.spectrum-title-lg {
   box-shadow: 0 0 6px rgba(119, 203, 185, 0.5);
 }
 .spectrum-baseline-hint {
+  display: flex;
+  align-items: center;
   flex: 1 1 auto;
   min-width: 0;
+  padding-block: 9px;
   color: var(--fg-subtle);
   font-size: 11px;
   line-height: 1.4;
@@ -1737,18 +1741,25 @@ h2.panel-header.spectrum-title-lg {
 /* The card is surface-2, so the action needs a darker base (and a darker
    hover) to stay legible as a button rather than melting into the card. */
 .spectrum-baseline-row .ghost-btn {
+  align-self: stretch;
   flex-shrink: 0;
+  margin-left: auto;
+  min-height: 100%;
+  padding-inline: 14px;
   background: var(--surface-1);
-  border-color: var(--hairline-strong);
+  border-width: 0 0 0 1px;
+  border-color: var(--hairline);
+  border-radius: 0;
 }
 .spectrum-baseline-row .ghost-btn:hover:not(:disabled) {
   background: var(--surface-3);
 }
-/* When no baseline is captured the trace is drawn red and this callout takes
-   the place of the peak readouts under the chart. The red left border ties it
-   to the alert-coloured trace above. */
+/* When no baseline is captured this callout takes the place of the peak
+   readouts under the chart. */
 .spectrum-baseline-callout {
-  border-left-color: var(--err, #ff5a5f);
+  --spectrum-alert-red: #ff5a5f;
+  background: var(--surface-2);
+  border-color: var(--spectrum-alert-red);
 }
 
 /* Trailing "Recapture" affordance inside the readouts strip once a baseline is
@@ -1763,12 +1774,13 @@ h2.panel-header.spectrum-title-lg {
    red. Keep it a few pixels above the plotted area's bottom edge so it sits on
    the graph itself rather than in the x-axis label gutter. */
 .spectrum-baseline-overlay {
+  --spectrum-alert-red: #ff5a5f;
   position: absolute;
   left: 50%;
   bottom: 54px;
   transform: translateX(-50%);
   z-index: 3;
-  color: #ff8a8d;
+  color: var(--spectrum-alert-red);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -1892,7 +1904,7 @@ h2.panel-header {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 18px;
+  gap: 14px;
 }
 
 /* Compact 3×3 grid: four direction buttons around a central STOP. Putting
@@ -2010,9 +2022,9 @@ h2.panel-header {
   flex-direction: column;
   flex: 0 0 auto;
   align-items: stretch;
-  gap: 10px;
-  min-height: 150px;
-  padding-left: 6px;
+  gap: 8px;
+  min-height: 140px;
+  padding-left: 3px;
   --thumb: 18px;
   --rail-w: 6px;
 }
@@ -2028,7 +2040,7 @@ h2.panel-header {
 .speed-slider-body {
   display: flex;
   align-items: stretch;
-  gap: 12px;
+  gap: 9px;
   flex: 1;
 }
 
@@ -4275,11 +4287,22 @@ h2.panel-header {
   .target-form { grid-template-columns: 1fr 1fr; }
   .target-form button[type="submit"] { grid-column: 1 / -1; }
   .spectrum-baseline-row {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0 10px;
   }
+  .spectrum-baseline-state { padding-top: 9px; }
   .spectrum-baseline-hint {
     flex-basis: 100%;
+    grid-column: 1 / -1;
     order: 3;
+    padding: 0 12px 9px;
+  }
+  .spectrum-baseline-row .ghost-btn {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    min-height: 40px;
   }
   .spectrum-readouts { gap: 6px 18px; }
   .dashboard-rightcol .spectrum-panel-host .spectrum-chart-wrap,

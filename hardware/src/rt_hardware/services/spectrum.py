@@ -421,6 +421,12 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
                 # reconnect into the capture while the live stream is paused.
                 self._mode = "starting"
                 baseline: dict[str, Any] | None = None
+                # Drop the cached frame before we stop the live pipeline. Without
+                # this, the status endpoint keeps reporting the pre-capture frame's
+                # ageing timestamp throughout the capture *and* the post-capture
+                # warmup, so the frontend fires a reconnect every 5 s and kills the
+                # respawned subprocess before it can emit its first frame.
+                self._latest = None
                 try:
                     await self._kill_subprocess_locked()
                     if await self._run_capture_subprocess():
