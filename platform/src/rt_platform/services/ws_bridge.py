@@ -201,6 +201,8 @@ class JsonWsBridge(Broadcaster[dict]):
                 # subscriber that reconnects before frames resume isn't shown a
                 # stale frame (which would suppress the "waiting" placeholder).
                 self._latest = None
+            if self._shutting_down or self.subscriber_count == 0:
+                return
             await asyncio.sleep(_RECONNECT_DELAY_S)
 
 

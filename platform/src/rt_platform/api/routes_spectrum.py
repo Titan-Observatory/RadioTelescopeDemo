@@ -29,6 +29,12 @@ logger = logging.getLogger("radiotelescope.spectrum_proxy")
 router = APIRouter(tags=["spectrum-proxy"])
 
 
+async def _wait_for_ws_disconnect(ws: WebSocket) -> None:
+    """Block until the browser closes a send-only websocket."""
+    while True:
+        await ws.receive_text()
+
+
 def _hardware(request: Request):
     return request.app.state.hardware_client
 
@@ -158,11 +164,33 @@ async def spectrum_ws(ws: WebSocket):
             return
         bridge.clear_latest()
     q = bridge.subscribe()
+    disconnect_task = asyncio.create_task(
+        _wait_for_ws_disconnect(ws), name="spectrum-ws-disconnect",
+    )
+    frame_task: asyncio.Task | None = None
     try:
         while True:
-            frame = await q.get()
+            frame_task = asyncio.create_task(q.get(), name="spectrum-ws-frame")
+            done, pending = await asyncio.wait(
+                {frame_task, disconnect_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disconnect_task in done:
+                try:
+                    disconnect_task.result()
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+                for task in pending:
+                    task.cancel()
+                break
+            frame = frame_task.result()
+            frame_task = None
             await ws.send_json(frame)
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:
+        if frame_task is not None and not frame_task.done():
+            frame_task.cancel()
+        if not disconnect_task.done():
+            disconnect_task.cancel()
         bridge.unsubscribe(q)
