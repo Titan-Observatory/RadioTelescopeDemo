@@ -37,6 +37,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
   const configRef       = useRef<TelescopeConfig | null>(null);
   const telemetryRef    = useRef<RoboClawTelemetry | null>(null);
   const pendingRef      = useRef<RaDecTarget | null>(null);
+  const overlaysRef     = useRef<SkyOverlay[]>([]);
   const horizonCanvasRef  = useRef<HTMLCanvasElement | null>(null);
   const onTargetRef = useRef<((az: number, alt: number, raDeg: number, decDeg: number) => void) | null>(null);
   const onClearTargetRef = useRef<(() => void) | null>(null);
@@ -68,13 +69,14 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
   const [survey, setSurvey] = useState<SurveyId>(HYDROGEN_SURVEY_ID);
   const [viewSelectorOpen, setViewSelectorOpen] = useState(false);
   const [hoverTooltip, setHoverTooltip] = useState<
-    | { kind: 'sun' | 'beam' | 'pending'; x: number; y: number; fwhm?: number }
+    | { kind: 'sun' | 'beam' | 'pending' | 'satellite'; x: number; y: number; fwhm?: number; label?: string }
     | null
   >(null);
 
   useEffect(() => { configRef.current    = config;    }, [config]);
   useEffect(() => { telemetryRef.current = telemetry; }, [telemetry]);
   useEffect(() => { pendingRef.current   = pending;   }, [pending]);
+  useEffect(() => { overlaysRef.current  = overlays;  }, [overlays]);
   useEffect(() => { onTargetRef.current  = onTarget;  }, [onTarget]);
   useEffect(() => { onClearTargetRef.current = onClearTarget ?? null; }, [onClearTarget]);
   useEffect(() => { onNoticeRef.current  = onNotice;  }, [onNotice]);
@@ -137,7 +139,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
     horizonOverlayRef.current.removeAll();
   }, [ready]);
 
-  const { sunZoneRef, beamZoneRef, pendingZoneRef } = useHorizonCanvas({
+  const { sunZoneRef, beamZoneRef, pendingZoneRef, satelliteZoneRef } = useHorizonCanvas({
     ready,
     config,
     containerRef,
@@ -146,6 +148,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
     configRef,
     telemetryRef,
     pendingRef,
+    overlaysRef,
     galacticExclusionRef,
   });
 
@@ -245,7 +248,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
 
     targetCatalogRef.current.removeAll();
     targetCatalogRef.current.addSources(
-      overlays.map((overlay) =>
+      overlays.filter((overlay) => overlay.kind !== 'satellite').map((overlay) =>
         aladinModuleRef.current!.source(overlay.ra_deg, overlay.dec_deg, {
           name: overlay.label,
           id: overlay.id,
@@ -270,7 +273,12 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
 
     // Prefer the smallest ring under the cursor so the pending target wins
     // when it overlaps the (larger) solar exclusion zone.
-    const candidates: { kind: 'sun' | 'beam' | 'pending'; r: number; fwhm?: number }[] = [];
+    const candidates: { kind: 'sun' | 'beam' | 'pending' | 'satellite'; r: number; fwhm?: number; label?: string }[] = [];
+    for (const satellite of satelliteZoneRef.current) {
+      if (Math.hypot(mx - satellite.cx, my - satellite.cy) < satellite.r) {
+        candidates.push({ kind: 'satellite', r: satellite.r, label: satellite.overlay.label });
+      }
+    }
     const beam = beamZoneRef.current;
     if (beam && Math.hypot(mx - beam.cx, my - beam.cy) < beam.r) {
       candidates.push({ kind: 'beam', r: beam.r, fwhm: beam.fwhm });
@@ -286,7 +294,31 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
     if (candidates.length === 0) { setHoverTooltip(null); return; }
     candidates.sort((a, b) => a.r - b.r);
     const pick = candidates[0];
-    setHoverTooltip({ kind: pick.kind, x: mx, y: my, fwhm: pick.fwhm });
+    setHoverTooltip({ kind: pick.kind, x: mx, y: my, fwhm: pick.fwhm, label: pick.label });
+  };
+
+  const handleSkyMapClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!config) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const satellite = satelliteZoneRef.current.find((zone) =>
+      Math.hypot(mx - zone.cx, my - zone.cy) < zone.r,
+    );
+    if (!satellite) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    const overlay = satellite.overlay;
+    const altAz = overlay.altitude_deg != null && overlay.azimuth_deg != null
+      ? { altitude_deg: overlay.altitude_deg, azimuth_deg: overlay.azimuth_deg }
+      : raDecToAltAz(satellite.ra_deg, satellite.dec_deg, config, new Date());
+    const skyPoint = overlay.altitude_deg != null && overlay.azimuth_deg != null
+      ? altAzToRaDec(altAz, config, new Date())
+      : { ra_deg: satellite.ra_deg, dec_deg: satellite.dec_deg };
+
+    onNotice(null);
+    onTarget(altAz.azimuth_deg, altAz.altitude_deg, skyPoint.ra_deg, skyPoint.dec_deg);
   };
 
   const handleSkyMapLeave = () => {
@@ -298,6 +330,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
       className={`skymap-wrapper${survey !== HYDROGEN_SURVEY_ID ? ' skymap-wrapper-explore' : ''}`}
       onMouseMove={handleSolarHover}
       onMouseLeave={handleSkyMapLeave}
+      onClickCapture={handleSkyMapClickCapture}
     >
       <div className="skymap-aladin" ref={containerRef} />
       <canvas className="skymap-horizon-canvas" ref={horizonCanvasRef} />
@@ -403,6 +436,12 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
                 Projected half-power footprint at the selected target
                 {hoverTooltip.fwhm != null ? ` - ${hoverTooltip.fwhm.toFixed(2)} deg full width` : ''}.
               </p>
+            </>
+          )}
+          {hoverTooltip.kind === 'satellite' && (
+            <>
+              <strong>{hoverTooltip.label ?? 'Satellite'}</strong>
+              <p>Select satellite target</p>
             </>
           )}
         </div>

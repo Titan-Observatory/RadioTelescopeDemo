@@ -84,6 +84,64 @@ export function drawMoonIcon(
 }
 
 
+export function drawSatelliteIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  color = '#f3cc6b',
+): void {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-Math.PI / 8);
+
+  ctx.shadowColor = 'rgba(243, 204, 107, 0.42)';
+  ctx.shadowBlur = 12;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  ctx.fillStyle = 'rgba(5, 12, 24, 0.82)';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.6;
+
+  const bodyW = size * 0.56;
+  const bodyH = size * 0.44;
+  ctx.beginPath();
+  ctx.roundRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(243, 204, 107, 0.22)';
+  ctx.strokeStyle = 'rgba(255, 232, 158, 0.9)';
+  ctx.lineWidth = 1.2;
+
+  ctx.beginPath();
+  ctx.rect(-size * 1.02, -size * 0.32, size * 0.5, size * 0.64);
+  ctx.rect(size * 0.52, -size * 0.32, size * 0.5, size * 0.64);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.52, 0);
+  ctx.lineTo(-size * 0.28, 0);
+  ctx.moveTo(size * 0.28, 0);
+  ctx.lineTo(size * 0.52, 0);
+  ctx.moveTo(0, -size * 0.22);
+  ctx.lineTo(0, -size * 0.58);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(0, -size * 0.72, size * 0.12, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+
 export function pointInPolygon(x: number, y: number, polygon: [number, number][]): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {

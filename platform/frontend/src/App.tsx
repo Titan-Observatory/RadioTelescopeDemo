@@ -18,6 +18,7 @@ import { useBackendCatalog } from './lib/useBackendCatalog';
 import { useErrorTracking } from './lib/useErrorTracking';
 import { useFullscreen } from './lib/useFullscreen';
 import { useGoesStream } from './lib/useGoesStream';
+import { altAzToRaDec } from './lib/astro';
 import { useLna } from './lib/useLna';
 import { useMapTarget } from './lib/useMapTarget';
 import { useMotionCommands } from './lib/useMotionCommands';
@@ -65,6 +66,32 @@ function ControlUI({ queue }: ControlUIProps) {
   // only opens its socket when the hardware is actually in GOES mode.
   const { info: observation, isGoes } = useObservationMode(liveControlsEnabled);
   const goes = useGoesStream(liveControlsEnabled && isGoes);
+  const goesSatelliteOverlays = useMemo(() => {
+    if (!isGoes || !observation || !telescopeConfig) return [];
+    const targetSatellite = observation.satellites.find((satellite) =>
+      satellite.id === observation.target_satellite_id || satellite.is_target,
+    ) ?? observation.satellites[0];
+    if (!targetSatellite || !targetSatellite.visible) return [];
+
+    const skyPoint = altAzToRaDec(
+      {
+        altitude_deg: targetSatellite.elevation_deg,
+        azimuth_deg: targetSatellite.azimuth_deg,
+      },
+      telescopeConfig,
+      new Date(),
+    );
+    return [{
+      id: `goes-satellite-${targetSatellite.id}`,
+      label: targetSatellite.name,
+      ra_deg: skyPoint.ra_deg,
+      dec_deg: skyPoint.dec_deg,
+      altitude_deg: targetSatellite.elevation_deg,
+      azimuth_deg: targetSatellite.azimuth_deg,
+      color: '#f3cc6b',
+      kind: 'satellite' as const,
+    }];
+  }, [isGoes, observation, telescopeConfig]);
 
   const skymapPanelRef = useRef<HTMLElement>(null);
   const { isFullscreen: isSkymapFullscreen, toggle: toggleSkymapFullscreen } = useFullscreen(skymapPanelRef);
@@ -107,6 +134,7 @@ function ControlUI({ queue }: ControlUIProps) {
             onClearTarget={map.clearTarget}
             pendingTarget={pendingTarget}
             tooltipsEnabled={true}
+            overlays={goesSatelliteOverlays}
             toolbarLeading={(
               <button
                 type="button"

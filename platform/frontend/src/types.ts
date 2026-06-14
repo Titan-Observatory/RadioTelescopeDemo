@@ -105,6 +105,9 @@ export interface SkyOverlay {
   ra_deg: number;
   dec_deg: number;
   color: string;
+  kind?: 'source' | 'satellite';
+  altitude_deg?: number;
+  azimuth_deg?: number;
 }
 
 export interface CommandArg {

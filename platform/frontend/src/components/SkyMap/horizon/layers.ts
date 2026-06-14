@@ -12,18 +12,24 @@ import {
   raDecToGalactic,
   sunRaDec,
 } from '../../../lib/astro';
-import type { RaDecTarget, RoboClawTelemetry, TelescopeConfig } from '../../../types';
-import { drawMoonIcon, drawSunIcon, pointInPolygon } from './icons';
+import type { RaDecTarget, RoboClawTelemetry, SkyOverlay, TelescopeConfig } from '../../../types';
+import { drawMoonIcon, drawSatelliteIcon, drawSunIcon, pointInPolygon } from './icons';
 
 
 export type AladinInstance = ReturnType<typeof A.aladin>;
 
 export type HoverZone = { cx: number; cy: number; r: number; fwhm?: number };
+export type SatelliteHoverZone = HoverZone & {
+  overlay: SkyOverlay;
+  ra_deg: number;
+  dec_deg: number;
+};
 
 export interface HoverZoneRefs {
   sun: MutableRefObject<{ cx: number; cy: number; r: number } | null>;
   beam: MutableRefObject<{ cx: number; cy: number; r: number; fwhm: number } | null>;
   pending: MutableRefObject<{ cx: number; cy: number; r: number; fwhm: number } | null>;
+  satellites: MutableRefObject<SatelliteHoverZone[]>;
 }
 
 /**
@@ -46,6 +52,7 @@ export interface FrameState {
   config: TelescopeConfig;
   telemetry: RoboClawTelemetry | null;
   pending: RaDecTarget | null;
+  overlays: SkyOverlay[];
   fwhmDeg: number;
   horizonPx: [number, number][];
   almucantars: { altitude_deg: number; samples: RaDecTarget[] }[];
@@ -745,6 +752,43 @@ export const drawSunAndMoon: Layer = ({ ctx, aladin, w, h, config, date, hoverZo
     ctx.strokeText(label, p[0], labelY);
     ctx.fillStyle    = colour;
     ctx.fillText(label, p[0], labelY);
+  }
+};
+
+
+export const drawSatelliteOverlays: Layer = ({ ctx, aladin, w, h, config, date, overlays, hoverZones }) => {
+  for (const overlay of overlays) {
+    if (overlay.kind !== 'satellite') continue;
+    const position = overlay.altitude_deg != null && overlay.azimuth_deg != null
+      ? altAzToRaDec(
+        { altitude_deg: overlay.altitude_deg, azimuth_deg: overlay.azimuth_deg },
+        config,
+        date,
+      )
+      : overlay;
+    const p = aladin.world2pix(position.ra_deg, position.dec_deg);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1])) continue;
+    if (p[0] < -60 || p[0] > w + 60 || p[1] < -60 || p[1] > h + 60) continue;
+
+    const iconSize = 13;
+    drawSatelliteIcon(ctx, p[0], p[1], iconSize, overlay.color);
+    hoverZones.satellites.current.push({
+      cx: p[0],
+      cy: p[1],
+      r: iconSize * 1.45,
+      overlay,
+      ra_deg: position.ra_deg,
+      dec_deg: position.dec_deg,
+    });
+
+    ctx.font = '11px "IBM Plex Sans", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.72)';
+    ctx.strokeText(overlay.label, p[0], p[1] + 17);
+    ctx.fillStyle = overlay.color;
+    ctx.fillText(overlay.label, p[0], p[1] + 17);
   }
 };
 

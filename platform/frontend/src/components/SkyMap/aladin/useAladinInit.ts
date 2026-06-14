@@ -21,7 +21,7 @@ const TARGET_CLICK_DRAG_TOLERANCE_PX = 6;
 
 
 type HoverTooltip =
-  | { kind: 'sun' | 'beam' | 'pending'; x: number; y: number; fwhm?: number }
+  | { kind: 'sun' | 'beam' | 'pending' | 'satellite'; x: number; y: number; fwhm?: number; label?: string }
   | null;
 
 

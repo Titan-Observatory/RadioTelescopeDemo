@@ -1805,8 +1805,22 @@ h2.panel-header.spectrum-title-lg {
    readouts under the chart. */
 .spectrum-baseline-callout {
   --spectrum-alert-red: #ff5a5f;
-  background: var(--surface-2);
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  background: color-mix(in srgb, var(--spectrum-alert-red) 12%, var(--surface-2));
   border-color: var(--spectrum-alert-red);
+}
+.spectrum-baseline-callout .spectrum-baseline-state {
+  padding-left: 16px;
+  font-size: 13px;
+}
+.spectrum-baseline-callout .spectrum-baseline-hint {
+  font-size: 13px;
+}
+.spectrum-baseline-callout .ghost-btn {
+  padding-inline: 18px;
+  font-size: 13px;
 }
 
 /* Trailing "Recapture" affordance inside the readouts strip once a baseline is
@@ -4336,6 +4350,17 @@ h2.panel-header {
   .target-form button[type="submit"] { grid-column: 1 / -1; }
   .spectrum-baseline-row .ghost-btn {
     padding-inline: 12px;
+  }
+  .spectrum-baseline-row,
+  .spectrum-baseline-callout {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    flex-wrap: wrap;
+  }
+  .spectrum-baseline-hint {
+    flex-basis: 100%;
+    white-space: normal;
   }
   .spectrum-readouts { gap: 6px 18px; }
   .dashboard-rightcol .spectrum-panel-host .spectrum-chart-wrap,

@@ -1,6 +1,6 @@
 import { type RefObject, useEffect, useRef } from 'react';
 
-import type { RaDecTarget, RoboClawTelemetry, TelescopeConfig } from '../../../types';
+import type { RaDecTarget, RoboClawTelemetry, SkyOverlay, TelescopeConfig } from '../../../types';
 import {
   type AladinInstance,
   type FrameState,
@@ -14,9 +14,11 @@ import {
   drawGalacticExclusion,
   drawGround,
   drawHorizonLine,
+  drawSatelliteOverlays,
   drawSlewPath,
   drawSunAndMoon,
   projectHorizonPolygon,
+  type SatelliteHoverZone,
 } from './layers';
 
 
@@ -29,6 +31,7 @@ interface UseHorizonCanvasOptions {
   configRef: RefObject<TelescopeConfig | null>;
   telemetryRef: RefObject<RoboClawTelemetry | null>;
   pendingRef: RefObject<RaDecTarget | null>;
+  overlaysRef: RefObject<SkyOverlay[]>;
   /** Shade the galactic-plane exclusion band (baseline wizard pick step). */
   galacticExclusionRef: RefObject<boolean>;
 }
@@ -47,6 +50,7 @@ const LAYERS: Layer[] = [
   drawCardinals,
   drawSlewPath,
   drawSunAndMoon,
+  drawSatelliteOverlays,
   computeFwhmHoverZones,
 ];
 
@@ -66,12 +70,14 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
     configRef,
     telemetryRef,
     pendingRef,
+    overlaysRef,
     galacticExclusionRef,
   } = opts;
 
   const sunZoneRef = useRef<{ cx: number; cy: number; r: number } | null>(null);
   const beamZoneRef = useRef<{ cx: number; cy: number; r: number; fwhm: number } | null>(null);
   const pendingZoneRef = useRef<{ cx: number; cy: number; r: number; fwhm: number } | null>(null);
+  const satelliteZoneRef = useRef<SatelliteHoverZone[]>([]);
 
   useEffect(() => {
     if (!ready || !config) return;
@@ -97,7 +103,7 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
 
     let frameId: number;
     const dashOffset = { current: 0 };
-    const hoverZones = { sun: sunZoneRef, beam: beamZoneRef, pending: pendingZoneRef };
+    const hoverZones = { sun: sunZoneRef, beam: beamZoneRef, pending: pendingZoneRef, satellites: satelliteZoneRef };
 
     const draw = () => {
       if (Date.now() - lastSampleTime > 30_000) refreshSamples();
@@ -128,6 +134,7 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
       sunZoneRef.current = null;
       beamZoneRef.current = null;
       pendingZoneRef.current = null;
+      satelliteZoneRef.current = [];
 
       const state: FrameState = {
         ctx,
@@ -137,6 +144,7 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
         config: cfg,
         telemetry: telemetryRef.current,
         pending: pendingRef.current,
+        overlays: overlaysRef.current,
         fwhmDeg: configRef.current?.beam_fwhm_deg ?? 6.5,
         horizonPx,
         almucantars,
@@ -156,5 +164,5 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
     return () => cancelAnimationFrame(frameId);
   }, [ready, config]);
 
-  return { sunZoneRef, beamZoneRef, pendingZoneRef };
+  return { sunZoneRef, beamZoneRef, pendingZoneRef, satelliteZoneRef };
 }
