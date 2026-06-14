@@ -871,12 +871,18 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
 
     def _publish_frame(self, power_db: np.ndarray) -> None:
         cfg = self._cfg
-        # Pure forwarder: the flowgraph already produced a finished dB spectrum
-        # (integrated, spur-rejected, baseline-divided). We just crop it to the
-        # displayed H I window — at the default 3 Msps that more than halves the
-        # dB rounding/serialisation and WebSocket payload — and package it.
+        # Crop the finished dB spectrum to the displayed H I window — at the
+        # default 3 Msps that more than halves the per-frame work and the
+        # WebSocket payload — then sigma-clip obvious narrowband RFI out of it.
         start, stop = self._display_slice
         spectrum = np.asarray(power_db[start:stop], dtype=np.float32)
+        if cfg.spur_reject_enabled:
+            spectrum = _clean_rfi(
+                spectrum,
+                cfg.sample_rate_hz / cfg.fft_size,
+                float(cfg.spur_sigma),
+                float(cfg.spur_max_width_khz),
+            )
         frame = SpectrumFrame(
             timestamp=time.time(),
             center_freq_mhz=cfg.center_freq_hz / 1e6,
@@ -894,6 +900,88 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         )
         self._latest = frame
         self.publish(frame)
+
+
+def _moving_average(values: np.ndarray, window: int) -> np.ndarray:
+    """Edge-padded moving average across frequency bins, O(n) via cumsum.
+
+    ``window`` is forced odd; 0 or 1 is a no-op. Used as the slowly-varying
+    spectral trend the RFI sigma-clip detrends against — cheap enough to run on
+    every published frame even at tens of thousands of bins.
+    """
+    if window <= 1 or values.size == 0:
+        return np.asarray(values, dtype=np.float32)
+    k = int(window) | 1  # force odd
+    if k >= values.size:
+        return np.full_like(values, float(np.mean(values)), dtype=np.float32)
+    pad = k // 2
+    padded = np.pad(values, pad, mode="edge")
+    csum = np.cumsum(padded, dtype=np.float64)
+    sums = csum[k - 1:] - np.concatenate(([0.0], csum[:-k]))
+    return (sums / k).astype(np.float32)
+
+
+def _clean_rfi(
+    values_db: np.ndarray,
+    bin_hz: float,
+    sigma: float,
+    max_width_khz: float,
+) -> np.ndarray:
+    """Robust (median/MAD) sigma-clip of narrowband RFI from a dB spectrum.
+
+    The standard radio-astronomy spike filter (the same idea as
+    ``astropy.stats.sigma_clip`` with median centre + MAD spread):
+
+    1. Detrend with a wide moving average so the receiver bandpass and the broad
+       hydrogen line aren't mistaken for spikes.
+    2. Estimate the noise from the median absolute deviation of the residual —
+       ``σ ≈ 1.4826 · MAD`` — which spurs can't inflate the way a plain stdev
+       would.
+    3. Flag bins more than ``sigma`` robust-σ above the residual median.
+
+    Contiguous flagged runs no wider than ``max_width_khz`` are bridged from
+    their clean neighbours (so a flat floor stays flat and a sloped bandpass
+    keeps its slope); wider runs are real structure and left untouched. Width is
+    in frequency, so the filter behaves the same at any fft_size / sample rate.
+    Returns a new array; the input is not mutated.
+    """
+    n = int(values_db.size)
+    if sigma <= 0 or max_width_khz <= 0 or bin_hz <= 0 or n < 8:
+        return np.asarray(values_db, dtype=np.float32)
+    max_width_bins = max(1, round(max_width_khz * 1e3 / bin_hz))
+    vals = np.asarray(values_db, dtype=np.float32)
+
+    trend = _moving_average(vals, min(n - 1, max(3, 6 * max_width_bins)))
+    resid = vals - trend
+    med = float(np.median(resid))
+    robust_sigma = 1.4826 * float(np.median(np.abs(resid - med)))
+    if robust_sigma <= 0:
+        return vals.copy()
+    flagged = (resid - med) > sigma * robust_sigma
+
+    out = np.array(vals, dtype=np.float32)  # copy; never mutate the input
+    i = 0
+    while i < n:
+        if not flagged[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and flagged[j]:
+            j += 1
+        if (j - i) <= max_width_bins:
+            left, right = i - 1, j
+            if left < 0 and right >= n:
+                pass  # whole vector flagged (degenerate) — leave it
+            elif left < 0:
+                out[i:j] = vals[right]
+            elif right >= n:
+                out[i:j] = vals[left]
+            else:
+                out[i:j] = np.interp(
+                    np.arange(i, j), [left, right], [vals[left], vals[right]],
+                ).astype(np.float32)
+        i = j
+    return out
 
 
 class _PipelineDied(RuntimeError):

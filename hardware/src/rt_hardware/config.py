@@ -134,18 +134,17 @@ class SDRConfig(BaseModel):
     # additive dB shift on the output. Defaults are no-ops.
     baseline_scale: float = Field(default=1.0, ge=0.1, le=10.0)
     baseline_offset_db: float = Field(default=0.0, ge=-30.0, le=30.0)
-    # Narrowband spur rejection, applied inside the GNU Radio flowgraph on each
-    # integrated FFT *before* the rolling EMA window and the baseline capture
-    # ever see it — so a transient SDR birdie / RFI carrier can't get integrated
-    # into the live trace or baked into a baseline (which would later leave a
-    # notch when the spur moves on). The discriminator is *width*: a spike a few
-    # kHz wide is never real sky signal — the 21 cm hydrogen line is hundreds of
-    # kHz wide — so a bin rising more than spur_threshold_db above the local
-    # spectral trend, in a contiguous run no wider than spur_max_width_khz, is
-    # replaced by that trend. Width is in frequency, not FFT bins, so the reject
-    # behaves the same regardless of fft_size / sample rate.
+    # Narrowband RFI rejection: a robust (median/MAD) sigma clip applied to the
+    # integrated spectrum, the standard way to flag obvious birdies / carriers.
+    # A bin rising more than spur_sigma robust standard deviations above the
+    # detrended noise floor, in a contiguous run no wider than spur_max_width_khz
+    # (the 21 cm line is hundreds of kHz wide, so it's never touched), is bridged
+    # from its clean neighbours. Width is in frequency, not FFT bins, so the
+    # reject behaves the same regardless of fft_size / sample rate. spur_sigma is
+    # high by default so only *obvious* RFI is removed; lower it to be more
+    # aggressive, or set spur_reject_enabled = false to disable.
     spur_reject_enabled: bool = True
-    spur_threshold_db: float = Field(default=6.0, ge=0.0, le=60.0)
+    spur_sigma: float = Field(default=6.0, gt=0.0, le=50.0)
     spur_max_width_khz: float = Field(default=50.0, gt=0.0, le=2000.0)
     # Half-width (MHz) of the spectrum actually shown around the 21 cm line. The
     # frontend zooms its x-axis to ±this about 1420.4058 MHz, so the service

@@ -112,7 +112,7 @@ def test_publish_frame_forwards_db_spectrum_verbatim(tmp_path):
     # Wide display window disables the H I crop so this stays a pure-forwarder
     # check (crop behaviour is exercised separately below).
     service = SpectrumService(
-        SDRConfig(fft_size=64, display_half_width_mhz=10.0),
+        SDRConfig(fft_size=64, display_half_width_mhz=10.0, spur_reject_enabled=False),
         tmp_path / "config.toml",
     )
     power_db = np.linspace(-5.0, 5.0, 64).astype(np.float32)
@@ -121,8 +121,8 @@ def test_publish_frame_forwards_db_spectrum_verbatim(tmp_path):
 
     latest = service.latest
     assert latest is not None
-    # Pure forwarder: no linear power, no in-service dB recomputation, spur
-    # rejection already happened upstream in the flowgraph.
+    # Pure forwarder (RFI reject off): no linear power, no in-service dB
+    # recomputation — the frame is forwarded verbatim.
     assert "power_linear" not in latest
     assert latest["power_db"] == pytest.approx(power_db.round(3).tolist())
     assert latest["baseline_corrected"] is False
@@ -134,7 +134,7 @@ def test_publish_frame_crops_to_display_window(tmp_path):
     # must be cropped to that slice, power and frequency axes staying aligned.
     cfg = SDRConfig(
         fft_size=64, center_freq_hz=1.4204e9, sample_rate_hz=3.0e6,
-        display_half_width_mhz=0.75,
+        display_half_width_mhz=0.75, spur_reject_enabled=False,
     )
     service = SpectrumService(cfg, tmp_path / "config.toml")
     start, stop = service._display_slice
@@ -167,6 +167,87 @@ def test_publish_frame_keeps_full_span_when_line_out_of_band(tmp_path):
     latest = service.latest
     assert latest is not None
     assert len(latest["power_db"]) == 64
+
+
+# ── RFI sigma-clip (median/MAD) ──────────────────────────────────────────
+
+
+# 1 MHz over 1024 bins ≈ 977 Hz/bin, so a single bin ≈ 1 kHz wide.
+_BIN_HZ = 1.0e6 / 1024
+
+
+def test_clean_rfi_removes_obvious_spike():
+    from rt_hardware.services.spectrum import _clean_rfi
+
+    rng = np.random.default_rng(0)
+    spectrum = rng.normal(0.0, 0.1, 1024).astype(np.float32)  # flat dB noise floor
+    spectrum[400:404] += 12.0  # an obvious ~4 kHz birdie, well above the noise
+
+    out = _clean_rfi(spectrum, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
+
+    # Bridged back down to the surrounding floor (near 0), not left as a spike.
+    assert np.max(np.abs(out[400:404])) < 0.5
+    # Bins away from the spur are untouched.
+    assert out[200] == pytest.approx(spectrum[200], abs=1e-4)
+
+
+def test_clean_rfi_preserves_broad_hydrogen_line():
+    from rt_hardware.services.spectrum import _clean_rfi
+
+    # A gentle ~275 kHz-wide bump like the 21 cm line: far wider than the width
+    # gate and gradual enough that MAD never flags it.
+    x = np.arange(1024)
+    spectrum = (4.0 * np.exp(-0.5 * ((x - 512) / 70.0) ** 2)).astype(np.float32)
+
+    out = _clean_rfi(spectrum, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
+
+    assert out == pytest.approx(spectrum, abs=1e-3)
+
+
+def test_clean_rfi_does_not_mutate_input():
+    from rt_hardware.services.spectrum import _clean_rfi
+
+    spectrum = np.zeros(1024, dtype=np.float32)
+    spectrum[500] = 20.0
+    before = spectrum.copy()
+
+    _clean_rfi(spectrum, _BIN_HZ, sigma=6.0, max_width_khz=50.0)
+
+    assert np.array_equal(spectrum, before)
+
+
+def test_publish_frame_sigma_clips_rfi(tmp_path):
+    # End to end: a birdie in the raw dB frame is gone from the published trace.
+    service = SpectrumService(
+        SDRConfig(fft_size=2048, sample_rate_hz=2.0e6, display_half_width_mhz=10.0,
+                  spur_sigma=6.0),
+        tmp_path / "config.toml",
+    )
+    rng = np.random.default_rng(1)
+    power_db = rng.normal(0.0, 0.1, 2048).astype(np.float32)
+    power_db[1000:1010] += 15.0  # narrowband spur
+
+    service._publish_frame(power_db)
+
+    latest = service.latest
+    assert latest is not None
+    assert max(latest["power_db"][1000:1010]) < 1.0  # spur removed
+
+
+def test_publish_frame_keeps_rfi_when_reject_disabled(tmp_path):
+    service = SpectrumService(
+        SDRConfig(fft_size=2048, sample_rate_hz=2.0e6, display_half_width_mhz=10.0,
+                  spur_reject_enabled=False),
+        tmp_path / "config.toml",
+    )
+    power_db = np.zeros(2048, dtype=np.float32)
+    power_db[1000:1010] = 15.0
+
+    service._publish_frame(power_db)
+
+    latest = service.latest
+    assert latest is not None
+    assert latest["power_db"][1005] == pytest.approx(15.0, abs=1e-3)  # untouched
 
 
 def test_publish_frame_reports_baseline_corrected_from_active_flag(tmp_path):
