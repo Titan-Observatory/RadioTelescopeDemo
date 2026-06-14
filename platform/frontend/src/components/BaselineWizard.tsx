@@ -52,7 +52,9 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   frame: SpectrumFrame | null;
-  onBaselineReady: (baseline: Baseline) => void;
+  // Optional success hook. The live stream's `baseline_corrected` flag already
+  // drives the UI, so callers that just rely on that don't need this.
+  onBaselineReady?: (baseline: Baseline) => void;
 }
 
 type Step = 'intro' | 'pick' | 'capture' | 'done';
@@ -122,7 +124,7 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
         return;
       }
       const baseline = await r.json() as Baseline;
-      onBaselineReady(baseline);
+      onBaselineReady?.(baseline);
       track('baseline_captured', {
         capture_duration_s: Math.round((Date.now() - startedAt) / 1000),
         integration_seconds: frame.integration_seconds,

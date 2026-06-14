@@ -362,6 +362,41 @@ class _FakeCaptureProc:
 
 
 @pytest.mark.asyncio
+async def test_idle_close_drops_baseline_for_next_session(tmp_path, baseline_paths, monkeypatch):
+    # When the viewing session ends (idle, no subscribers), the in-memory
+    # baseline must be forgotten so a new connection starts uncorrected.
+    service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
+    service.idle_close_delay_s = 0.0
+    service._baseline_power = np.ones(64, dtype=np.float32)
+    service._baseline_cfg_key = service._cfg_baseline_key()
+
+    async def noop() -> None:
+        return None
+
+    monkeypatch.setattr(service, "_kill_subprocess_locked", noop)
+
+    # No subscribers → the idle-close should tear down and drop the baseline.
+    await service._close_after_idle()
+
+    assert service._baseline_power is None
+    assert service._baseline_cfg_key is None
+
+
+@pytest.mark.asyncio
+async def test_idle_close_keeps_baseline_while_subscribed(tmp_path, baseline_paths):
+    # A still-active session (subscriber present) must NOT lose its baseline.
+    service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
+    service.idle_close_delay_s = 0.0
+    Broadcaster.subscribe(service)  # one live subscriber
+    service._baseline_power = np.ones(64, dtype=np.float32)
+    service._baseline_cfg_key = service._cfg_baseline_key()
+
+    await service._close_after_idle()
+
+    assert service._baseline_power is not None
+
+
+@pytest.mark.asyncio
 async def test_run_capture_succeeds_when_file_lands_despite_hung_process(tmp_path, baseline_paths, monkeypatch):
     # The RTL-SDR source hangs on teardown after head(1) flushes the vector.
     # The poll loop must accept the complete file and not wait for a clean exit.

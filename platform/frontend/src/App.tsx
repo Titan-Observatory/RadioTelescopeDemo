@@ -23,6 +23,7 @@ import { useMapTarget } from './lib/useMapTarget';
 import { useMotionCommands } from './lib/useMotionCommands';
 import { useObservationMode } from './lib/useObservationMode';
 import { useQueueLease } from './lib/useQueueLease';
+import { useSlewTargetArrivalClear } from './lib/useSlewTargetArrivalClear';
 import { useTelemetry } from './lib/useTelemetry';
 import { maybePromptFirstVisit } from './tour';
 
@@ -43,6 +44,13 @@ function ControlUI({ queue }: ControlUIProps) {
   const { commands, telescopeConfig } = useBackendCatalog({ enabled: liveControlsEnabled, onError: trackErrorOnce });
   const map = useMapTarget();
   const motion = useMotionCommands(commands, setTelemetry);
+  const trackSubmittedSlewTarget = useSlewTargetArrivalClear({
+    hasMapTarget: map.hasMapTarget,
+    targetAlt: map.targetAlt,
+    targetAz: map.targetAz,
+    telemetry,
+    clearTarget: map.clearTarget,
+  });
 
   // Stable identity so the sky-map pin overlay isn't redrawn on every telemetry tick.
   const pendingTarget = useMemo(
@@ -132,7 +140,11 @@ function ControlUI({ queue }: ControlUIProps) {
               <button
                 type="button"
                 className="skymap-slew-target"
-                onClick={() => { track('slew_from_map', { alt_deg: map.targetAlt, az_deg: map.targetAz }); void motion.gotoAltAz(map.targetAlt, map.targetAz); }}
+                onClick={() => {
+                  trackSubmittedSlewTarget(map.targetAlt, map.targetAz);
+                  track('slew_from_map', { alt_deg: map.targetAlt, az_deg: map.targetAz });
+                  void motion.gotoAltAz(map.targetAlt, map.targetAz);
+                }}
                 title={`Slew to Az ${map.targetAz.toFixed(3)} deg, Alt ${map.targetAlt.toFixed(3)} deg`}
               >
                 <Navigation size={15} />

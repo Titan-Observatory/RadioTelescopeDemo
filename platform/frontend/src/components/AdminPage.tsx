@@ -15,6 +15,7 @@ import { useFullscreen } from '../lib/useFullscreen';
 import { useLna } from '../lib/useLna';
 import { useMapTarget } from '../lib/useMapTarget';
 import { useMotionCommands } from '../lib/useMotionCommands';
+import { useSlewTargetArrivalClear } from '../lib/useSlewTargetArrivalClear';
 import { useTelemetry } from '../lib/useTelemetry';
 import type {
   PidBundle,
@@ -41,6 +42,13 @@ export function AdminPage() {
   const { commands, telescopeConfig } = useBackendCatalog({ enabled: true, onError: trackErrorOnce });
   const map = useMapTarget();
   const motion = useMotionCommands(commands, setTelemetry);
+  const trackSubmittedSlewTarget = useSlewTargetArrivalClear({
+    hasMapTarget: map.hasMapTarget,
+    targetAlt: map.targetAlt,
+    targetAz: map.targetAz,
+    telemetry,
+    clearTarget: map.clearTarget,
+  });
 
   // Stable identity so the sky-map pin overlay isn't redrawn on every telemetry tick.
   const pendingTarget = useMemo(
@@ -119,7 +127,10 @@ export function AdminPage() {
               <button
                 type="button"
                 className="skymap-slew-target"
-                onClick={() => { void motion.gotoAltAz(map.targetAlt, map.targetAz); }}
+                onClick={() => {
+                  trackSubmittedSlewTarget(map.targetAlt, map.targetAz);
+                  void motion.gotoAltAz(map.targetAlt, map.targetAz);
+                }}
                 title={`Slew to Az ${map.targetAz.toFixed(3)}°, Alt ${map.targetAlt.toFixed(3)}°`}
               >
                 <Navigation size={15} />

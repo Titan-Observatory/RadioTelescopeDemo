@@ -147,17 +147,6 @@ interface SpectrumStatus {
   subscriber_count?: number;
 }
 
-interface Baseline {
-  captured_at: number;
-  center_freq_mhz: number;
-  sample_rate_mhz: number;
-  integration_frames: number;
-  freqs_mhz: number[];
-  power_linear?: number[];
-  power_db: number[];
-  capture_samples?: number;
-}
-
 interface SpectrumPanelProps {
   enabled?: boolean;
   onStartGuided?: () => void;
@@ -228,17 +217,14 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   // Tight y-range used only for the waterfall colour mapping, so the inferno
   // palette spans the full trace rather than just the bottom third of the axis.
   const waterfallRangeRef = useRef<[number, number]>(DEFAULT_Y_RANGE);
-  const [baseline, setBaseline] = useState<Baseline | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [waterfallOpen, setWaterfallOpen] = useState(false);
 
-  // Baseline correction is what makes the H I line pop above the bandpass.
-  // Only apply when the cached baseline matches the current FFT layout —
-  // otherwise the arrays don't align and the division is nonsense.
-  const baselineApplies = useMemo(() => {
-    if (!baseline || !frame) return false;
-    return frame.baseline_corrected === true;
-  }, [baseline, frame]);
+  // The hardware tells us, per frame, whether the live stream is baseline-
+  // corrected (`baseline_corrected`). That flag is the single source of truth:
+  // it stays correct across page refreshes and for viewers who didn't capture
+  // the baseline themselves, neither of which any local UI state can track.
+  const baselineApplies = frame?.baseline_corrected === true;
 
   const displayed = useMemo(() => {
     if (!frame) return null;
@@ -635,7 +621,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           </p>
         </div>
         <div className="spectrum-status">
-          {baseline && !baselineApplies && <span className="spectrum-tag spectrum-tag-warn">baseline mismatched</span>}
           {!connected && <span className="spectrum-disconnected">offline</span>}
         </div>
       </header>
@@ -667,7 +652,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         </div>
 
         <div className="spectrum-chart-box">
-          {baseline && baselineApplies && (
+          {baselineApplies && (
             <div className="spectrum-chart-note">Baseline corrected</div>
           )}
           {baselineApplies && hydrogenGuide && (
@@ -711,7 +696,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
               type="button"
               className="ghost-btn"
               onClick={() => setWizardOpen(true)}
-              title="Open the guided flow to point at empty sky and capture a baseline (or just load a saved one)"
+              title="Open the guided flow to point at empty sky and capture a baseline"
             >
               <Sliders size={12} /> Set up baseline
             </button>
@@ -753,7 +738,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
               type="button"
               className="ghost-btn spectrum-recapture-btn"
               onClick={() => setWizardOpen(true)}
-              title="Capture a fresh baseline (or load a saved one)"
+              title="Capture a fresh baseline"
             >
               <Sliders size={12} /> Recapture
             </button>
@@ -777,7 +762,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         open={wizardOpen}
         onOpenChange={setWizardOpen}
         frame={frame}
-        onBaselineReady={setBaseline}
       />
     </section>
   );

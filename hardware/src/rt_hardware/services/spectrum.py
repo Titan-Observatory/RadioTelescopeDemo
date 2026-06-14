@@ -697,10 +697,19 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         except asyncio.CancelledError:
             return
         async with self._lifecycle_lock:
-            if self.subscriber_count > 0 or self._proc is None or self._shutting_down:
+            if self.subscriber_count > 0 or self._shutting_down:
                 return
-            await self._kill_subprocess_locked()
-            logger.info("%s closed pipeline (idle, no subscribers)", self.name)
+            if self._proc is not None:
+                await self._kill_subprocess_locked()
+                logger.info("%s closed pipeline (idle, no subscribers)", self.name)
+            # The viewing session has ended (no subscribers through the full idle
+            # delay). Forget the baseline so the *next* connection starts
+            # uncorrected — the baseline is per live session, never carried over.
+            if self._baseline_power is not None:
+                self._baseline_power = None
+                self._baseline_cfg_key = None
+                self._delete_baseline_files()
+                logger.info("%s dropped baseline (viewing session ended)", self.name)
 
     async def _cancel_idle_close(self) -> None:
         task = self._idle_close_task
