@@ -137,40 +137,6 @@ async def _enforce_jog_hard_safety_limits(body: JogRequest, request: Request) ->
     )
 
 
-def _shortest_az_delta(from_az: float, to_az: float) -> float:
-    """Signed shortest-arc azimuth delta in degrees, range (-180, 180]."""
-    d = (to_az - from_az) % 360.0
-    return d if d <= 180.0 else d - 360.0
-
-
-def _enforce_max_slew(target_altitude_deg: float, target_azimuth_deg: float, request: Request) -> None:
-    """Reject single goto commands that would slew further than the configured cap.
-
-    Uses max(|Δalt|, shortest-arc |Δaz|) as the travel metric, which maps directly
-    to per-axis mount motion (each axis moves independently). Skips the check when
-    hardware is disconnected or when no current-position baseline exists yet.
-    """
-    cfg = request.app.state.config.mount
-    cap = cfg.max_slew_deg_per_command
-    if cap <= 0 or _is_disconnected(request):
-        return
-    current = _service(request).latest
-    if current.altitude_deg is None or current.azimuth_deg is None:
-        return  # no baseline yet — the first command after startup establishes it
-    dalt = abs(target_altitude_deg - current.altitude_deg)
-    daz = abs(_shortest_az_delta(current.azimuth_deg, target_azimuth_deg))
-    travel = max(dalt, daz)
-    if travel > cap:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Requested slew of {travel:.1f}° exceeds the per-command cap of {cap:.1f}° "
-                f"(current alt={current.altitude_deg:.1f}° az={current.azimuth_deg:.1f}°, "
-                f"target alt={target_altitude_deg:.1f}° az={target_azimuth_deg:.1f}°)"
-            ),
-        )
-
-
 def _service(request: Request):
     return request.app.state.roboclaw_service
 
@@ -299,7 +265,6 @@ async def _execute_goto_altaz(
     azimuth = 0.0 if azimuth_deg == 360 else azimuth_deg
     _enforce_hard_safety_limits(altitude_deg, azimuth)
     _enforce_pointing_limits(altitude_deg, azimuth, request)
-    _enforce_max_slew(altitude_deg, azimuth, request)
     m1_position = round(cfg.az_zero_count + azimuth * cfg.az_counts_per_degree)
     m2_position = altitude_to_encoder_counts(altitude_deg, cfg)
     stored_m1, stored_m2 = _service(request).stored_qpps
