@@ -40,17 +40,12 @@ the displayed integration window while keeping output at publish-rate (so the
 line chart + waterfall stay live). Pushing the window into a decimating
 ``integrate_ff`` instead would drop output to one frame per ``integration_seconds``.
 
-Baseline capture (``--capture-baseline <path>``) runs a one-shot variant that
-integrates a full window, scales it to a per-bin mean matching one settled live
-frame, and writes a single float32[fft_size] vector to ``<path>`` before
-exiting::
-
-    soapy → s2v → fft → mag² → integrate_ff(total) → multiply_const_vff(K/total)
-          → head(1) → file_sink(<path>)
-
-The live flowgraph then loads that file and divides by it. Because the captured
-baseline has the same magnitude as a settled live frame, ``power / baseline ≈ 1``
-→ ~0 dB across the band when corrected.
+Baseline capture is *not* a flowgraph here: rather than freeze the SDR for a
+one-shot capture, :class:`~rt_hardware.services.spectrum.SpectrumService`
+averages a window of the live frames this pipeline already publishes into a
+per-bin mean and feeds it back via ``--baseline``. Because that mean has the
+same magnitude as a settled live frame, ``power / baseline ≈ 1`` → ~0 dB across
+the band when corrected.
 
 This module is intentionally importable only when GNU Radio is installed
 (``apt install gnuradio gr-soapy``). The :class:`SpectrumService` consumer
@@ -225,56 +220,6 @@ def build_flowgraph(cfg, baseline_path: str | None = None):
     return tb
 
 
-def build_capture_flowgraph(cfg, output_path: str):
-    """Construct a one-shot flowgraph that writes a baseline ``.f32`` and exits.
-
-    Integrates a full ``integration_seconds`` window of raw FFT power, scales it
-    to the per-bin mean of one ``integrate_ff(K)`` block (so it matches the
-    magnitude of a settled live frame), emits exactly one vector via
-    ``head(1)`` and writes it to ``output_path``. ``tb.wait()`` returns once the
-    single vector has flowed through, so the subprocess exits on its own.
-    """
-    from gnuradio import blocks, fft, gr  # type: ignore[import-not-found]
-    from gnuradio.fft import window  # type: ignore[import-not-found]
-
-    try:
-        from gnuradio import soapy  # type: ignore[import-not-found]
-    except ImportError as exc:
-        raise RuntimeError(
-            "gr-soapy is not installed. On Debian/Ubuntu: `apt install gr-soapy`."
-        ) from exc
-
-    sdr = cfg.sdr
-    fft_size = int(sdr.fft_size)
-    sample_rate = float(sdr.sample_rate_hz)
-    raw_fft_rate = sample_rate / fft_size
-    integrate_k = max(1, round(raw_fft_rate / float(sdr.publish_rate_hz)))
-    # Total raw FFTs to sum over the full window, and the scale that turns that
-    # sum into the mean of one K-block (= settled live-frame magnitude).
-    total_ffts = max(integrate_k, round(raw_fft_rate * float(sdr.integration_seconds)))
-    mean_scale = float(integrate_k) / float(total_ffts)
-
-    tb = gr.top_block("rt-spectrum-baseline-capture")
-
-    source = _build_source(soapy, sdr)
-    s2v = blocks.stream_to_vector(gr.sizeof_gr_complex, fft_size)
-    fft_block = fft.fft_vcc(fft_size, True, window.hann(fft_size), True, 1)
-    mag2 = blocks.complex_to_mag_squared(fft_size)
-    integrator = blocks.integrate_ff(total_ffts, fft_size)
-    scale = blocks.multiply_const_vff([mean_scale] * fft_size)
-    head = blocks.head(gr.sizeof_float * fft_size, 1)
-    sink = blocks.file_sink(gr.sizeof_float * fft_size, output_path, False)
-    sink.set_unbuffered(True)
-
-    tb.connect(source, s2v, fft_block, mag2, integrator, scale, head, sink)
-
-    logger.info(
-        "Capture flowgraph built: integrating %d FFTs (~%.1f s) → %s",
-        total_ffts, total_ffts / raw_fft_rate, output_path,
-    )
-    return tb
-
-
 def _run(tb) -> None:
     """Start a top block, install signal handlers, and wait for it to finish."""
     def _shutdown(signum, _frame):
@@ -296,12 +241,6 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to a captured baseline .f32 to divide the live spectrum by.",
     )
-    parser.add_argument(
-        "--capture-baseline",
-        default=None,
-        metavar="PATH",
-        help="Run a one-shot baseline capture, write the .f32 to PATH, and exit.",
-    )
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -313,12 +252,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if not cfg.sdr.enabled:
         logger.info("SDR disabled in config; exiting.")
-        return 0
-
-    if args.capture_baseline:
-        tb = build_capture_flowgraph(cfg, args.capture_baseline)
-        _run(tb)
-        logger.info("Baseline capture complete: %s", args.capture_baseline)
         return 0
 
     tb = build_flowgraph(cfg, args.baseline)

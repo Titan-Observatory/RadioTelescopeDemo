@@ -8,14 +8,16 @@ dB ``float32[fft_size]`` vector per message over ZeroMQ and packages it into a
 JSON frame.
 
 This service owns the subprocess lifecycle (lazy spawn on first subscriber,
-idle-close after the last leaves) and orchestrates baseline capture: it stops
-the live flowgraph, runs a one-shot capture flowgraph that writes the baseline
-to a local ``.f32`` file, then respawns the live flowgraph which divides by that
-file. The captured baseline is held in memory only (``_baseline_power``); it is
-never persisted to disk, so each service process — and, via the platform queue's
-control-handover reset, each user session — starts uncorrected. The ``.f32`` on
-disk is just the IPC handoff to the subprocess, rewritten from memory on each
-spawn.
+idle-close after the last leaves) and orchestrates baseline capture: rather than
+interrupting the live flowgraph, it integrates the spectra already streaming over
+ZeroMQ — averaging one ``integration_seconds`` window of frames into a per-bin
+mean — then respawns the live flowgraph so it divides by that mean. Keeping the
+SDR running means the browser's live spectrum keeps updating throughout the
+capture, so the user watches the bandpass being measured. The captured baseline
+is held in memory only (``_baseline_power``); it is never persisted to disk, so
+each service process — and, via the platform queue's control-handover reset, each
+user session — starts uncorrected. The ``.f32`` on disk is just the IPC handoff
+to the subprocess, rewritten from memory on each spawn.
 """
 from __future__ import annotations
 
@@ -45,9 +47,6 @@ from rt_hardware.services.spectrum_rfi import flag_rfi
 # across restarts.
 _STATE_DIR = Path(os.environ.get("RT_STATE_DIR", "."))
 BASELINE_F32 = _STATE_DIR / "spectrum_baseline.f32"
-# Capture writes here first, then we atomically rename onto BASELINE_F32 so the
-# live flowgraph never reads a half-written file.
-BASELINE_F32_TMP = _STATE_DIR / "spectrum_baseline.f32.tmp"
 POWER_FLOOR = 1e-12
 
 # 21 cm neutral-hydrogen rest frequency (MHz). The frontend zooms its spectrum
@@ -62,6 +61,49 @@ logger = logging.getLogger(__name__)
 
 class SpectrumFrame(dict):
     """Plain dict so FastAPI's WebSocket can JSON-encode it cheaply."""
+
+
+class _BaselineCapture:
+    """Accumulator for a live-stream baseline capture.
+
+    Sums the linear power of successive *uncorrected* live frames so their
+    per-bin mean becomes the baseline (``power / baseline ≈ 1`` → ~0 dB once the
+    live flowgraph divides by it). ``warmup`` frames are skipped first so a
+    freshly (re)started flowgraph's ramping EMA doesn't drag the mean down.
+    ``done`` fires once ``target`` frames past warmup have been collected. Fed
+    from the ZMQ consumer (event-loop thread), so no locking is needed.
+    """
+
+    def __init__(self, *, target: int, warmup: int, offset_db: float) -> None:
+        self.target = max(1, target)
+        self.warmup = max(0, warmup)
+        self.offset_db = offset_db
+        self.count = 0
+        self._sum: np.ndarray | None = None
+        self.done = asyncio.Event()
+
+    def feed(self, power_db: np.ndarray) -> None:
+        if self.warmup > 0:
+            self.warmup -= 1
+            return
+        if self.done.is_set():
+            return
+        # Back out the configured dB offset and convert to linear power so the
+        # stored baseline matches a settled live frame's magnitude.
+        linear = np.power(10.0, (power_db.astype(np.float64) - self.offset_db) / 10.0)
+        if self._sum is None:
+            self._sum = linear
+        else:
+            self._sum += linear
+        self.count += 1
+        if self.count >= self.target:
+            self.done.set()
+
+    def mean(self) -> np.ndarray | None:
+        """Per-bin linear-power mean of the collected frames, or ``None``."""
+        if self._sum is None or self.count == 0:
+            return None
+        return (self._sum / self.count).astype(np.float32)
 
 
 class SpectrumService(Broadcaster[SpectrumFrame]):
@@ -111,6 +153,8 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         self._lifecycle_lock = asyncio.Lock()
         self._baseline_capture_lock = asyncio.Lock()
         self._capturing: bool = False
+        # Live accumulator while a baseline capture is integrating the stream.
+        self._capture_state: _BaselineCapture | None = None
         self._mode: str = "idle"
         self._fault_detail: str | None = None
         self._shutting_down: bool = False
@@ -422,52 +466,88 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
     # ── Baseline capture / load / clear ──────────────────────────────────
 
     async def capture_baseline(self) -> dict[str, Any] | None:
-        """Capture a fresh baseline by running a one-shot capture flowgraph.
+        """Capture a baseline by integrating the live spectrum stream.
 
-        Stops the live flowgraph (freeing the Airspy), runs a capture flowgraph
-        that integrates one ``integration_seconds`` window and writes a baseline
-        ``.f32``, persists the JSON sidecar, then respawns the live flowgraph so
-        it divides by the new baseline. Bounded by a timeout so the request can
-        never hang; returns ``None`` (→ HTTP 409) if no spectrum could be
-        captured (pipeline unavailable, dongle busy, etc.).
+        Rather than stopping the SDR, this averages one ``integration_seconds``
+        window of the frames already flowing over ZeroMQ into a per-bin mean,
+        then respawns the live flowgraph so it divides by that mean. The live
+        stream keeps updating throughout, so the browser shows the bandpass
+        being measured frame by frame.
+
+        A baseline must be measured from *uncorrected* frames, so if one is
+        already applied we drop it and respawn raw first (a brief gap), then
+        discard one window while the EMA re-settles. Bounded by a timeout so the
+        request can never hang; returns ``None`` (→ HTTP 409) if no frames
+        arrived (pipeline unavailable, dongle busy, etc.).
 
         Raises :class:`BaselineCaptureError` when the baseline directory is not
         writable — the common Pi misconfiguration where rt-hardware runs from a
         read-only checkout without ``RT_STATE_DIR`` pointing at a writable
         volume. Checked up front so the request fails with an actionable message
-        instead of silently tearing down the live stream and then failing when
-        the capture subprocess can't open its output file.
+        rather than integrating a full window and only then failing to persist.
         """
         write_error = self._state_dir_write_error()
         if write_error is not None:
             raise BaselineCaptureError(write_error)
         async with self._baseline_capture_lock:
             await self._cancel_idle_close()
-            async with self._lifecycle_lock:
-                if self._shutting_down:
-                    return None
+            if self._shutting_down:
+                return None
+            # Hold the pipeline up for the duration even if the only WS viewer
+            # leaves mid-capture. Subscribing before we set `_capturing` lets the
+            # spawn path run (`_ensure_running` bails once capturing is set).
+            keepalive = self.subscribe()
+            try:
+                # We need uncorrected frames. If a baseline is live, drop it and
+                # respawn raw; otherwise just make sure the pipeline is up.
+                restarted = self._baseline_active or self._baseline_power is not None
+                if restarted:
+                    self._baseline_power = None
+                    self._baseline_cfg_key = None
+                    self._delete_baseline_files()
+                    await self.reconnect()
+                else:
+                    await self._ensure_running()
+                # Skip a settling window unless we know the pipeline was already
+                # warm (running, uncorrected, not just respawned).
+                warm = (
+                    not restarted
+                    and self._proc is not None
+                    and self._mode == "running"
+                )
+                target = max(1, int(self._cfg.integration_frames))
+                warmup = 0 if warm else target
+                state = _BaselineCapture(
+                    target=target,
+                    warmup=warmup,
+                    offset_db=float(self._cfg.baseline_offset_db),
+                )
+                self._capture_state = state
                 self._capturing = True
-                # Keep `mode` reading healthy so the frontend doesn't fire a
-                # reconnect into the capture while the live stream is paused.
-                self._mode = "starting"
-                baseline: dict[str, Any] | None = None
-                # Drop the cached frame before we stop the live pipeline. Without
-                # this, the status endpoint keeps reporting the pre-capture frame's
-                # ageing timestamp throughout the capture *and* the post-capture
-                # warmup, so the frontend fires a reconnect every 5 s and kills the
-                # respawned subprocess before it can emit its first frame.
-                self._latest = None
+                # Headroom: warmup window (if any) + capture window + startup grace.
+                windows = 2 if warmup else 1
+                timeout_s = (
+                    windows * self._cfg.integration_seconds
+                    + self.subprocess_start_timeout_s + 5.0
+                )
                 try:
-                    await self._kill_subprocess_locked()
-                    if await self._run_capture_subprocess():
-                        baseline = self._persist_baseline_from_capture()
+                    await asyncio.wait_for(state.done.wait(), timeout=timeout_s)
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "%s baseline capture timed out after %.1fs (%d/%d frames)",
+                        self.name, timeout_s, state.count, target,
+                    )
+                    return None
                 finally:
                     self._capturing = False
-                    if self.subscriber_count > 0 and not self._shutting_down:
-                        await self._spawn_subprocess_locked()
-                    else:
-                        self._mode = "idle"
-            return baseline
+                    self._capture_state = None
+                baseline = self._persist_baseline_from_capture_state(state)
+                if baseline is not None:
+                    # Respawn so the live flowgraph divides by the new baseline.
+                    await self.reconnect()
+                return baseline
+            finally:
+                self.unsubscribe(keepalive)
 
     async def clear_baseline(self) -> None:
         """Drop the in-memory baseline and respawn the flowgraph uncorrected.
@@ -512,87 +592,28 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         return None
 
     def _delete_baseline_files(self) -> None:
-        for path in (BASELINE_F32, BASELINE_F32_TMP):
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                logger.exception("Failed to remove baseline file %s", path)
-
-    def _capture_file_complete(self) -> bool:
         try:
-            return BASELINE_F32_TMP.stat().st_size == int(self._cfg.fft_size) * 4
-        except OSError:
-            return False
-
-    async def _run_capture_subprocess(self) -> bool:
-        """Run the one-shot capture flowgraph, writing BASELINE_F32_TMP.
-
-        Polls the output file rather than waiting for a clean process exit —
-        the RTL-SDR Soapy source hangs on teardown after the vector is written.
-        """
-        try:
-            BASELINE_F32_TMP.unlink(missing_ok=True)
+            BASELINE_F32.unlink(missing_ok=True)
         except Exception:
-            logger.exception("Failed to clear stale capture temp %s", BASELINE_F32_TMP)
-
-        cmd = [
-            sys.executable, "-m", "rt_hardware.sdr_pipeline",
-            "--config", self._config_path,
-            "--capture-baseline", str(BASELINE_F32_TMP),
-        ]
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-            )
-        except FileNotFoundError as exc:
-            logger.error("%s baseline capture spawn failed: %s", self.name, exc)
-            return False
-
-        timeout_s = self._cfg.integration_seconds + self.subprocess_start_timeout_s + 5.0
-        deadline = time.monotonic() + timeout_s
-        complete = False
-        try:
-            while time.monotonic() < deadline:
-                if self._capture_file_complete():
-                    complete = True
-                    break
-                if proc.poll() is not None:
-                    complete = self._capture_file_complete()
-                    break
-                await asyncio.sleep(0.25)
-        except Exception:
-            logger.exception("%s baseline capture polling failed", self.name)
-
-        if proc.poll() is None:
-            proc.kill()
-        try:
-            _, stderr = await asyncio.to_thread(proc.communicate, timeout=self.subprocess_kill_timeout_s)
-        except Exception:
-            stderr = b""
-        if stderr:
-            for line in stderr.decode("utf-8", errors="replace").splitlines():
-                logger.info("[capture] %s", line)
-
-        if not complete:
-            logger.error(
-                "%s baseline capture produced no spectrum within %.1fs", self.name, timeout_s,
-            )
-        return complete
+            logger.exception("Failed to remove baseline file %s", BASELINE_F32)
 
     def _cfg_baseline_key(self) -> tuple[float, float, int]:
         return (self._cfg.center_freq_hz, self._cfg.sample_rate_hz, self._cfg.fft_size)
 
-    def _persist_baseline_from_capture(self) -> dict[str, Any] | None:
-        """Read the captured .f32, store it in memory, commit the .f32 for the
-        immediately-following subprocess spawn. No JSON sidecar is written —
-        the baseline is not persisted beyond this service process."""
-        try:
-            power = np.fromfile(BASELINE_F32_TMP, dtype=np.float32)
-        except Exception:
-            logger.exception("Failed to read captured baseline %s", BASELINE_F32_TMP)
+    def _persist_baseline_from_capture_state(
+        self, state: _BaselineCapture,
+    ) -> dict[str, Any] | None:
+        """Turn the accumulated live frames into the in-memory baseline.
+
+        Stores the per-bin linear mean as ``_baseline_power`` (the in-memory
+        truth) and writes the ``.f32`` the following subprocess spawn divides by.
+        No JSON sidecar is written — the baseline is not persisted beyond this
+        service process. Returns the baseline dict for the HTTP response, or
+        ``None`` if no usable frames landed.
+        """
+        power = state.mean()
+        if power is None:
+            logger.error("%s baseline capture collected no frames", self.name)
             return None
         fft_size = int(self._cfg.fft_size)
         if power.size != fft_size:
@@ -601,7 +622,7 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             )
             return None
 
-        power = np.maximum(power, POWER_FLOOR)
+        power = np.maximum(power, POWER_FLOOR).astype(np.float32)
         power_db = 10.0 * np.log10(power)
         cfg = self._cfg
         baseline = {
@@ -612,15 +633,17 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             "freqs_mhz": self._freqs_mhz.tolist(),
             "power_linear": power.astype(np.float32).tolist(),
             "power_db": power_db.astype(np.float32).round(3).tolist(),
-            "capture_samples": int(cfg.integration_frames),
+            "capture_samples": int(state.count),
         }
         self._baseline_power = power
         self._baseline_cfg_key = self._cfg_baseline_key()
-        # Commit the raw vector for the subprocess that's about to spawn.
+        # Write the .f32 from memory for the subprocess the following reconnect()
+        # spawns. _pipeline_cmd rewrites it on every spawn too, so this is
+        # belt-and-braces for the immediately-following respawn.
         try:
-            os.replace(BASELINE_F32_TMP, BASELINE_F32)
+            power.tofile(str(BASELINE_F32))
         except Exception:
-            logger.exception("Failed to commit baseline %s", BASELINE_F32)
+            logger.exception("Failed to write baseline %s", BASELINE_F32)
             return None
         return baseline
 
@@ -935,6 +958,11 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
                 # (integrated, baseline-divided). We just forward it.
                 power_db = np.frombuffer(raw, dtype=np.float32)
                 self._frames_seen += 1
+                # Feed an in-progress baseline capture, if one is integrating the
+                # live stream (capture without interrupting the SDR).
+                capture = self._capture_state
+                if capture is not None:
+                    capture.feed(power_db)
                 self._publish_frame(power_db)
         finally:
             try:

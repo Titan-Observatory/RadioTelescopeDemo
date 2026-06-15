@@ -14,12 +14,10 @@ from rt_hardware.services.spectrum import SpectrumService
 
 @pytest.fixture
 def baseline_paths(tmp_path, monkeypatch):
-    """Point the module-level baseline file paths at a temp dir."""
+    """Point the module-level baseline file path at a temp dir."""
     f32 = tmp_path / "spectrum_baseline.f32"
-    tmp = tmp_path / "spectrum_baseline.f32.tmp"
     monkeypatch.setattr(spectrum_module, "BASELINE_F32", f32)
-    monkeypatch.setattr(spectrum_module, "BASELINE_F32_TMP", tmp)
-    return f32, tmp
+    return f32
 
 
 # ── Lifecycle (unchanged behaviour) ──────────────────────────────────────
@@ -301,78 +299,122 @@ def test_publish_frame_reports_baseline_corrected_from_active_flag(tmp_path):
 # ── Baseline capture / clear orchestration ───────────────────────────────
 
 
+async def _feed_capture_window(service, power_db, *, max_polls: int = 200):
+    """Wait for capture_baseline to install its accumulator, then feed it a full
+    window of identical frames — standing in for the ZMQ consumer loop."""
+    for _ in range(max_polls):
+        if service._capture_state is not None:
+            break
+        await asyncio.sleep(0)
+    state = service._capture_state
+    assert state is not None, "capture never installed its accumulator"
+    # warmup + target frames so `done` fires regardless of the warmup window.
+    for _ in range(state.warmup + state.target):
+        state.feed(power_db)
+    return state
+
+
 @pytest.mark.asyncio
-async def test_capture_baseline_stores_in_memory_and_commits_f32(tmp_path, baseline_paths, monkeypatch):
-    f32, tmp = baseline_paths
-    service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
+async def test_capture_baseline_integrates_live_frames(tmp_path, baseline_paths, monkeypatch):
+    f32 = baseline_paths
+    # 0.8 s @ 5 Hz → integration_frames = 4, a short window to integrate.
+    service = SpectrumService(
+        SDRConfig(fft_size=64, integration_seconds=0.8, publish_rate_hz=5.0),
+        tmp_path / "config.toml",
+    )
     Broadcaster.subscribe(service)
 
-    power = np.arange(1, 65, dtype=np.float32)
+    async def noop_reconnect() -> str:
+        return "running"
 
-    async def fake_capture() -> bool:
-        spectrum_module.BASELINE_F32_TMP.write_bytes(power.tobytes())
-        return True
-
-    async def noop() -> None:
+    async def noop_ensure() -> None:
         return None
 
-    monkeypatch.setattr(service, "_run_capture_subprocess", fake_capture)
-    monkeypatch.setattr(service, "_kill_subprocess_locked", noop)
-    monkeypatch.setattr(service, "_spawn_subprocess_locked", noop)
+    monkeypatch.setattr(service, "reconnect", noop_reconnect)
+    monkeypatch.setattr(service, "_ensure_running", noop_ensure)
+    # A warm, uncorrected, running pipeline → no warmup frames skipped.
+    service._proc = cast("subprocess.Popen[bytes]", object())
+    service._mode = "running"
 
+    power_db = np.full(64, 100.0, dtype=np.float32)  # 100 dB → 1e10 linear
+    feeder = asyncio.create_task(_feed_capture_window(service, power_db))
     baseline = await service.capture_baseline()
+    state = await feeder
 
     assert baseline is not None
-    assert baseline["power_linear"] == pytest.approx(power.tolist())
-    assert baseline["power_db"] == pytest.approx((10.0 * np.log10(power)).round(3).tolist())
-    assert baseline["capture_samples"] == service._cfg.integration_frames
-    # .f32 committed for the subprocess (baseline is in-memory only).
-    assert f32.exists()
-    assert not tmp.exists()
+    # Mean of identical frames = the frame: linear 10^(100/10) = 1e10, → 100 dB.
+    assert baseline["power_linear"] == pytest.approx([1e10] * 64, rel=1e-6)
+    assert baseline["power_db"] == pytest.approx([100.0] * 64, abs=1e-3)
+    assert baseline["capture_samples"] == state.target == 4
     assert service._baseline_power is not None
+    assert f32.exists()  # .f32 written from memory for the next spawn
 
 
 @pytest.mark.asyncio
-async def test_capture_baseline_returns_none_when_capture_fails(tmp_path, baseline_paths, monkeypatch):
-    _f32, _tmp = baseline_paths
-    service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
+async def test_capture_baseline_drops_existing_baseline_before_integrating(
+    tmp_path, baseline_paths, monkeypatch,
+):
+    # A re-capture while a baseline is live must integrate *uncorrected* frames:
+    # the service drops the old baseline, respawns raw, and discards one warmup
+    # window before accumulating.
+    f32 = baseline_paths
+    service = SpectrumService(
+        SDRConfig(fft_size=64, integration_seconds=0.8, publish_rate_hz=5.0),
+        tmp_path / "config.toml",
+    )
+    Broadcaster.subscribe(service)
+    service._baseline_active = True
+    service._baseline_power = np.ones(64, dtype=np.float32)
+    service._baseline_cfg_key = service._cfg_baseline_key()
+
+    reconnects = 0
+
+    async def counting_reconnect() -> str:
+        nonlocal reconnects
+        reconnects += 1
+        return "running"
+
+    monkeypatch.setattr(service, "reconnect", counting_reconnect)
+
+    power_db = np.zeros(64, dtype=np.float32)  # 0 dB → 1.0 linear
+    feeder = asyncio.create_task(_feed_capture_window(service, power_db))
+    baseline = await service.capture_baseline()
+    state = await feeder
+
+    assert baseline is not None
+    assert state.warmup == 0  # consumed during feed, but a window was reserved
+    assert baseline["capture_samples"] == state.target
+    # One reconnect to drop the old baseline (raw), one to apply the new one.
+    assert reconnects == 2
+    assert service._baseline_power is not None
+    assert f32.exists()
+
+
+@pytest.mark.asyncio
+async def test_capture_baseline_times_out_when_no_frames(tmp_path, baseline_paths, monkeypatch):
+    service = SpectrumService(
+        SDRConfig(fft_size=64, integration_seconds=0.01, publish_rate_hz=5.0),
+        tmp_path / "config.toml",
+    )
     Broadcaster.subscribe(service)
 
-    async def failing_capture() -> bool:
-        return False
+    async def noop_reconnect() -> str:
+        return "running"
 
-    async def noop() -> None:
+    async def noop_ensure() -> None:
         return None
 
-    monkeypatch.setattr(service, "_run_capture_subprocess", failing_capture)
-    monkeypatch.setattr(service, "_kill_subprocess_locked", noop)
-    monkeypatch.setattr(service, "_spawn_subprocess_locked", noop)
+    monkeypatch.setattr(service, "reconnect", noop_reconnect)
+    monkeypatch.setattr(service, "_ensure_running", noop_ensure)
+    # Shrink the startup grace so the timeout fires fast with no frames fed.
+    service.subprocess_start_timeout_s = 0.05
+    service._proc = cast("subprocess.Popen[bytes]", object())
+    service._mode = "running"
 
     assert await service.capture_baseline() is None
-
-
-class _FakeCaptureProc:
-    """Stand-in for the capture subprocess so the poll loop can be exercised
-    without GNU Radio or an SDR."""
-
-    def __init__(self, *, exit_after_polls: int | None = None, exit_code: int = 0) -> None:
-        self.returncode: int | None = None
-        self._polls = 0
-        self._exit_after = exit_after_polls
-        self._exit_code = exit_code
-
-    def poll(self) -> int | None:
-        self._polls += 1
-        if self._exit_after is not None and self._polls >= self._exit_after:
-            self.returncode = self._exit_code
-        return self.returncode
-
-    def kill(self) -> None:
-        if self.returncode is None:
-            self.returncode = -9
-
-    def communicate(self, timeout=None):
-        return b"", b"capture stderr line\n"
+    # Flag is cleared so a later capture can run.
+    assert service._capturing is False
+    assert service._capture_state is None
 
 
 @pytest.mark.asyncio
@@ -411,40 +453,10 @@ async def test_idle_close_keeps_baseline_while_subscribed(tmp_path, baseline_pat
 
 
 @pytest.mark.asyncio
-async def test_run_capture_succeeds_when_file_lands_despite_hung_process(tmp_path, baseline_paths, monkeypatch):
-    # The RTL-SDR source hangs on teardown after head(1) flushes the vector.
-    # The poll loop must accept the complete file and not wait for a clean exit.
-    f32, tmp = baseline_paths
-    service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
-
-    def fake_popen(*args, **kwargs):
-        tmp.write_bytes(b"\x00" * (64 * 4))  # full float32[64] vector
-        return _FakeCaptureProc(exit_after_polls=None)  # never exits (hung)
-
-    monkeypatch.setattr(spectrum_module.subprocess, "Popen", fake_popen)
-
-    assert await service._run_capture_subprocess() is True
-
-
-@pytest.mark.asyncio
-async def test_run_capture_fails_when_no_file_written(tmp_path, baseline_paths, monkeypatch):
-    f32, tmp = baseline_paths
-    service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
-
-    def fake_popen(*args, **kwargs):
-        return _FakeCaptureProc(exit_after_polls=2, exit_code=1)  # dies, writes nothing
-
-    monkeypatch.setattr(spectrum_module.subprocess, "Popen", fake_popen)
-
-    assert await service._run_capture_subprocess() is False
-    assert not tmp.exists()
-
-
-@pytest.mark.asyncio
 async def test_capture_baseline_raises_when_state_dir_readonly(tmp_path, baseline_paths, monkeypatch):
     # The Pi runs rt-hardware from a read-only checkout; without RT_STATE_DIR the
-    # capture subprocess can't write its .f32. Capture must fail up front with an
-    # actionable error and must NOT tear down the live pipeline for a doomed run.
+    # service can't write its .f32. Capture must fail up front with an actionable
+    # error and must NOT tear down the live pipeline for a doomed run.
     service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
     Broadcaster.subscribe(service)
 
@@ -464,7 +476,7 @@ async def test_capture_baseline_raises_when_state_dir_readonly(tmp_path, baselin
 
 @pytest.mark.asyncio
 async def test_clear_baseline_removes_files(tmp_path, baseline_paths, monkeypatch):
-    f32, _tmp = baseline_paths
+    f32 = baseline_paths
     service = SpectrumService(SDRConfig(fft_size=64), tmp_path / "config.toml")
     f32.write_bytes(b"\x00\x00\x00\x00")
 
@@ -482,7 +494,7 @@ async def test_clear_baseline_removes_files(tmp_path, baseline_paths, monkeypatc
 
 
 def test_pipeline_cmd_uses_in_memory_baseline(tmp_path, baseline_paths):
-    f32, _tmp = baseline_paths
+    f32 = baseline_paths
     cfg = SDRConfig(fft_size=64, center_freq_hz=1.4204e9, sample_rate_hz=3.0e6)
     service = SpectrumService(cfg, tmp_path / "config.toml")
     service._baseline_power = np.ones(64, dtype=np.float32)
@@ -496,7 +508,7 @@ def test_pipeline_cmd_uses_in_memory_baseline(tmp_path, baseline_paths):
 
 
 def test_pipeline_cmd_drops_baseline_when_config_changed(tmp_path, baseline_paths):
-    f32, _tmp = baseline_paths
+    f32 = baseline_paths
     cfg = SDRConfig(fft_size=64, center_freq_hz=1.4204e9, sample_rate_hz=3.0e6)
     service = SpectrumService(cfg, tmp_path / "config.toml")
     # Baseline was captured at a different centre frequency.

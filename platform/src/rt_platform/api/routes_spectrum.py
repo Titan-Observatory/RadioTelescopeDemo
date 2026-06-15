@@ -59,8 +59,9 @@ async def spectrum_status(request: Request) -> JSONResponse:
 
 @router.post("/api/spectrum/baseline", dependencies=[Depends(require_control)])
 async def capture_baseline(request: Request) -> JSONResponse:
-    # Capture integrates a full window (integration_seconds) then bounces the
-    # flowgraph, so give the upstream generous headroom before declaring a 502.
+    # Capture integrates a full window (integration_seconds) of the live stream
+    # then bounces the flowgraph to apply the baseline, so give the upstream
+    # generous headroom before declaring a 502.
     return await _proxy.proxy_json("POST", request, "/api/spectrum/baseline", timeout_s=90.0, label="Spectrum")
 
 

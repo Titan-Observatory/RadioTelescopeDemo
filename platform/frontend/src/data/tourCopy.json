@@ -143,8 +143,11 @@
     },
     "capture": {
       "stepLabel": "Step 2 of 2 - Trigger the capture",
-      "body": "Once the dish has finished slewing onto your empty patch, trigger the capture. The hardware service will then collect a full integration window of fresh samples and return the baseline when it's done - no need to time it yourself.",
-      "countdownPrefix": "Capturing... waiting for the hardware service to integrate",
+      "body": "Once the dish has finished slewing onto your empty patch, trigger the capture. The telescope keeps observing the whole time - it averages a full integration window of this live spectrum into your baseline, then applies it. No need to time it yourself.",
+      "liveCaption": "This is the live spectrum right now - the receiver's bandpass shape we're about to measure. The dashed line marks 1420.4 MHz.",
+      "liveCaptionActive": "Integrating... averaging this live spectrum into your baseline. Watch it settle as the noise averages down.",
+      "liveWaiting": "Waiting for the first spectrum frame...",
+      "countdownPrefix": "Capturing... averaging the live spectrum over",
       "countdownSuffix": "of samples.",
       "noFrame": "No spectrum frame received yet - wait a moment for the first one to arrive.",
       "buttons": {
