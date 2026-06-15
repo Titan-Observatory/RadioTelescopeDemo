@@ -116,6 +116,8 @@ const TRACE_RGB: Record<string, string> = {
 // Shading for flagged narrowband RFI bands. A translucent slate-red wash that
 // reads as "ignore this stretch" without obscuring the trace running through it.
 const RFI_BAND_COLOR = 'rgba(255, 90, 95, 0.14)';
+const RFI_LABEL_MIN_GAP_PCT = 4;
+const RFI_LABEL_MAX_COUNT = 8;
 
 const SPEED_OF_LIGHT_KMS = 299792.458;
 
@@ -565,7 +567,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const [yMin, yMax] = yRangeRef.current;
     if (yMax <= yMin) return [];
     const clamp = (v: number) => Math.max(0, Math.min(100, v));
-    return frame.rfi_bands
+    const markers = frame.rfi_bands
       .map(([lo, hi]) => {
         const visibleLo = Math.max(lo, xMin);
         const visibleHi = Math.min(hi, xMax);
@@ -581,13 +583,29 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           }
         }
         const traceTop = clamp(((yMax - displayed[closestIdx]) / (yMax - yMin)) * 100);
+        const leftPct = clamp(((center - xMin) / span) * 100);
         return {
           key: `${lo.toFixed(6)}-${hi.toFixed(6)}`,
-          left: `${clamp(((center - xMin) / span) * 100)}%`,
+          leftPct,
+          left: `${leftPct}%`,
           bottom: `${clamp(100 - traceTop)}%`,
         };
       })
-      .filter((marker): marker is { key: string; left: string; bottom: string } => marker !== null);
+      .filter((marker): marker is { key: string; leftPct: number; left: string; bottom: string } => marker !== null)
+      .sort((a, b) => a.leftPct - b.leftPct);
+
+    let lastLabelPct = -Infinity;
+    let labelCount = 0;
+    return markers.map((marker) => {
+      const showLabel =
+        labelCount < RFI_LABEL_MAX_COUNT &&
+        marker.leftPct - lastLabelPct >= RFI_LABEL_MIN_GAP_PCT;
+      if (showLabel) {
+        lastLabelPct = marker.leftPct;
+        labelCount += 1;
+      }
+      return { ...marker, showLabel };
+    });
   }, [frame, displayed]);
 
   // Live interpretation of the spectrum: the strongest bin inside the H I
@@ -655,19 +673,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
             <h2 className="panel-header head-amber spectrum-title-lg">
               Hydrogen Observation
             </h2>
-            <button
-              type="button"
-              className="spectrum-restart-integration"
-              onClick={restartIntegration}
-              disabled={!connected || integrationRestarting}
-              title={!connected ? 'Waiting for SDR stream' : 'Restart integration without clearing the baseline'}
-            >
-              <RefreshCw
-                size={13}
-                className={integrationRestarting ? 'is-spinning' : undefined}
-              />
-              {integrationRestarting ? 'Restarting' : 'Restart integration'}
-            </button>
             {onStartGuided && (
               <button
                 type="button"
@@ -701,10 +706,10 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
       {!baselineApplies ? (
         <div className="spectrum-baseline-row spectrum-baseline-callout" aria-label="Baseline correction">
           <span className="spectrum-baseline-state">
-            No baseline
+            Missing Baseline
           </span>
           <span className="spectrum-baseline-hint">
-            Capture a reference on empty sky so faint signals stand out from the receiver itself.
+            Capturing a baseline will allow you to isolate real signal by removing system noise and radio frequency interference (RFI).
           </span>
           <button
             type="button"
@@ -712,7 +717,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
             onClick={() => setWizardOpen(true)}
             title="Open the guided flow to point at empty sky and capture a baseline"
           >
-            <Sliders size={12} /> Set up baseline
+            <Sliders size={12} /> Capture Baseline
           </button>
         </div>
       ) : frame ? (
@@ -788,6 +793,19 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
               </p>
             )}
           </div>
+          <button
+            type="button"
+            className="spectrum-restart-integration"
+            onClick={restartIntegration}
+            disabled={!connected || integrationRestarting}
+            title={!connected ? 'Waiting for SDR stream' : 'Restart integration without clearing the baseline'}
+            aria-label={integrationRestarting ? 'Restarting integration' : 'Restart integration'}
+          >
+            <RefreshCw
+              size={14}
+              className={integrationRestarting ? 'is-spinning' : undefined}
+            />
+          </button>
         </div>
 
         <div className="spectrum-chart-box">
@@ -813,7 +831,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
               {rfiGuide.map((marker) => (
                 <span className="spectrum-rfi-marker" style={{ left: marker.left }} key={marker.key}>
                   <span className="spectrum-rfi-line" style={{ bottom: marker.bottom }} />
-                  <span className="spectrum-rfi-label">RFI</span>
+                  {marker.showLabel && <span className="spectrum-rfi-label">RFI</span>}
                 </span>
               ))}
             </div>
@@ -826,7 +844,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
           )}
           {!baselineApplies && frame && (
             <div className="spectrum-baseline-overlay" aria-hidden>
-              Baseline Needed
+              Calibration Needed
             </div>
           )}
         </div>

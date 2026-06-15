@@ -5,7 +5,7 @@ import logging
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import katpoint
 
@@ -269,47 +269,47 @@ class RoboClawService:
         if target is None:
             return
         tolerance = self._mount_cfg.goto_arrival_tolerance_counts if self._mount_cfg is not None else 1
-        m1_delta = _motor_target_delta(snap, "m1", target.m1)
-        m2_delta = _motor_target_delta(snap, "m2", target.m2)
-        reached_m1 = not target.m1_stopped and _axis_target_reached(m1_delta, target.m1_last_delta, tolerance)
-        reached_m2 = not target.m2_stopped and _axis_target_reached(m2_delta, target.m2_last_delta, tolerance)
-        if not reached_m1 and not reached_m2:
-            self._position_target = PositionTarget(
-                m1=target.m1,
-                m2=target.m2,
-                m1_stopped=target.m1_stopped,
-                m2_stopped=target.m2_stopped,
-                m1_last_delta=m1_delta if not target.m1_stopped else target.m1_last_delta,
-                m2_last_delta=m2_delta if not target.m2_stopped else target.m2_last_delta,
+        m1 = _eval_axis(snap, "m1", target.m1, target.m1_stopped, target.m1_last_delta, tolerance)
+        m2 = _eval_axis(snap, "m2", target.m2, target.m2_stopped, target.m2_last_delta, tolerance)
+
+        if not m1.reached and not m2.reached:
+            # Still moving: remember the latest delta so the next tick can detect
+            # a target crossing between polls. A stopped axis keeps its frozen one.
+            self._position_target = replace(
+                target,
+                m1_last_delta=m1.delta if not target.m1_stopped else target.m1_last_delta,
+                m2_last_delta=m2.delta if not target.m2_stopped else target.m2_last_delta,
             )
             return
 
-        failed: list[str] = []
-        if reached_m1:
-            result = await self.execute("forward_m1", {"speed": 0})
-            if not result.ok:
-                failed.append(result.error or result.command_id)
-        if reached_m2:
-            result = await self.execute("forward_m2", {"speed": 0})
-            if not result.ok:
-                failed.append(result.error or result.command_id)
+        failed = await self._stop_reached_axes(reached_m1=m1.reached, reached_m2=m2.reached)
         if failed:
             logger.warning("Failed to stop reached target axis for %s: %s", target, "; ".join(failed))
             return
 
-        target = PositionTarget(
-            m1=target.m1,
-            m2=target.m2,
-            m1_stopped=target.m1_stopped or reached_m1,
-            m2_stopped=target.m2_stopped or reached_m2,
-            m1_last_delta=m1_delta,
-            m2_last_delta=m2_delta,
+        updated = replace(
+            target,
+            m1_stopped=target.m1_stopped or m1.reached,
+            m2_stopped=target.m2_stopped or m2.reached,
+            m1_last_delta=m1.delta,
+            m2_last_delta=m2.delta,
         )
-        if (target.m1 is None or target.m1_stopped) and (target.m2 is None or target.m2_stopped):
-            self._position_target = None
-        else:
-            self._position_target = target
-        logger.info("Stopped reached target axis m1=%s m2=%s", reached_m1, reached_m2)
+        self._position_target = None if _target_complete(updated) else updated
+        logger.info("Stopped reached target axis m1=%s m2=%s", m1.reached, m2.reached)
+
+    async def _stop_reached_axes(self, *, reached_m1: bool, reached_m2: bool) -> list[str]:
+        """Zero-speed the axes that just arrived; return any command errors.
+
+        Order (m1 then m2) is preserved so a partial failure leaves the same
+        motor running as before the refactor."""
+        failed: list[str] = []
+        for reached, command in ((reached_m1, "forward_m1"), (reached_m2, "forward_m2")):
+            if not reached:
+                continue
+            result = await self.execute(command, {"speed": 0})
+            if not result.ok:
+                failed.append(result.error or result.command_id)
+        return failed
 
     async def _poll_loop(self) -> None:
         interval = 1.0 / self._rate
@@ -333,3 +333,33 @@ def _axis_target_reached(delta: int | None, last_delta: int | None, tolerance: i
     if abs(delta) <= tolerance:
         return True
     return last_delta is not None and (last_delta < 0 < delta or last_delta > 0 > delta)
+
+
+@dataclass(frozen=True)
+class _AxisOutcome:
+    """One axis's verdict for a single telemetry tick: whether it has arrived,
+    and the freshly-measured signed distance to its target (``None`` when the
+    axis has no target or no encoder reading)."""
+
+    reached: bool
+    delta: int | None
+
+
+def _eval_axis(
+    snap: RoboClawTelemetry,
+    motor_id: str,
+    encoder_target: int | None,
+    stopped: bool,
+    last_delta: int | None,
+    tolerance: int,
+) -> _AxisOutcome:
+    """Pure arrival decision for one axis — no motor I/O, so it is unit-testable
+    without a fake controller. An already-``stopped`` axis never re-arrives."""
+    delta = _motor_target_delta(snap, motor_id, encoder_target)
+    reached = not stopped and _axis_target_reached(delta, last_delta, tolerance)
+    return _AxisOutcome(reached=reached, delta=delta)
+
+
+def _target_complete(target: PositionTarget) -> bool:
+    """True once every targeted axis has been stopped (so the target retires)."""
+    return (target.m1 is None or target.m1_stopped) and (target.m2 is None or target.m2_stopped)

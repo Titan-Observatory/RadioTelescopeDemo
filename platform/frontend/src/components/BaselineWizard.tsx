@@ -1,12 +1,16 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { Camera, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import { track } from '../analytics';
 import tourCopy from '../data/tourCopy.json';
 
 const FORCE_HYDROGEN_SURVEY_EVENT = 'rt-force-hydrogen-survey';
+// The "pick a spot" Cancel / confirm buttons live on the sky map's in-map hint
+// banner now (see SkyMap/index.tsx). They reach this component via these window
+// events rather than a shared callback.
+const BASELINE_PICK_CONFIRM_EVENT = 'rt-baseline-pick-confirm';
+const BASELINE_PICK_CANCEL_EVENT = 'rt-baseline-pick-cancel';
 
 // Pull a human-readable reason out of a failed response. The platform proxies
 // the hardware service's `{detail: ...}` body through verbatim, so a read-only
@@ -79,8 +83,9 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   // class. The class triggers a CSS spotlight (box-shadow on .skymap-panel
   // darkens everything outside it) - pure visual, no DOM overlay, so Aladin
   // keeps full pointer interaction (click-to-select, click-and-drag-to-pan,
-  // hover tooltips). The popover next to the map is rendered by React
-  // (BaselinePickPopover) and positioned from .skymap-panel's bounding box.
+  // hover tooltips). The pick instructions and the Cancel / confirm buttons
+  // live on the sky map's own in-map hint banner; it signals us back through
+  // the BASELINE_PICK_* window events below.
   useEffect(() => {
     if (!open || step !== 'pick') return;
     // Scroll the sky map into view BEFORE we lock body scroll, otherwise on
@@ -90,8 +95,17 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
     // Instant (not smooth) so the scroll completes before we lock body overflow.
     target?.scrollIntoView({ block: 'start', behavior: 'auto' });
     document.body.classList.add('rt-baseline-pick');
-    return () => document.body.classList.remove('rt-baseline-pick');
-  }, [open, step]);
+
+    const onConfirm = () => { track('baseline_pick_confirmed'); setStep('capture'); };
+    const onCancel = () => { track('baseline_pick_cancelled'); onOpenChange(false); };
+    window.addEventListener(BASELINE_PICK_CONFIRM_EVENT, onConfirm);
+    window.addEventListener(BASELINE_PICK_CANCEL_EVENT, onCancel);
+    return () => {
+      document.body.classList.remove('rt-baseline-pick');
+      window.removeEventListener(BASELINE_PICK_CONFIRM_EVENT, onConfirm);
+      window.removeEventListener(BASELINE_PICK_CANCEL_EVENT, onCancel);
+    };
+  }, [open, step, onOpenChange]);
 
   function close(reason: 'cancel' | 'done') {
     track('baseline_wizard_closed', { reason, step });
@@ -141,18 +155,12 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
 
   // While the user is picking on the sky map, hide the Radix dialog so the
   // map is unobscured. The wizard component stays mounted so state survives
-  // the round-trip, and a custom popover (rendered below) takes the dialog's
-  // place - positioned next to the sky map without blocking it.
+  // the round-trip; the pick prompt and its buttons live on the sky map's
+  // in-map hint banner instead (see SkyMap/index.tsx).
   const dialogOpen = open && step !== 'pick';
 
   return (
     <>
-      {open && step === 'pick' && (
-        <BaselinePickPopover
-          onCancel={() => { track('baseline_pick_cancelled'); onOpenChange(false); }}
-          onConfirm={() => { track('baseline_pick_confirmed'); setStep('capture'); }}
-        />
-      )}
       <Dialog.Root open={dialogOpen} onOpenChange={(o) => { if (!o) close('cancel'); else onOpenChange(o); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="baseline-overlay" />
@@ -242,71 +250,5 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
         </Dialog.Portal>
       </Dialog.Root>
     </>
-  );
-}
-
-// Replacement for driver.js's popover in the pick step. Renders a fixed-
-// position card on the right edge of .skymap-panel, kept in sync with that
-// element's bounding box on resize. Uses no SVG overlay so it doesn't
-// interfere with Aladin's pointer-event handling.
-function BaselinePickPopover({ onCancel, onConfirm }: {
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const [rect, setRect] = useState<DOMRect | null>(null);
-
-  useEffect(() => {
-    const target = document.querySelector('.skymap-panel');
-    if (!target) return;
-    const update = () => setRect(target.getBoundingClientRect());
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    const ro = new ResizeObserver(update);
-    ro.observe(target);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-      ro.disconnect();
-    };
-  }, []);
-
-  if (!rect) return null;
-
-  // Prefer the right side of the map. If there isn't room beside it (narrow
-  // viewport / mobile stack), drop the popover BELOW the map so it doesn't
-  // cover the very thing the user is trying to click.
-  const POPOVER_WIDTH = 340;
-  const MARGIN = 16;
-  const fitsRight = rect.right + MARGIN + POPOVER_WIDTH + MARGIN <= window.innerWidth;
-  const style: React.CSSProperties = fitsRight
-    ? { left: rect.right + MARGIN, top: rect.top + 12, width: POPOVER_WIDTH }
-    : {
-        // Bottom-sheet style: the map fills most of a phone viewport, so
-        // pinning the popover to the bottom edge keeps the map clickable
-        // above it regardless of where the panel sits in the page.
-        left: MARGIN,
-        right: MARGIN,
-        bottom: MARGIN,
-        width: 'auto',
-        maxWidth: `calc(100vw - ${MARGIN * 2}px)`,
-      };
-
-  return createPortal(
-    <div className="baseline-pick-popover" style={style} role="dialog" aria-modal="false">
-      <strong className="baseline-pick-popover-title">{tourCopy.baselineWizard.pick.title}</strong>
-      <p className="baseline-pick-popover-desc">
-        {tourCopy.baselineWizard.pick.description}
-      </p>
-      <div className="baseline-pick-popover-actions">
-        <button type="button" className="rt-tour-btn rt-tour-btn-ghost" onClick={onCancel}>
-          {tourCopy.baselineWizard.pick.buttons.cancel}
-        </button>
-        <button type="button" className="rt-tour-btn rt-tour-btn-primary" onClick={onConfirm}>
-          {tourCopy.baselineWizard.pick.buttons.confirm}
-        </button>
-      </div>
-    </div>,
-    document.body,
   );
 }

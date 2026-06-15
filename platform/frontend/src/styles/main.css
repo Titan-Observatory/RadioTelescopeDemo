@@ -785,7 +785,8 @@ input:focus-visible {
 
 /* Pointing controls overlaid on the bottom-left of the sky map */
 .skymap-overlay-controls {
-  width: min(280px, calc(100% - 28px));
+  width: max-content;
+  max-width: calc(100% - 28px);
   padding: 12px 14px;
   background: rgba(16, 18, 30, 0.82);
   border: 1px solid var(--hairline-strong);
@@ -793,10 +794,17 @@ input:focus-visible {
   backdrop-filter: blur(6px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   pointer-events: auto;
-  flex: 0 0 min(280px, 42%);
+  flex: 0 0 auto;
 }
 .skymap-overlay-controls .motion-card { gap: 8px; }
-.skymap-overlay-controls .pad-btn { min-height: 48px; }
+.skymap-overlay-controls .pointing-pad {
+  flex: 0 0 174px;
+  max-width: 174px;
+}
+.skymap-overlay-controls .target-form-overlay {
+  grid-template-columns: repeat(2, 92px);
+}
+.skymap-overlay-controls .pad-btn { min-height: 56px; }
 
 /* ── Motion handset ──────────────────────────────────────────────────────
    Reads top to bottom: state header, live position readout, jog pad with
@@ -1076,7 +1084,7 @@ input:focus-visible {
 .spectrum-subtitle {
   margin: 0;
   color: var(--fg-subtle);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.45;
 }
 .spectrum-subtitle strong {
@@ -1161,6 +1169,8 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 600;
@@ -1194,18 +1204,21 @@ h2.panel-header.spectrum-title-lg {
 }
 
 .spectrum-restart-integration {
+  grid-column: 3;
+  justify-self: end;
+  align-self: end;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   flex: 0 0 auto;
-  min-height: 28px;
-  padding: 5px 9px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
   border: 1px solid var(--hairline);
   border-radius: var(--r-sm);
   background: var(--surface-2);
   color: var(--fg-muted);
-  font-size: 12px;
-  font-weight: 600;
   line-height: 1;
   cursor: pointer;
 }
@@ -1805,22 +1818,58 @@ h2.panel-header.spectrum-title-lg {
    readouts under the chart. */
 .spectrum-baseline-callout {
   --spectrum-alert-red: #ff5a5f;
-  height: 48px;
-  min-height: 48px;
-  max-height: 48px;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
   background: color-mix(in srgb, var(--spectrum-alert-red) 12%, var(--surface-2));
   border-color: var(--spectrum-alert-red);
 }
 .spectrum-baseline-callout .spectrum-baseline-state {
+  flex: 0 0 min-content;
   padding-left: 16px;
+  padding-block: 9px;
+  color: var(--fg);
   font-size: 13px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
 }
 .spectrum-baseline-callout .spectrum-baseline-hint {
+  display: -webkit-box;
+  padding-block: 9px;
+  color: var(--fg);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: normal;
+  text-overflow: clip;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .spectrum-baseline-callout .ghost-btn {
-  padding-inline: 18px;
+  justify-content: center;
+  flex-basis: 116px;
+  min-height: 100%;
+  gap: 3px;
+  padding-inline: 12px;
+  background: var(--spectrum-alert-red);
+  border-color: var(--spectrum-alert-red);
   font-size: 13px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+  color: var(--bg);
+}
+.spectrum-baseline-callout .ghost-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.spectrum-baseline-callout .ghost-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--spectrum-alert-red) 86%, white);
+  border-color: color-mix(in srgb, var(--spectrum-alert-red) 86%, white);
+  color: var(--bg);
 }
 
 /* Trailing "Recapture" affordance inside the readouts strip once a baseline is
@@ -1953,7 +2002,7 @@ h2.panel-header {
 }
 
 /* =========================================================================
-   Motion card — d-pad + vertical speed fader. Stop sits in the d-pad's
+   Motion card — d-pad. Stop sits in the d-pad's
    centre cell: it's the spatial inverse of the four directional buttons,
    which makes "stop what I'm doing" intuitive while you have your hand on
    the pad.
@@ -2070,143 +2119,6 @@ h2.panel-header {
 .pad-btn.jog-active > svg { color: var(--sect-teal); transform: scale(1.08); }
 .pad-btn.jog-active .pad-btn-label { color: var(--sect-teal); }
 
-/* =========================================================================
-   Speed slider — a vertical notched slider to the left of the d-pad. A rail
-   runs the panel height and fills amber from the bottom up to a round thumb;
-   the rate names sit alongside as labels, fastest at the top. Thumb, fill top,
-   notches and labels share one coordinate system: detent i (0 at the bottom)
-   lands at i / (steps - 1) of the rail's travel. Drag the thumb, click the
-   rail, or arrow-key it.
-   ========================================================================= */
-.speed-slider {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-  align-items: stretch;
-  gap: 8px;
-  min-height: 140px;
-  padding-left: 3px;
-  padding-right: 10px;
-  --thumb: 18px;
-  --rail-w: 6px;
-}
-
-.speed-slider-title {
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.speed-slider-body {
-  display: flex;
-  align-items: stretch;
-  gap: 9px;
-  flex: 1;
-}
-
-/* The interactive column — pointer/keyboard events land here. Exactly one
-   thumb wide so the rail centres under the thumb. */
-.speed-slider-track {
-  position: relative;
-  flex: 0 0 var(--thumb);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  touch-action: none;
-}
-.speed-slider-track:focus-visible {
-  outline: none;
-}
-.speed-slider-track:focus-visible .speed-slider-thumb {
-  box-shadow: 0 0 0 4px var(--accent-soft), 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-
-/* The travel region: inset top and bottom by half a thumb so the thumb never
-   clips at the extremes. Everything inside is positioned against this box, so
-   0%–100% spans exactly one thumb-centre to the other. */
-.speed-slider-rail {
-  position: absolute;
-  left: 50%;
-  top: calc(var(--thumb) / 2);
-  bottom: calc(var(--thumb) / 2);
-  width: var(--rail-w);
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: var(--hairline-strong);
-}
-.speed-slider-fill {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: calc(var(--pos) * 100%);
-  border-radius: 999px;
-  background: var(--accent);
-  transition: height var(--t-fast);
-}
-/* Detent marks cut across the rail at each step. */
-.speed-slider-notch {
-  position: absolute;
-  left: 50%;
-  bottom: calc(var(--pos) * 100%);
-  width: 10px;
-  height: 2px;
-  transform: translate(-50%, 50%);
-  border-radius: 1px;
-  background: var(--bg);
-  opacity: 0.7;
-}
-.speed-slider-thumb {
-  position: absolute;
-  left: 50%;
-  bottom: calc(var(--pos) * 100%);
-  width: var(--thumb);
-  height: var(--thumb);
-  transform: translate(-50%, 50%);
-  border-radius: 999px;
-  background: #fff;
-  border: 1px solid #c4c4c4;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  transition: bottom var(--t-fast);
-}
-
-/* Static rate labels, each pinned to its detent so it lines up with the notch
-   and thumb. Same top/bottom inset as the rail. */
-.speed-slider-labels {
-  position: relative;
-  /* Absolutely-positioned labels contribute no width, so reserve enough for
-     the longest rate name explicitly. */
-  flex: 0 0 auto;
-  width: 54px;
-  margin: calc(var(--thumb) / 2) 0;
-}
-.speed-slider-label {
-  position: absolute;
-  left: 0;
-  bottom: calc(var(--pos) * 100%);
-  transform: translateY(50%);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color var(--t-fast);
-}
-.speed-slider-label:hover {
-  color: var(--fg);
-}
-.speed-slider-label.is-active {
-  color: var(--fg);
-  font-weight: 700;
-}
 /* =========================================================================
    Axis status — two-column readout sitting next to the d-pad. Same height
    so both boxes balance visually.
@@ -2816,9 +2728,44 @@ h2.panel-header {
   font-size: 12px;
   line-height: 1.45;
   text-align: center;
+  /* The hint card itself stays transparent to pointer events so it never
+     swallows a map click underneath it; only the action buttons opt back in. */
   pointer-events: none;
 }
 .skymap-galactic-hint strong { color: #ff9a82; font-weight: 600; }
+.skymap-galactic-hint-text { margin: 0; }
+.skymap-galactic-hint-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.skymap-galactic-hint-actions .rt-tour-btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(255, 132, 110, 0.55);
+  background: transparent;
+  color: #ffd9cf;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+.skymap-galactic-hint-actions .rt-tour-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.skymap-galactic-hint-actions .rt-tour-btn-primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.skymap-galactic-hint-actions .rt-tour-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* When the user is on an exploration-only survey (anything other than HI4PI)
    the click handler drops target selection. The chip below the map flips to
@@ -4510,69 +4457,6 @@ body.rt-baseline-pick { overflow: hidden; }
 body.rt-baseline-pick .skymap-panel {
   z-index: 1000;
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.65);
-}
-
-.baseline-pick-popover {
-  position: fixed;
-  z-index: 1001;
-  width: 340px;
-  padding: 18px 20px;
-  background: var(--surface-1);
-  color: var(--fg);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
-  animation: feedback-fade-in 200ms ease;
-}
-
-.baseline-pick-popover-title {
-  display: block;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--fg);
-  margin-bottom: 8px;
-}
-
-.baseline-pick-popover-desc {
-  margin: 0 0 16px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--fg-muted);
-}
-
-.baseline-pick-popover-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.baseline-pick-popover .rt-tour-btn {
-  font-size: 13px;
-  padding: 8px 14px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--hairline-strong);
-  background: transparent;
-  color: var(--fg);
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-}
-.baseline-pick-popover .rt-tour-btn:hover {
-  border-color: var(--fg-subtle);
-  background: rgba(255, 255, 255, 0.03);
-}
-.baseline-pick-popover .rt-tour-btn-ghost {
-  color: var(--fg-muted);
-}
-.baseline-pick-popover .rt-tour-btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-.baseline-pick-popover .rt-tour-btn-primary:hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
 }
 
 /* ── Baseline wizard (@radix-ui/react-dialog) ─────────────────────────── */

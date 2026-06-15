@@ -1,6 +1,7 @@
 import { Layers, Telescope } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import tourCopy from '../../data/tourCopy.json';
 import { altAzToRaDec, raDecToAltAz } from '../../lib/astro';
 import type { RaDecTarget, RoboClawTelemetry, SkyOverlay, TelescopeConfig } from '../../types';
 
@@ -16,6 +17,12 @@ import {
 } from './spectrum/surveys';
 
 const FORCE_HYDROGEN_SURVEY_EVENT = 'rt-force-hydrogen-survey';
+// Baseline "pick a spot" controls now live on the in-map galactic-band hint
+// (the wizard's separate popover card is gone). The buttons can't reach the
+// wizard directly, so they signal it via window events — same loose coupling
+// as FORCE_HYDROGEN_SURVEY_EVENT. Mirrored in BaselineWizard.tsx.
+const BASELINE_PICK_CONFIRM_EVENT = 'rt-baseline-pick-confirm';
+const BASELINE_PICK_CANCEL_EVENT = 'rt-baseline-pick-cancel';
 
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -396,8 +403,36 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
       )}
 
       {galacticRestrict && (
-        <div className="skymap-galactic-hint" role="status">
-          Pick a patch <strong>outside the shaded Milky Way band</strong> — those points are off-limits for a clean baseline.
+        <div className="skymap-galactic-hint" role="dialog" aria-label={tourCopy.baselineWizard.pick.title}>
+          <p className="skymap-galactic-hint-text">
+            Pick a patch <strong>outside the shaded Milky Way band</strong> — those points are off-limits for a clean baseline.
+          </p>
+          <div className="skymap-galactic-hint-actions">
+            <button
+              type="button"
+              className="rt-tour-btn rt-tour-btn-ghost"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.dispatchEvent(new Event(BASELINE_PICK_CANCEL_EVENT));
+              }}
+            >
+              {tourCopy.baselineWizard.pick.buttons.cancel}
+            </button>
+            <button
+              type="button"
+              className="rt-tour-btn rt-tour-btn-primary"
+              disabled={!pending}
+              title={pending ? undefined : 'Click a point on the map first'}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.dispatchEvent(new Event(BASELINE_PICK_CONFIRM_EVENT));
+              }}
+            >
+              {tourCopy.baselineWizard.pick.buttons.confirm}
+            </button>
+          </div>
         </div>
       )}
 

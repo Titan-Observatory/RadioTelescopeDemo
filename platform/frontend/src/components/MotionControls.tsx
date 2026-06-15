@@ -153,127 +153,9 @@ function PointingPad({ jog, stopJog, speed, onStop }: {
   );
 }
 
-// Authentic telescope hand-controller rate names rather than generic
-// slow/med/fast: Guide (fine tracking), Set (centring), Slew (full traverse).
-const SPEED_PRESETS: { id: 'fine' | 'coarse' | 'slew'; label: string; value: number }[] = [
-  { id: 'fine',   label: 'Fine', value: 10 },
-  { id: 'coarse', label: 'Coarse',   value: 40 },
-  { id: 'slew',   label: 'Slew',  value: 85 },
-];
-
-// A real vertical slider over the discrete rate presets. The thumb rides a
-// rail and snaps to one of the detents; drag it, click anywhere on the rail,
-// or arrow-key it. The rate names are plain labels alongside each detent — the
-// fastest at the top so the dark fill grows like a throttle.
-function SpeedFader({ slewSpeed, setSlewSpeed }: {
-  slewSpeed: number;
-  setSlewSpeed: (n: number) => void;
-}) {
-  const steps = SPEED_PRESETS.length;
-  // SPEED_PRESETS is ordered slow→fast, so its index doubles as the detent
-  // number counted from the bottom of the rail.
-  const activeStep = SPEED_PRESETS.reduce(
-    (best, p, i) =>
-      Math.abs(p.value - slewSpeed) < Math.abs(SPEED_PRESETS[best].value - slewSpeed) ? i : best,
-    0);
-
-  const railRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
-
-  // Map a pointer Y onto the nearest detent using the rail's own box, so the
-  // hit-testing matches exactly where the thumb and labels are painted.
-  const pickFromClientY = useCallback((clientY: number) => {
-    const rail = railRef.current;
-    if (!rail) return;
-    const rect = rail.getBoundingClientRect();
-    const frac = 1 - (clientY - rect.top) / rect.height; // 0 at bottom, 1 at top
-    const step = Math.round(frac * (steps - 1));
-    const clamped = Math.max(0, Math.min(steps - 1, step));
-    setSlewSpeed(SPEED_PRESETS[clamped].value);
-  }, [steps, setSlewSpeed]);
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    pickFromClientY(e.clientY);
-    // Capture so the drag keeps tracking even if the pointer leaves the rail.
-    // Guard it: some pointer types reject capture, which mustn't abort the drag.
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (dragging.current) pickFromClientY(e.clientY);
-  };
-  const endDrag = () => { dragging.current = false; };
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    let next = activeStep;
-    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = activeStep + 1;
-    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = activeStep - 1;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = steps - 1;
-    else return;
-    e.preventDefault();
-    const clamped = Math.max(0, Math.min(steps - 1, next));
-    if (clamped !== activeStep) setSlewSpeed(SPEED_PRESETS[clamped].value);
-  };
-
-  // Travel fraction of a detent: 0 at the bottom, 1 at the top. Computed here
-  // rather than in CSS so positioning never depends on calc() division quirks.
-  const frac = (i: number) => i / (steps - 1);
-
-  return (
-    <div className="speed-slider">
-      <span className="speed-slider-title">Speed</span>
-      <div className="speed-slider-body">
-        <div
-          className="speed-slider-track"
-          role="slider"
-          tabIndex={0}
-          aria-label="Slew speed"
-          aria-valuemin={0}
-          aria-valuemax={steps - 1}
-          aria-valuenow={activeStep}
-          aria-valuetext={SPEED_PRESETS[activeStep].label}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onLostPointerCapture={endDrag}
-          onKeyDown={onKeyDown}
-        >
-          <span className="speed-slider-rail" ref={railRef} aria-hidden="true">
-            <span className="speed-slider-fill" style={{ '--pos': frac(activeStep) } as React.CSSProperties} />
-            {SPEED_PRESETS.map((p, i) => (
-              <span
-                key={p.id}
-                className="speed-slider-notch"
-                style={{ '--pos': frac(i) } as React.CSSProperties}
-              />
-            ))}
-            <span className="speed-slider-thumb" style={{ '--pos': frac(activeStep) } as React.CSSProperties} />
-          </span>
-        </div>
-        <div className="speed-slider-labels" aria-hidden="true">
-          {SPEED_PRESETS.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              tabIndex={-1}
-              className={`speed-slider-label${i === activeStep ? ' is-active' : ''}`}
-              style={{ '--pos': frac(i) } as React.CSSProperties}
-              onClick={() => setSlewSpeed(p.value)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Floating control handset for the dish. Reads top to bottom the way an
 // operator thinks: where the dish is pointing (live readout + motion state),
-// how to nudge it (pad + speed), and where to send it (inline go-to row).
+// how to nudge it (pad), and where to send it (inline go-to row).
 // Both interaction modes stay visible at once — no tabs hiding the other half.
 // The typed go-to speaks RA/Dec — the coordinates star charts and catalogues
 // actually give you. Rather than slewing directly, entering valid coordinates
@@ -291,10 +173,9 @@ export function MotionControls({
   targetRaDeg?: number | null;
   targetDecDeg?: number | null;
 }) {
-  const [slewSpeed, setSlewSpeed] = useState(40);
   const [raText, setRaText] = useState('');
   const [decText, setDecText] = useState('');
-  const speed = Math.round(slewSpeed * 127 / 100);
+  const speed = Math.round(85 * 127 / 100);
 
   // Accept a keystroke only if the whole field stays a number with at most three
   // decimals (so letters, extra dots and 4th decimals never make it in). An
@@ -311,12 +192,6 @@ export function MotionControls({
     setRaText((targetRaDeg / 15).toFixed(3));
     setDecText(targetDecDeg.toFixed(3));
   }, [targetRaDeg, targetDecDeg]);
-
-  const changeSpeed = (value: number) => {
-    if (value === slewSpeed) return;
-    track('motion_speed_changed', { from: slewSpeed, to: value });
-    setSlewSpeed(value);
-  };
 
   const raHoursVal = parseFloat(raText);
   const decDegVal = parseFloat(decText);
@@ -348,7 +223,6 @@ export function MotionControls({
 
       <div className="motion-card">
         <PointingPad jog={jog} stopJog={stopJog} speed={speed} onStop={onStop} />
-        <SpeedFader slewSpeed={slewSpeed} setSlewSpeed={changeSpeed} />
       </div>
 
       <form className="target-form-overlay" onSubmit={submitTarget} aria-label="Go to celestial coordinates">

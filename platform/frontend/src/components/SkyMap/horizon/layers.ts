@@ -212,6 +212,59 @@ function buildAzimuthBoundary(
   return samples;
 }
 
+/**
+ * The full safe-window boundary as one closed loop, walked clockwise:
+ * alt_max (az ascending) → az_max (alt descending) → alt_min (az descending)
+ * → az_min (alt ascending). Built from the same per-edge samplers the boundary
+ * *strokes* use, so the filled region's edge is identical to the stroked curve —
+ * no chord-vs-curve gap between the hatch and the outline.
+ */
+function buildAltitudeBandLoop(
+  config: TelescopeConfig,
+  date: Date,
+  minAltDeg: number,
+  maxAltDeg: number,
+  minAzDeg: number,
+  maxAzDeg: number,
+): RaDecTarget[] {
+  const top = buildAltitudeBoundary(config, date, maxAltDeg, minAzDeg, maxAzDeg);
+  const right = buildAzimuthBoundary(config, date, maxAzDeg, minAltDeg, maxAltDeg).reverse();
+  const bottom = buildAltitudeBoundary(config, date, minAltDeg, minAzDeg, maxAzDeg).reverse();
+  const left = buildAzimuthBoundary(config, date, minAzDeg, minAltDeg, maxAltDeg);
+  return [...top, ...right, ...bottom, ...left];
+}
+
+/**
+ * The safe window projected to one closed pixel loop. `ok` is false when any
+ * vertex is unprojectable or blew up (the window is partly behind us), in which
+ * case callers should fall back to the per-quad tiling. Used both to fill/stroke
+ * the altitude-limit overlay and to clip the galactic band, so the band's edge
+ * tracks the same smooth curve as the safe-window outline.
+ */
+function projectAltitudeBandLoop(
+  aladin: AladinInstance,
+  config: TelescopeConfig,
+  date: Date,
+  w: number,
+  h: number,
+): { loopPx: [number, number][]; ok: boolean } {
+  const limits = config.hard_safety_limits;
+  const maxCoord = 50 * Math.max(w, h);
+  const loopPx: [number, number][] = [];
+  for (const { ra_deg, dec_deg } of buildAltitudeBandLoop(
+    config, date,
+    limits.altitude_min_deg, limits.altitude_max_deg,
+    limits.azimuth_min_deg, limits.azimuth_max_deg,
+  )) {
+    const p = aladin.world2pix(ra_deg, dec_deg);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1]) || Math.abs(p[0]) > maxCoord || Math.abs(p[1]) > maxCoord) {
+      return { loopPx, ok: false };
+    }
+    loopPx.push([p[0], p[1]]);
+  }
+  return { loopPx, ok: loopPx.length >= 3 };
+}
+
 function buildAltitudeBandQuads(
   aladin: AladinInstance,
   config: TelescopeConfig,
@@ -288,17 +341,11 @@ export const drawAltitudeLimitOverlay: Layer = ({
   groundIsInside,
 }) => {
   const limits = config.hard_safety_limits;
-  const validBandQuads = buildAltitudeBandQuads(
-    aladin,
-    config,
-    date,
-    limits.altitude_min_deg,
-    limits.altitude_max_deg,
-    limits.azimuth_min_deg,
-    limits.azimuth_max_deg,
-    w,
-    h,
-  );
+
+  // Project the boundary as a single closed loop. When every vertex projects
+  // cleanly (the common case: the window is in front of us) we fill and stroke
+  // from this one path, so the hatch edge and the outline are pixel-identical.
+  const { loopPx, ok: loopOk } = projectAltitudeBandLoop(aladin, config, date, w, h);
 
   ctx.save();
   ctx.beginPath();
@@ -308,12 +355,28 @@ export const drawAltitudeLimitOverlay: Layer = ({
   ctx.closePath();
   ctx.clip(groundIsInside ? 'evenodd' : 'nonzero');
 
+  // Fill everything outside the safe window (rect minus window, evenodd).
   ctx.beginPath();
   ctx.rect(0, 0, w, h);
-  for (const quad of validBandQuads) {
-    ctx.moveTo(quad[0][0], quad[0][1]);
-    for (const [x, y] of quad.slice(1)) ctx.lineTo(x, y);
+  if (loopOk) {
+    ctx.moveTo(loopPx[0][0], loopPx[0][1]);
+    for (const [x, y] of loopPx.slice(1)) ctx.lineTo(x, y);
     ctx.closePath();
+  } else {
+    // Fallback: the window is partly behind the projection, where the loop
+    // would streak. Tile it from independent quads (slight chord error here,
+    // but the region is off-screen or clipped, so it doesn't read).
+    const quads = buildAltitudeBandQuads(
+      aladin, config, date,
+      limits.altitude_min_deg, limits.altitude_max_deg,
+      limits.azimuth_min_deg, limits.azimuth_max_deg,
+      w, h,
+    );
+    for (const quad of quads) {
+      ctx.moveTo(quad[0][0], quad[0][1]);
+      for (const [x, y] of quad.slice(1)) ctx.lineTo(x, y);
+      ctx.closePath();
+    }
   }
   ctx.fillStyle = 'rgba(3, 6, 10, 0.22)';
   ctx.fill('evenodd');
@@ -326,25 +389,34 @@ export const drawAltitudeLimitOverlay: Layer = ({
 
   ctx.strokeStyle = 'rgba(232, 238, 244, 0.62)';
   ctx.lineWidth = 1.35;
-  for (const alt of [limits.altitude_min_deg, limits.altitude_max_deg]) {
-    drawProjectedPolyline(
-      ctx,
-      aladin,
-      buildAltitudeBoundary(config, date, alt, limits.azimuth_min_deg, limits.azimuth_max_deg),
-      false,
-      w,
-      h,
-    );
-  }
-  for (const az of [limits.azimuth_min_deg, limits.azimuth_max_deg]) {
-    drawProjectedPolyline(
-      ctx,
-      aladin,
-      buildAzimuthBoundary(config, date, az, limits.altitude_min_deg, limits.altitude_max_deg),
-      false,
-      w,
-      h,
-    );
+  if (loopOk) {
+    // Stroke the same loop the fill used — guaranteed to track the hatch edge.
+    ctx.beginPath();
+    ctx.moveTo(loopPx[0][0], loopPx[0][1]);
+    for (const [x, y] of loopPx.slice(1)) ctx.lineTo(x, y);
+    ctx.closePath();
+    ctx.stroke();
+  } else {
+    for (const alt of [limits.altitude_min_deg, limits.altitude_max_deg]) {
+      drawProjectedPolyline(
+        ctx,
+        aladin,
+        buildAltitudeBoundary(config, date, alt, limits.azimuth_min_deg, limits.azimuth_max_deg),
+        false,
+        w,
+        h,
+      );
+    }
+    for (const az of [limits.azimuth_min_deg, limits.azimuth_max_deg]) {
+      drawProjectedPolyline(
+        ctx,
+        aladin,
+        buildAzimuthBoundary(config, date, az, limits.altitude_min_deg, limits.altitude_max_deg),
+        false,
+        w,
+        h,
+      );
+    }
   }
   ctx.restore();
 };
@@ -518,26 +590,40 @@ export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, config, date, 
   // when the window is a full hemisphere.
   const span = lEnd - lStart;
   const step = Math.max(fovX / 120, span / GAL_MAX_QUADS, 0.02);
+  // Clip the band to the safe window. Prefer the smooth boundary loop so the
+  // hatch reaches exactly to the safe-window outline (the quad approximation
+  // bows inside it on the curved edges, leaving a visible gap); fall back to
+  // the quad tiling when the window is partly behind the projection.
   const limits = config.hard_safety_limits;
-  const hardWindowQuads = buildAltitudeBandQuads(
-    aladin,
-    config,
-    date,
-    limits.altitude_min_deg,
-    limits.altitude_max_deg,
-    limits.azimuth_min_deg,
-    limits.azimuth_max_deg,
-    w,
-    h,
-  );
-  if (hardWindowQuads.length === 0) return;
+  const { loopPx: windowLoop, ok: windowOk } = projectAltitudeBandLoop(aladin, config, date, w, h);
+  let hardWindowQuads: [number, number][][] = [];
+  if (!windowOk) {
+    hardWindowQuads = buildAltitudeBandQuads(
+      aladin,
+      config,
+      date,
+      limits.altitude_min_deg,
+      limits.altitude_max_deg,
+      limits.azimuth_min_deg,
+      limits.azimuth_max_deg,
+      w,
+      h,
+    );
+    if (hardWindowQuads.length === 0) return;
+  }
 
   ctx.save();
   ctx.beginPath();
-  for (const quad of hardWindowQuads) {
-    ctx.moveTo(quad[0][0], quad[0][1]);
-    for (const [x, y] of quad.slice(1)) ctx.lineTo(x, y);
+  if (windowOk) {
+    ctx.moveTo(windowLoop[0][0], windowLoop[0][1]);
+    for (const [x, y] of windowLoop.slice(1)) ctx.lineTo(x, y);
     ctx.closePath();
+  } else {
+    for (const quad of hardWindowQuads) {
+      ctx.moveTo(quad[0][0], quad[0][1]);
+      for (const [x, y] of quad.slice(1)) ctx.lineTo(x, y);
+      ctx.closePath();
+    }
   }
   ctx.clip();
 

@@ -8,8 +8,8 @@ import type { AltAzPoint, RaDecTarget, TelescopeConfig } from '../../../types';
 
 
 export const DEFAULT_HORIZON_VIEW: AltAzPoint = {
-  altitude_deg: 15,
-  azimuth_deg: 45,
+  altitude_deg: 50,
+  azimuth_deg: 122.5,
 };
 
 
