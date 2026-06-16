@@ -2651,6 +2651,14 @@ h2.panel-header {
 }
 .skymap-galactic-hint strong { color: #ff9a82; font-weight: 600; }
 .skymap-galactic-hint-text { margin: 0; }
+/* Live validity of the current pointing. Defaults to the card's warning tone
+   (invalid / waiting); flips green once the dish is on a valid spot. */
+.skymap-galactic-hint-status {
+  margin: 6px 0 0;
+  font-weight: 600;
+  color: #ffb3a3;
+}
+.skymap-galactic-hint-status.is-valid { color: #72e0ad; }
 .skymap-galactic-hint-actions {
   margin-top: 8px;
   display: flex;

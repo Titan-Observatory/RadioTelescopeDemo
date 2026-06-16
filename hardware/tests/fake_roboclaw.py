@@ -140,7 +140,16 @@ class SimulatedRoboClaw:
     def _simulated_response(self, spec: CommandSpec) -> dict[str, Any]:
         data: dict[str, Any] = {}
         for response in _response_specs(spec):
-            data[response.name] = self._simulated_value(response.name, response.type, response.scale, response.precision)
+            value = self._simulated_value(response.name, response.type, response.scale, response.precision)
+            # The M1 and M2 encoder/speed reads share generic field names
+            # ("encoder", "speed_qpps"), which _simulated_value resolves to the
+            # M1 channel. Redirect the M2 reads so each axis reports its own
+            # channel instead of mirroring M1.
+            if spec.id == "read_encoder_m2" and response.name == "encoder":
+                value = self._encoders["m2"]
+            elif spec.id == "read_speed_m2" and response.name == "speed_qpps":
+                value = self._speeds["m2"]
+            data[response.name] = value
         return data or {"ack": True}
 
     def _simulated_value(self, name: str, type_: ResponseType, scale: float, precision: int | None) -> Any:

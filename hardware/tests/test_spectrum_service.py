@@ -309,9 +309,10 @@ async def _feed_capture_window(service, power_db, *, max_polls: int = 200):
     state = service._capture_state
     assert state is not None, "capture never installed its accumulator"
     # warmup + target frames so `done` fires regardless of the warmup window.
-    for _ in range(state.warmup + state.target):
+    initial_warmup = state.warmup
+    for _ in range(initial_warmup + state.target):
         state.feed(power_db)
-    return state
+    return state, initial_warmup
 
 
 @pytest.mark.asyncio
@@ -324,7 +325,11 @@ async def test_capture_baseline_integrates_live_frames(tmp_path, baseline_paths,
     )
     Broadcaster.subscribe(service)
 
+    reconnects = 0
+
     async def noop_reconnect() -> str:
+        nonlocal reconnects
+        reconnects += 1
         return "running"
 
     async def noop_ensure() -> None:
@@ -339,13 +344,15 @@ async def test_capture_baseline_integrates_live_frames(tmp_path, baseline_paths,
     power_db = np.full(64, 100.0, dtype=np.float32)  # 100 dB → 1e10 linear
     feeder = asyncio.create_task(_feed_capture_window(service, power_db))
     baseline = await service.capture_baseline()
-    state = await feeder
+    state, initial_warmup = await feeder
 
     assert baseline is not None
     # Mean of identical frames = the frame: linear 10^(100/10) = 1e10, → 100 dB.
     assert baseline["power_linear"] == pytest.approx([1e10] * 64, rel=1e-6)
     assert baseline["power_db"] == pytest.approx([100.0] * 64, abs=1e-3)
     assert baseline["capture_samples"] == state.target == 4
+    assert initial_warmup == 0
+    assert reconnects == 1  # only the final respawn that applies the baseline
     assert service._baseline_power is not None
     assert f32.exists()  # .f32 written from memory for the next spawn
 
@@ -379,11 +386,12 @@ async def test_capture_baseline_drops_existing_baseline_before_integrating(
     power_db = np.zeros(64, dtype=np.float32)  # 0 dB → 1.0 linear
     feeder = asyncio.create_task(_feed_capture_window(service, power_db))
     baseline = await service.capture_baseline()
-    state = await feeder
+    state, initial_warmup = await feeder
 
     assert baseline is not None
     # A full settling window is discarded before accumulation begins.
     assert state.target == service._cfg.integration_frames
+    assert initial_warmup == state.target
     assert baseline["capture_samples"] == state.target
     # One reconnect to restart the integration (raw), one to apply the new baseline.
     assert reconnects == 2

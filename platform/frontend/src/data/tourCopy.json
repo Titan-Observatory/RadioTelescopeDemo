@@ -134,22 +134,20 @@
       }
     },
     "pick": {
-      "title": "Pick an empty patch of sky",
-      "description": "Use the sky map to choose somewhere quiet - high in the sky, away from the Sun and the shaded Milky Way band (clicks inside it are blocked). Click a point on the map to load it as your target, then hit the Slew button to drive the dish there.",
+      "title": "Point at an empty patch of sky",
+      "description": "Slew the dish somewhere quiet - high in the sky, away from the Sun and the shaded Milky Way band. Click a point on the map to load it as your target, then hit the Slew button to drive the dish there. Continue unlocks once the telescope is actually pointed at a valid spot.",
       "buttons": {
         "cancel": "Cancel",
-        "confirm": "I've picked a spot"
+        "confirm": "Continue"
       }
     },
     "capture": {
       "stepLabel": "Step 2 of 2 - Trigger the capture",
       "body": "Once the dish has finished slewing onto your empty patch, trigger the capture. The telescope keeps observing the whole time - it averages a full integration window of this live spectrum into your baseline, then applies it. No need to time it yourself.",
-      "liveCaption": "This is the live spectrum right now - the receiver's bandpass shape we're about to measure. The dashed line marks 1420.4 MHz.",
-      "liveCaptionActive": "Integrating... averaging this live spectrum into your baseline. Watch it settle as the noise averages down.",
-      "liveWaiting": "Waiting for the first spectrum frame...",
+      "liveCaption": "Trigger the capture and the baseline integration will build here. The dashed line marks 1420.4 MHz.",
+      "liveCaptionActive": "Integrating... averaging the live spectrum into your baseline. Watch it settle as the noise averages down.",
       "countdownPrefix": "Capturing... averaging the live spectrum over",
       "countdownSuffix": "of samples.",
-      "noFrame": "No spectrum frame received yet - wait a moment for the first one to arrive.",
       "buttons": {
         "back": "Back to map",
         "trigger": "Trigger capture",

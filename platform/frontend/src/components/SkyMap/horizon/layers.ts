@@ -4,6 +4,7 @@ import type { MutableRefObject } from 'react';
 import {
   DEG2RAD,
   GALACTIC_PLANE_EXCLUSION_DEG,
+  SUN_EXCLUSION_DEG,
   altAzToRaDec,
   galacticToRaDec,
   moonIllumination,
@@ -785,7 +786,6 @@ export const drawSlewPath: Layer = ({ ctx, aladin, config, date, telemetry, pend
 // declination and measure the pixel distance — accurate at any zoom level.
 const SUN_ANG_RADIUS_DEG  = 0.2655;
 const MOON_ANG_RADIUS_DEG = 0.2591;
-const SUN_EXCLUSION_DEG   = 15;
 
 export const drawSunAndMoon: Layer = ({ ctx, aladin, w, h, config, date, hoverZones }) => {
   const sunPos  = sunRaDec(date);

@@ -156,7 +156,7 @@ def test_api_accepts_alt_az_goto(simulated_config_path):
     assert response.status_code == 200
     assert body["ok"] is True
     assert body["command_id"] == "software_goto"
-    assert body["response"]["m1_position"] == 650
+    assert body["response"]["m1_position"] == 1950
     assert body["response"]["m2_position"] == 800
     # Encoders start at 0, both targets are positive, so both axes jog forward.
     assert body["response"]["m1_command"] == "forward_m1"
@@ -181,7 +181,7 @@ def test_api_accepts_alt_az_goto_position_pid(simulated_config_path):
     assert response.status_code == 200
     assert body["ok"] is True
     assert body["command_id"] == "speed_accel_decel_position_m1m2"
-    assert body["response"]["m1_position"] == 650
+    assert body["response"]["m1_position"] == 1950
     assert body["response"]["m2_position"] == 800
     assert body["response"]["az_speed_qpps"] == 6000
     assert body["response"]["alt_speed_qpps"] == 6000
@@ -205,7 +205,7 @@ def test_home_elevation_zeros_after_encoder_stalls(simulated_config_path):
 def test_jog_rejects_stale_heartbeat(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 1100  # az = 100 deg (in bounds, west allowed)
+        service.client._encoders["m1"] = 1500  # az = 100 deg (in bounds, west allowed)
         service.client._encoders["m2"] = 1100  # alt = 45 deg
         newer = client.post(
             "/api/telescope/jog",
@@ -226,7 +226,7 @@ def test_jog_rejects_stale_heartbeat(simulated_config_path):
 def test_stale_heartbeat_after_newer_jog_does_not_stop_active_motion(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 1100  # az = 100 deg
+        service.client._encoders["m1"] = 1500  # az = 100 deg
         service.client._encoders["m2"] = 1100  # alt = 45 deg
         old = client.post(
             "/api/telescope/jog",
@@ -251,7 +251,7 @@ def test_stale_heartbeat_after_newer_jog_does_not_stop_active_motion(simulated_c
 def test_jog_stop_stops_immediately(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 1100  # az = 100 deg (in bounds, west allowed)
+        service.client._encoders["m1"] = 1500  # az = 100 deg (in bounds, west allowed)
         service.client._encoders["m2"] = 1100  # alt = 45 deg
         started = client.post(
             "/api/telescope/jog",
@@ -268,7 +268,7 @@ def test_jog_stop_stops_immediately(simulated_config_path):
 def test_old_jog_stop_does_not_stop_new_active_jog(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 1100  # az = 100 deg (in bounds, west allowed)
+        service.client._encoders["m1"] = 1500  # az = 100 deg (in bounds, west allowed)
         service.client._encoders["m2"] = 1100  # alt = 45 deg
         old_started = client.post(
             "/api/telescope/jog",
@@ -296,7 +296,7 @@ def test_stale_jog_finishing_after_stop_does_not_leave_motors_running(simulated_
 
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 1100  # az = 100 deg (in bounds, west allowed)
+        service.client._encoders["m1"] = 1500  # az = 100 deg (in bounds, west allowed)
         service.client._encoders["m2"] = 1100  # alt = 45 deg
         original_execute = service.execute
         entered = threading.Event()
@@ -340,7 +340,7 @@ def test_jog_watchdog_stops_when_heartbeats_stop(simulated_config_path):
 
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 1100  # az = 100 deg (in bounds, west allowed)
+        service.client._encoders["m1"] = 1500  # az = 100 deg (in bounds, west allowed)
         service.client._encoders["m2"] = 1100  # alt = 45 deg
         started = client.post(
             "/api/telescope/jog",
@@ -360,7 +360,7 @@ def test_jog_watchdog_stops_when_heartbeats_stop(simulated_config_path):
 def test_jog_rejects_motion_outside_hard_safety_limits(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 2000  # az = 190 deg (at the east limit)
+        service.client._encoders["m1"] = 600  # az = 190 deg (at the east limit)
         service.client._encoders["m2"] = 1100  # alt = 45 deg
 
         # East drives further past the 190 deg limit, so it must be rejected.
@@ -381,7 +381,7 @@ def test_jog_allows_recovery_back_toward_hard_safety_limits(simulated_config_pat
     # be accepted so an out-of-bounds dish is never stranded.
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
-        service.client._encoders["m1"] = 2100  # az = 200 deg (past the east limit)
+        service.client._encoders["m1"] = 500  # az = 200 deg (past the east limit)
         service.client._encoders["m2"] = 1100  # alt = 45 deg
 
         further_out = client.post(
@@ -398,27 +398,32 @@ def test_jog_allows_recovery_back_toward_hard_safety_limits(simulated_config_pat
         )
         assert recover.status_code == 200
         assert recover.json()["accepted"] is True
-        assert service.client._speeds["m1"] != 0  # driving back toward the range
+        # West is forward_m1: the count rises, which lowers azimuth back toward
+        # the allowed range.
+        assert service.client._speeds["m1"] > 0
 
 
 def test_active_jog_stops_when_it_crosses_hard_safety_limits(simulated_config_path):
-    import asyncio
+    import time
 
     with TestClient(create_app(simulated_config_path)) as client:
         service = client.app.state.roboclaw_service
+        service.client._encoders["m1"] = 610  # az = 189 deg, just inside the east limit
+        service.client._encoders["m2"] = 1100  # alt = 45 deg
 
-        # Arm an active east jog with the motor running, then feed the poll-time
-        # guard a telemetry frame showing the dish has crossed past the east
-        # (190 deg) limit. The guard must stop both motors. (Driving this through
-        # the simulator's motion model isn't possible: its azimuth polarity is
-        # the reverse of this dish and its m2 encoder telemetry mirrors m1.)
-        service.client._speeds["m1"] = 4000
-        service._active_jog = ("jog-cross-token", 1)
-        service._active_jog_direction = "east"
-        crossed = service.latest.model_copy(
-            update={"altitude_deg": 45.0, "azimuth_deg": 200.0}
+        # East is accepted at 189 deg; the telemetry poll then catches the jog
+        # the moment it carries the dish past the 190 deg east limit.
+        started = client.post(
+            "/api/telescope/jog",
+            json={"token": "jog-cross-token", "seq": 1, "direction": "east", "speed": 40},
         )
-        asyncio.run(service._stop_if_active_jog_exits_hard_limits(crossed))
+        assert started.status_code == 200
+        assert service.client._speeds["m1"] < 0  # east = backward_m1, count falling
+
+        time.sleep(0.5)
+
+    assert service.client._speeds["m1"] == 0
+    assert service.client._speeds["m2"] == 0
 
     assert service.client._speeds["m1"] == 0
     assert service.client._speeds["m2"] == 0

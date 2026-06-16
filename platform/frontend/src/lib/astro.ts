@@ -202,6 +202,85 @@ export function galacticToRaDec(l_deg: number, b_deg: number): RaDecTarget {
  */
 export const GALACTIC_PLANE_EXCLUSION_DEG = 20;
 
+/**
+ * Angular distance from the Sun (degrees) within which a pointing is unusable
+ * for a bandpass baseline — the Sun's broadband emission swamps the 21 cm
+ * window. Single source of truth for both the solar-exclusion ring drawn on the
+ * sky map (horizon/layers.ts) and the baseline-pointing guard below.
+ */
+export const SUN_EXCLUSION_DEG = 15;
+
+/** Great-circle separation (degrees) between two equatorial coordinates. */
+export function angularSeparationDeg(a: RaDecTarget, b: RaDecTarget): number {
+  const dec1 = a.dec_deg * DEG2RAD;
+  const dec2 = b.dec_deg * DEG2RAD;
+  const dRa = (a.ra_deg - b.ra_deg) * DEG2RAD;
+  const cosSep =
+    Math.sin(dec1) * Math.sin(dec2) +
+    Math.cos(dec1) * Math.cos(dec2) * Math.cos(dRa);
+  return Math.acos(Math.max(-1, Math.min(1, cosSep))) * RAD2DEG;
+}
+
+export interface BaselinePointingValidity {
+  valid: boolean;
+  /** Short, user-facing reason the pointing is unsuitable (null when valid). */
+  reason: string | null;
+}
+
+/**
+ * Decide whether the dish's current pointing is a clean spot to capture a
+ * bandpass baseline. Mirrors the guards in the sky-map click handler and the
+ * overlays the user sees: inside the hard limits and configured pointing
+ * polygon, above the horizon, clear of the shaded Milky Way band, and outside
+ * the solar exclusion ring. Used to gate the baseline wizard's "Continue"
+ * button on the live telescope position.
+ */
+export function validateBaselinePointing(
+  altAz: AltAzPoint,
+  config: TelescopeConfig,
+  date: Date,
+): BaselinePointingValidity {
+  const hard = config.hard_safety_limits;
+  if (
+    altAz.altitude_deg < hard.altitude_min_deg ||
+    altAz.altitude_deg > hard.altitude_max_deg ||
+    altAz.azimuth_deg < hard.azimuth_min_deg ||
+    altAz.azimuth_deg > hard.azimuth_max_deg
+  ) {
+    return { valid: false, reason: 'Pointing is outside the available sky region.' };
+  }
+  if (altAz.altitude_deg < 0) {
+    return { valid: false, reason: 'Pointing is below the horizon.' };
+  }
+  if (
+    config.pointing_limit_altaz.length >= 3 &&
+    !isInsidePolygon(altAz, config.pointing_limit_altaz)
+  ) {
+    return { valid: false, reason: 'Pointing is outside the configured pointing limits.' };
+  }
+
+  const { ra_deg, dec_deg } = altAzToRaDec(altAz, config, date);
+  const { b_deg } = raDecToGalactic(ra_deg, dec_deg);
+  if (Math.abs(b_deg) < GALACTIC_PLANE_EXCLUSION_DEG) {
+    return {
+      valid: false,
+      reason: `Pointing is inside the Milky Way band — aim at least ${GALACTIC_PLANE_EXCLUSION_DEG}° off the galactic plane.`,
+    };
+  }
+
+  // The Sun only contaminates the band while it's up, so match the sky-map
+  // overlay and skip the check when it's below the horizon.
+  const sun = sunRaDec(date);
+  if (
+    raDecToAltAz(sun.ra_deg, sun.dec_deg, config, date).altitude_deg > 0 &&
+    angularSeparationDeg({ ra_deg, dec_deg }, sun) < SUN_EXCLUSION_DEG
+  ) {
+    return { valid: false, reason: `Pointing is within ${SUN_EXCLUSION_DEG}° of the Sun.` };
+  }
+
+  return { valid: true, reason: null };
+}
+
 export function moonIllumination(
   sun: RaDecTarget,
   moon: RaDecTarget,

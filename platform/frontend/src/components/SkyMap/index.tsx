@@ -2,7 +2,7 @@ import { Layers, Telescope } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import tourCopy from '../../data/tourCopy.json';
-import { altAzToRaDec, raDecToAltAz } from '../../lib/astro';
+import { altAzToRaDec, raDecToAltAz, validateBaselinePointing } from '../../lib/astro';
 import type { RaDecTarget, RoboClawTelemetry, SkyOverlay, TelescopeConfig } from '../../types';
 
 import { CameraPip } from './CameraPip';
@@ -273,6 +273,20 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
     ? raDecToAltAz(pending.ra_deg, pending.dec_deg, config, new Date())
     : null;
 
+  // During the baseline "pick" step the Continue button is gated on where the
+  // dish is *actually* pointed (live telemetry), not the clicked target — the
+  // user slews the real telescope onto a quiet patch and we validate that
+  // position against the same overlays drawn on the map (Milky Way band, sun
+  // exclusion, pointing limits / horizon). Recomputed each telemetry tick.
+  // null = no position yet (can't validate, button stays disabled).
+  const baselineValidity = galacticRestrict && config
+    && telemetry?.altitude_deg != null && telemetry?.azimuth_deg != null
+    ? validateBaselinePointing(
+        { altitude_deg: telemetry.altitude_deg, azimuth_deg: telemetry.azimuth_deg },
+        config, new Date(),
+      )
+    : null;
+
   const handleSolarHover = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -406,7 +420,20 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
       {galacticRestrict && (
         <div className="skymap-galactic-hint" role="dialog" aria-label={tourCopy.baselineWizard.pick.title}>
           <p className="skymap-galactic-hint-text">
-            Pick a patch <strong>outside the shaded Milky Way band</strong> — those points are off-limits for a clean baseline.
+            Slew the dish onto an empty patch — <strong>clear of the shaded Milky Way band, the Sun, and the pointing limits</strong>. Click the map to set a target, then Slew there.
+          </p>
+          <p
+            className={`skymap-galactic-hint-status${
+              baselineValidity?.valid ? ' is-valid' : ''
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {baselineValidity == null
+              ? 'Waiting for the telescope position…'
+              : baselineValidity.valid
+                ? '✓ Current pointing is clear — good for a baseline.'
+                : baselineValidity.reason}
           </p>
           <div className="skymap-galactic-hint-actions">
             <button
@@ -423,8 +450,8 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
             <button
               type="button"
               className="rt-tour-btn rt-tour-btn-primary"
-              disabled={!pending}
-              title={pending ? undefined : 'Click a point on the map first'}
+              disabled={!baselineValidity?.valid}
+              title={baselineValidity?.valid ? undefined : 'Move the telescope to a valid spot to continue'}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();

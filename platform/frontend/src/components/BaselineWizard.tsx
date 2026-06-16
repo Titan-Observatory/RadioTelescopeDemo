@@ -4,11 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { track } from '../analytics';
 import tourCopy from '../data/tourCopy.json';
-
-// 21 cm neutral-hydrogen rest frequency (MHz). Mirrors HYDROGEN_LINE_MHZ in
-// lib/astro.ts / the hardware service — used only to mark the line position on
-// the capture-step preview, so a hand-synced copy is fine.
-const HYDROGEN_LINE_MHZ = 1420.4058;
+import { HYDROGEN_LINE_MHZ } from '../lib/astro';
+import {
+  TRACE_BOXCAR_BINS,
+  bottomHalfYRange,
+  boxcarSmooth,
+  displayWindow,
+  zeroBaselineSpectrum,
+  zeroBaselineYRange,
+} from '../lib/spectrum';
 
 const FORCE_HYDROGEN_SURVEY_EVENT = 'rt-force-hydrogen-survey';
 // The "pick a spot" Cancel / confirm buttons live on the sky map's in-map hint
@@ -68,77 +72,79 @@ interface Props {
 
 type Step = 'intro' | 'pick' | 'capture' | 'done';
 
-// A compact live trace of the spectrum currently streaming, shown on the
-// capture step. Because capture now integrates the live stream (the SDR is
-// never paused), this keeps updating frame-by-frame while the baseline is
-// measured, so the user watches the bandpass settle. Self-contained SVG — no
-// axes or interaction, just the shape.
+// A compact live trace of the spectrum being integrated into the baseline,
+// shown on the capture step. The trace only appears once capture is `active`
+// (the user has triggered it) — before that the box stays empty so they watch
+// the integration build from scratch rather than seeing the pre-capture live
+// stream. The x-window and y-fit reuse the main SpectrumPanel helpers so the
+// shape matches the chart the baseline will be applied to. Self-contained SVG —
+// no axes or interaction, just the shape, with a dashed 21 cm reference line.
 const SPARK_W = 320;
 const SPARK_H = 104;
 const SPARK_PAD = 6;
 
-function LiveSpectrum({ frame }: { frame: SpectrumFrame | null }) {
+function LiveSpectrum({ frame, active }: { frame: SpectrumFrame | null; active: boolean }) {
   const geom = useMemo(() => {
-    const ys = frame?.power_db;
-    if (!ys || ys.length < 2) return null;
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const v of ys) {
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
-    }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
-    const span = hi - lo || 1;
-    const n = ys.length;
+    const freqs = frame?.freqs_mhz;
+    const raw = frame?.power_db;
+    if (!frame || !freqs || !raw || raw.length < 2 || freqs.length !== raw.length) return null;
+
+    const win = displayWindow(frame);
+    if (!win) return null;
+    const { xMin, xMax } = win;
+    const xSpan = xMax - xMin;
+    if (xSpan <= 0) return null;
+
+    // Match the main chart: zero against the robust median when baseline-
+    // corrected, boxcar-smooth, then fit the y-axis the same way.
+    const corrected = frame.baseline_corrected === true;
+    const values = corrected ? zeroBaselineSpectrum(raw) : raw;
+    const smoothed = boxcarSmooth(values, TRACE_BOXCAR_BINS);
+    const [yMin, yMax] = corrected ? zeroBaselineYRange(smoothed) : bottomHalfYRange(smoothed);
+    const ySpan = yMax - yMin || 1;
+
     const innerW = SPARK_W - 2 * SPARK_PAD;
     const innerH = SPARK_H - 2 * SPARK_PAD;
-    const x = (i: number) => SPARK_PAD + (i / (n - 1)) * innerW;
-    const y = (v: number) => SPARK_PAD + (1 - (v - lo) / span) * innerH;
-    const points = ys.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const px = (mhz: number) => SPARK_PAD + ((mhz - xMin) / xSpan) * innerW;
+    const py = (v: number) => {
+      const t = Math.max(0, Math.min(1, (v - yMin) / ySpan));
+      return SPARK_PAD + (1 - t) * innerH;
+    };
 
-    // Mark the 21 cm line if it falls inside the displayed (cropped) window.
-    const freqs = frame.freqs_mhz;
-    let hLineX: number | null = null;
-    if (freqs && freqs.length === n
-        && HYDROGEN_LINE_MHZ >= freqs[0] && HYDROGEN_LINE_MHZ <= freqs[n - 1]) {
-      let nearest = 0;
-      let best = Infinity;
-      for (let i = 0; i < n; i++) {
-        const d = Math.abs(freqs[i] - HYDROGEN_LINE_MHZ);
-        if (d < best) { best = d; nearest = i; }
-      }
-      hLineX = x(nearest);
+    // Only the bins inside the displayed window, so the trace fills the box the
+    // same way the main chart's x-crop does.
+    let points = '';
+    for (let i = 0; i < freqs.length; i++) {
+      if (freqs[i] < xMin || freqs[i] > xMax) continue;
+      points += (points ? ' ' : '') + `${px(freqs[i]).toFixed(1)},${py(smoothed[i]).toFixed(1)}`;
     }
+
+    const hLineX = HYDROGEN_LINE_MHZ >= xMin && HYDROGEN_LINE_MHZ <= xMax ? px(HYDROGEN_LINE_MHZ) : null;
     return { points, hLineX };
   }, [frame]);
 
-  if (!geom) {
-    return (
-      <div className="baseline-live-spectrum baseline-live-spectrum-empty" role="status">
-        {tourCopy.baselineWizard.capture.liveWaiting}
-      </div>
-    );
-  }
   return (
     <svg
       className="baseline-live-spectrum"
       viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
       preserveAspectRatio="none"
       role="img"
-      aria-label="Live spectrum being integrated"
+      aria-label={active ? 'Baseline integration building' : 'Spectrum preview (empty until capture starts)'}
     >
-      {geom.hLineX != null && (
+      {geom?.hLineX != null && (
         <line
           className="baseline-live-hline"
           x1={geom.hLineX} y1={SPARK_PAD} x2={geom.hLineX} y2={SPARK_H - SPARK_PAD}
         />
       )}
-      <polyline
-        className="baseline-live-trace"
-        points={geom.points}
-        fill="none"
-        vectorEffect="non-scaling-stroke"
-      />
+      {active && geom?.points && (
+        <polyline
+          className="baseline-live-trace"
+          points={geom.points}
+          fill="none"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
     </svg>
   );
 }
@@ -480,11 +486,11 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
     setStep('pick');
   }
 
-  // Capture restarts the integration, discards one settling window, then
-  // averages a second window into the baseline - so budget ~2 integration
-  // windows. Show a generous estimate so the user knows the request hasn't hung.
+  // Initial capture averages one live integration window. Re-capture first
+  // drops the active baseline, lets the raw stream settle for one window, then
+  // averages the next one.
   const expectedWaitSeconds = frame
-    ? Math.max(2, Math.ceil(2 * frame.integration_seconds + 1))
+    ? Math.max(2, Math.ceil((frame.baseline_corrected ? 2 : 1) * frame.integration_seconds + 1))
     : null;
 
   async function capture() {
@@ -556,16 +562,14 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
               <div id="baseline-desc" className="baseline-body">
                 <p className="baseline-step-label">{tourCopy.baselineWizard.capture.stepLabel}</p>
                 <p>{tourCopy.baselineWizard.capture.body}</p>
-                {frame && (
-                  <figure className={`baseline-live${busy ? ' baseline-live-active' : ''}`}>
-                    <LiveSpectrum frame={frame} />
-                    <figcaption className="baseline-live-caption">
-                      {busy
-                        ? tourCopy.baselineWizard.capture.liveCaptionActive
-                        : tourCopy.baselineWizard.capture.liveCaption}
-                    </figcaption>
-                  </figure>
-                )}
+                <figure className={`baseline-live${busy ? ' baseline-live-active' : ''}`}>
+                  <LiveSpectrum frame={frame} active={busy} />
+                  <figcaption className="baseline-live-caption">
+                    {busy
+                      ? tourCopy.baselineWizard.capture.liveCaptionActive
+                      : tourCopy.baselineWizard.capture.liveCaption}
+                  </figcaption>
+                </figure>
                 {busy && expectedWaitSeconds != null && (
                   <div className="baseline-countdown" role="status" aria-live="polite">
                     {tourCopy.baselineWizard.capture.countdownPrefix}
@@ -580,11 +584,6 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
                     Integration window: {frame.integration_seconds.toFixed(1)} s
                     {' | '}
                     Center: {frame.center_freq_mhz.toFixed(2)} MHz
-                  </p>
-                )}
-                {!frame && (
-                  <p className="baseline-warn">
-                    {tourCopy.baselineWizard.capture.noFrame}
                   </p>
                 )}
                 <div className="baseline-actions">

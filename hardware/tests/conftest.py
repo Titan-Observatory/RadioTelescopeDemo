@@ -38,10 +38,14 @@ connect_mode = "auto"
 [telemetry]
 update_rate_hz = 5
 
+# Azimuth scale is negative to match the real mount (see config.dev.toml): the
+# encoder count falls as azimuth degrees rise, so east (backward_m1, count down)
+# raises the degrees toward the 190 limit. az = (count - 2500) / -10, so the
+# working range 55..190 deg maps to counts 1950..600 (kept positive).
 [mount]
-az_counts_per_degree = 10.0
+az_counts_per_degree = -10.0
 alt_counts_per_degree = 20.0
-az_zero_count = 100
+az_zero_count = 2500
 alt_zero_count = 200
 goto_speed_qpps = 3000
 goto_accel_qpps2 = 4000
