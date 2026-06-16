@@ -39,8 +39,8 @@ from rt_hardware.services.geometry import altitude_to_encoder_counts
 router = APIRouter(tags=["roboclaw"])
 
 JOG_COMMANDS: dict[str, str] = {
-    "west": "backward_m1",
-    "east": "forward_m1",
+    "west": "forward_m1",
+    "east": "backward_m1",
     "up": "forward_m2",
     "down": "backward_m2",
 }
