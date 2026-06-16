@@ -369,7 +369,7 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
 
       {viewSelectorOpen && (
         <div className="skymap-surveys skymap-surveys-mobile" role="group" aria-label="Sky survey">
-          {SURVEYS.filter((s) => s.id === HYDROGEN_SURVEY_ID || s.id === 'CDS/P/DSS2/color').map((s) => (
+          {SURVEYS.filter((s) => s.id === HYDROGEN_SURVEY_ID || s.id === 'CDS/P/Mellinger/color').map((s) => (
             <button
               key={s.id}
               type="button"

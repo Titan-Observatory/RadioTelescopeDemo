@@ -206,11 +206,11 @@ def test_jog_rejects_stale_heartbeat(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         newer = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-token-1", "seq": 2, "direction": "west", "speed": 0},
+            json={"token": "jog-token-1", "seq": 2, "direction": "east", "speed": 0},
         )
         stale = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-token-1", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "jog-token-1", "seq": 1, "direction": "east", "speed": 40},
         )
         status = client.get("/api/roboclaw/status")
 
@@ -249,7 +249,7 @@ def test_jog_stop_stops_immediately(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         started = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-token-stop", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "jog-token-stop", "seq": 1, "direction": "east", "speed": 40},
         )
         stopped = client.post("/api/telescope/jog/stop", json={"token": "jog-token-stop", "seq": 2})
         status = client.get("/api/roboclaw/status")
@@ -263,11 +263,11 @@ def test_old_jog_stop_does_not_stop_new_active_jog(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         old_started = client.post(
             "/api/telescope/jog",
-            json={"token": "old-jog-token", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "old-jog-token", "seq": 1, "direction": "east", "speed": 40},
         )
         new_started = client.post(
             "/api/telescope/jog",
-            json={"token": "new-jog-token", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "new-jog-token", "seq": 1, "direction": "east", "speed": 40},
         )
         delayed_old_stop = client.post("/api/telescope/jog/stop", json={"token": "old-jog-token", "seq": 2})
         service = client.app.state.roboclaw_service
@@ -306,7 +306,7 @@ def test_stale_jog_finishing_after_stop_does_not_leave_motors_running(simulated_
         def send_jog():
             jog_response["resp"] = client.post(
                 "/api/telescope/jog",
-                json={"token": "race-token-x", "seq": 1, "direction": "west", "speed": 40},
+                json={"token": "race-token-x", "seq": 1, "direction": "east", "speed": 40},
             )
 
         jog_thread = threading.Thread(target=send_jog)
@@ -330,7 +330,7 @@ def test_jog_watchdog_stops_when_heartbeats_stop(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         started = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-token-2", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "jog-token-2", "seq": 1, "direction": "east", "speed": 40},
         )
         service = client.app.state.roboclaw_service
         assert service.client._speeds["m1"] > 0
@@ -352,7 +352,7 @@ def test_jog_rejects_motion_outside_hard_safety_limits(simulated_config_path):
 
         rejected = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-limit-token", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "jog-limit-token", "seq": 1, "direction": "east", "speed": 40},
         )
 
     assert rejected.status_code == 400
@@ -372,7 +372,7 @@ def test_jog_allows_recovery_back_toward_hard_safety_limits(simulated_config_pat
 
         further_out = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-further-out", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "jog-further-out", "seq": 1, "direction": "east", "speed": 40},
         )
         assert further_out.status_code == 400
         assert "outside hard safety limits" in further_out.json()["detail"]
@@ -380,7 +380,7 @@ def test_jog_allows_recovery_back_toward_hard_safety_limits(simulated_config_pat
         # Stopped on rejection, so the encoder hasn't drifted: still az = 200.
         recover = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-recover-east", "seq": 1, "direction": "east", "speed": 40},
+            json={"token": "jog-recover-west", "seq": 1, "direction": "west", "speed": 40},
         )
         assert recover.status_code == 200
         assert recover.json()["accepted"] is True
@@ -397,7 +397,7 @@ def test_active_jog_stops_when_it_crosses_hard_safety_limits(simulated_config_pa
 
         started = client.post(
             "/api/telescope/jog",
-            json={"token": "jog-cross-token", "seq": 1, "direction": "west", "speed": 40},
+            json={"token": "jog-cross-token", "seq": 1, "direction": "east", "speed": 40},
         )
         assert started.status_code == 200
         assert service.client._speeds["m1"] > 0
