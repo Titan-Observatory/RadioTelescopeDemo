@@ -1,312 +1,125 @@
 # Radio Telescope
 
-The control stack for a remotely operable alt-az radio telescope, and the foundation for a scalable observatory network: a central web **platform** that handles visitors, sessions, and (eventually) scheduling, and a per-telescope **hardware** service that drives the mount, SDR receiver, and finder camera on a machine at the dish.
+A web-based control stack for a remotely operated radio telescope.
 
-Visitors get a browser-based dashboard for slewing, live telemetry, an integrated FFT view of the spectrum, and a video feed — with a control queue so many people can watch while one person drives.
+This project pairs a browser UI with telescope-side services for mount control,
+live telemetry, spectrum viewing, and camera streaming. It is designed around a
+public-facing platform service and a separate hardware service that stays on the
+trusted telescope network.
 
+## What It Does
+
+- Provides a browser dashboard for observing and telescope control
+- Supports queue-based access so multiple visitors can watch while one user has control
+- Streams live mount telemetry, finder camera video, and SDR spectrum data
+- Exposes operator tools for telescope status, queue management, and maintenance
+- Keeps the hardware service isolated from the public internet
+
+## Architecture
+
+The repo is split into two main services:
+
+- `platform/` - web app, API, queue, auth, admin tools, and proxy layer
+- `hardware/` - mount, SDR, and camera control service
+
+The browser talks to the platform. The platform talks to the hardware service
+over HTTP and WebSockets.
+
+```text
+Browser -> Platform -> Hardware -> Telescope
 ```
-┌──────────────┐         ┌────────────────────────┐         ┌──────────────┐
-│  Browser     │ ◀────▶  │  platform  (port 8000) │ ◀────▶  │  hardware    │
-│  (Vite SPA)  │   HTTP  │  React UI, queue, auth │   HTTP  │  (port 8001) │
-│              │   WS    │  proxies → hardware    │   WS    │  motors+SDR  │
-└──────────────┘         └────────────────────────┘         └──────────────┘
-    any browser            central platform host          one per telescope
-```
 
-Today one telescope is connected (a single `hardware_url`); multi-telescope routing and observation scheduling are the planned next step. The two-service split — no shared code, HTTP/WebSocket only between them — is what makes adding telescopes a deployment problem rather than a rewrite.
+## Quick Start
 
-## What's in the box
-
-- **Mount control** — alt/az or RA/Dec goto, continuous jog, emergency stop, soft pointing limits, jog watchdog, optional altitude lookup-table calibration.
-- **Spectrum** — Airspy + GNU Radio flowgraph → FFT → integrated power. Live WebSocket stream, EMA smoothing, baseline capture/subtraction.
-- **Finder camera** — MJPEG stream from any V4L2 device.
-- **Multi-user queue** — visitors watch the live view freely; one person at a time holds the control lease (configurable session length, idle timeout, per-IP caps).
-- **Admin panel** — LAN-admin-only page for setting the telescope status flag (operational / maintenance / closed), inspecting the queue, and kicking sessions. Invisible (404) to everyone else.
-- **Motion audit log** — every accepted goto/jog/PID/admin write is appended to `motion.jsonl` on the platform side. Optional fire-and-forget log shipping to Loki via `loki_url`.
-
-## Quickstart — Docker (recommended)
+Copy the example configs and start the stack with Docker:
 
 ```bash
-git clone <repo>
-cd radiotelescope
 cp hardware/config.example.toml hardware/config.toml
 cp platform/config.example.toml platform/config.toml
 docker compose up
 ```
 
-Open `http://localhost:8000/`. Only the platform is published; the hardware service stays on the internal bridge network.
+Then open:
 
-No hardware plugged in? Skip the USB pass-through:
+```text
+http://localhost:8000
+```
+
+For development without connected telescope hardware:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
 
-The hardware service falls back to a disconnected/simulated state.
+## Local Development
 
-## Quickstart — bare metal
-
-Two terminals (often on two different machines: the Pi runs the hardware service, a LAN host runs the platform):
+Run the hardware service:
 
 ```bash
-# Terminal 1 — the Pi, RoboClaw + Airspy plugged in
 cd hardware
 pip install -e ".[dev]"
 cp config.example.toml config.toml
-rt-hardware -c config.toml          # binds 0.0.0.0:8001
+rt-hardware -c config.toml
+```
 
-# Terminal 2 — any LAN host
+Run the platform service:
+
+```bash
 cd platform
 pip install -e ".[dev]"
 cp config.example.toml config.toml
-# edit config.toml: hardware_url = "http://<pi-ip>:8001"
-rt-platform -c config.toml          # binds 0.0.0.0:8000
+rt-platform -c config.toml
 ```
 
-Frontend hot reload:
+Run the frontend dev server:
 
 ```bash
 cd platform/frontend
 npm install
-npm run dev                         # Vite at :5173, proxies /api → :8000
+npm run dev
 ```
-
-Pi serial-port access:
-
-```bash
-sudo usermod -aG dialout $USER      # then log out and back in
-```
-
-## Architecture
-
-Two independently deployable Python services, no shared imports — they communicate only over HTTP/WebSocket.
-
-### `hardware/` — `rt-hardware` (port 8001)
-
-Owns the physical hardware. Trusted-network only: **no auth, no queue, no rate limiting**. Bind it to the Docker internal bridge or a LAN-restricted address.
-
-| Module | Role |
-|---|---|
-| `hardware/roboclaw.py` | RoboClaw Packet Serial driver (M1 = azimuth, M2 = elevation) |
-| `hardware/sdr.py` | LNA / bias-tee control via `airspy_gpio` (Airspy) or `rtl_biast` (RTL-SDR) |
-| `services/roboclaw.py` | Telemetry polling, goto/jog state machine, encoder → alt/az → RA/Dec |
-| `services/spectrum.py` | Spawns GNU Radio subprocess on demand, consumes spectra over ZeroMQ, EMA-integrates with spur rejection + baseline correction, broadcasts JSON frames |
-| `services/camera.py` | Shared V4L2 capture session so the MJPEG stream and snapshot endpoint coexist |
-| `sdr_pipeline.py` | GNU Radio top-block: Soapy → FFT → mag² → integrate → ZMQ pub. Run as a subprocess. |
-| `geometry.py` / `pointing.py` | Encoder ↔ altitude and katpoint J2000 conversions |
-| `models/state.py` | Canonical Pydantic response models — frontend types are generated from this |
-
-### `platform/` — `rt-platform` (port 8000)
-
-Web-facing. Enforces the queue, writes the motion audit log, serves the React SPA, and proxies every motor / spectrum / camera call to the hardware service.
-
-| Module | Role |
-|---|---|
-| `services/queue.py` | Multi-user control lease, session cookies, per-IP caps, idle timeouts |
-| `services/status.py` | Operator-set telescope status (operational / maintenance / closed); the queue gates joins on it |
-| `services/spectrum_bridge.py` | One upstream WS to hardware `/ws/spectrum`, fans frames out to browsers (lazy connect) |
-| `services/hardware_client.py` | httpx wrapper bound to `hardware_url` |
-| `api/routes_motor.py` | Proxies motor/telescope HTTP, bridges `/ws/roboclaw`, writes `motion.jsonl` |
-| `api/routes_spectrum.py` | Proxies spectrum HTTP, bridges `/ws/spectrum` |
-| `api/routes_camera.py` | Proxies camera MJPEG / snapshot + status |
-| `api/routes_admin.py` | LAN-admin control panel: status flag, queue snapshot, kick a session |
-| `api/routes_queue.py`, `routes_feedback.py`, `routes_events.py` | Fully local — no hardware traffic |
-| `api/auth.py` | Optional password gate (off by default) |
-| `loki.py` | Optional fire-and-forget log push to Loki (`loki_url` / `LOKI_URL`) |
-
-### Frontend (`platform/frontend/`)
-
-Vite + React + TypeScript. `App.tsx` is the root and routes between the live view, the queue page, and the LAN-admin page. WebSocket and command logic lives in `lib/` hooks (`useJsonSocket`, `useTelemetry`, `useQueueLease`, `useMotionCommands`); the alt-az math in `lib/astro.ts` is a hand-synced low-precision port of `hardware/geometry.py`. Types in `types.gen.ts` are regenerated from the hardware Pydantic models — re-run the dump script when models change:
-
-```bash
-cd hardware && python -m rt_hardware.scripts.dump_types
-# Writes ../platform/frontend/src/types.gen.ts
-```
-
-## API reference
-
-All browser traffic goes to the platform on **port 8000**. The hardware service on port 8001 is for the platform's internal use and should not be reachable from a browser.
-
-### Access tiers
-
-| Tier | How to qualify |
-|---|---|
-| **Public** | Anyone who can reach the platform |
-| **Session** | Joined the queue (active session cookie). Viewer-level access. |
-| **Control** | Currently holding the queue lease. Required for any motion or mutation. |
-| **LAN admin** | Request originates from a LAN subnet. Used for homing / sync / PID. |
-
-When the queue is disabled (`queue.enabled = false` — fine for single-user home setups), "Session" and "Control" collapse — everyone has control.
-
-### Queue
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/queue/config` | Turnstile keys, session limits, auth flags |
-| GET | `/api/telescope/status` | Operator-set status flag (operational / maintenance / closed) + message |
-| GET | `/api/queue/status` | Your position and session state |
-| POST | `/api/queue/join` | Join the queue |
-| POST | `/api/queue/leave` | Leave and clear session cookie |
-| WS | `/ws/queue` | Real-time queue state; inbound messages count as activity heartbeats |
-
-### Motor / telescope
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/health` | session | RoboClaw connection status |
-| GET | `/api/roboclaw/status` | session | Live telemetry (position, speed, battery, temp) |
-| GET | `/api/roboclaw/commands` | session | List available low-level RoboClaw commands |
-| POST | `/api/roboclaw/commands/{command_id}` | control | Execute a raw RoboClaw command |
-| POST | `/api/roboclaw/stop` | control | Emergency stop both motors |
-| POST | `/api/telescope/jog` | control | Continuous directional jog (`direction`, `speed`, `token`, `seq`) |
-| POST | `/api/telescope/jog/stop` | control | Stop an active jog |
-| GET | `/api/telescope/goto` | session | Goto schema + current encoder mapping |
-| POST | `/api/telescope/goto` | control | Slew to alt/az (`altitude_deg`, `azimuth_deg`, optional speed/accel/decel) |
-| POST | `/api/telescope/goto_radec` | control | Slew to J2000 RA/Dec (`ra_deg`, `dec_deg`) |
-| GET | `/api/telescope/config` | session | Beam FWHM, speed defaults, observer location, pointing limits |
-| POST | `/api/telescope/sync` | LAN admin | Shift encoder zero so current position reads as given alt/az |
-| POST | `/api/telescope/home/elevation` | LAN admin | Drive M2 down to hard stop, zero the encoder |
-| POST | `/api/telescope/home/azimuth` | LAN admin | Zero the azimuth encoder at current position |
-| POST | `/api/telescope/home/altitude` | LAN admin | Zero the altitude encoder at current position |
-| GET | `/api/admin/pid` | LAN admin | Read live PID coefficients from the RoboClaw |
-| POST | `/api/admin/pid` | LAN admin | Write PID coefficients (volatile) |
-| POST | `/api/admin/pid/save` | LAN admin | Persist current PID to RoboClaw NVM |
-| WS | `/ws/roboclaw` | session | Streamed `RoboClawTelemetry` JSON frames |
-
-### Spectrum (SDR)
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/spectrum/status` | session | SDR mode, LNA state, FFT config, frame stats |
-| GET | `/api/spectrum/baseline` | session | Retrieve saved baseline spectrum |
-| POST | `/api/spectrum/baseline` | control | Capture current frame as baseline |
-| DELETE | `/api/spectrum/baseline` | control | Clear the saved baseline |
-| POST | `/api/spectrum/reset` | control | Reset EMA integration accumulator |
-| POST | `/api/spectrum/reconnect` | control | Force SDR receiver to close and re-open |
-| GET | `/api/admin/spectrum/processing` | LAN admin | Read live DSP processing parameters |
-| POST | `/api/admin/spectrum/processing` | LAN admin | Tune DSP processing parameters at runtime |
-| WS | `/ws/spectrum` | session | Streamed FFT frames (Hann-windowed, EMA-integrated) |
-
-### Camera
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/camera/status` | public | Whether the camera device is open |
-| GET | `/api/camera/frame` | public | Single JPEG snapshot |
-| GET | `/api/camera/stream` | public | MJPEG multipart stream |
-
-### Admin panel
-
-All return 404 to non-LAN-admin clients, keeping the admin surface invisible.
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/admin/status` | LAN admin | Current telescope status record |
-| POST | `/api/admin/status` | LAN admin | Set status flag + visitor-facing message |
-| GET | `/api/admin/queue` | LAN admin | Full queue snapshot |
-| POST | `/api/admin/queue/kick` | LAN admin | Remove a session from the queue |
-
-### Local (platform-only)
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `/api/feedback` | public | Submit a 1–5 star rating with optional text |
-| POST | `/api/events` | public | Append a structured analytics event |
 
 ## Configuration
 
-### `hardware/config.toml`
+Start from the example config files:
 
-```toml
-[roboclaw]
-port = "/dev/ttyACM0"
-connect_mode = "auto"       # "auto" falls back silently; "serial" requires a real device
+- `hardware/config.example.toml`
+- `platform/config.example.toml`
 
-[mount]
-az_counts_per_degree  = 1000.0
-alt_counts_per_degree = 1000.0
-az_zero_count  = 0
-alt_zero_count = 0
-goto_speed_qpps = 10000
-max_slew_deg_per_command = 45.0
-# pointing_limit_altaz = [{altitude_deg=…, azimuth_deg=…}, …]
-# altitude_calibration.points = [{counts=…, alt_deg=…}, …]
+The platform config points at the hardware service. The hardware config defines
+the connected mount, receiver, observer location, and camera settings.
 
-[observer]
-latitude_deg = 51.5
-longitude_deg = -0.1
-dish_diameter_m   = 2.286
-observing_freq_hz = 1.42e9
+For public deployments, configure real secrets, CORS origins, authentication or
+turnstile protection, and keep the hardware service private.
 
-[sdr]
-enabled = true
-center_freq_hz = 1.4204e9
-sample_rate_hz = 3.0e6      # Airspy Mini: 3e6 or 6e6 only
-fft_size = 8192
-integration_frames = 256
-gain_db = 14
-lna_bias_tee_enabled = false
+## Testing
 
-[camera]
-enabled = true
-device = 0
-fps = 15
+```bash
+cd platform/frontend
+npm run build
+
+cd ../../hardware
+pytest
+
+cd ../platform
+pytest
 ```
 
-### `platform/config.toml`
+## Repository Layout
 
-For a LAN-only deployment most of this can stay at defaults. The two settings that matter:
-
-```toml
-hardware_url = "http://<pi-ip>:8001"   # or "http://hardware:8001" in Docker
-
-[queue]
-enabled = false             # set true if multiple people will share control
+```text
+hardware/                Telescope-side service
+platform/                Web platform and frontend
+docs/                    Project notes
+infra/                   Deployment support
+docker-compose.yml       Main Docker Compose stack
+docker-compose.dev.yml   Development override
+deploy.sh                Deployment helper
 ```
 
-If you turn the queue on:
+## Status
 
-```toml
-[queue]
-enabled = true
-max_session_seconds  = 600
-idle_timeout_seconds = 60
-cookie_secret = "generate-something-random"
-```
+This is active observatory-control software. It is intended for real hardware,
+but the development stack can run without attached devices.
 
-Other sections (`[server]`, `[auth]`, `[turnstile]`) only need touching if you're exposing the platform beyond your LAN — see the next section.
-
-## Public exposure checklist
-
-The platform is the public-facing half; the hardware service must never be. Before putting the platform on the open internet:
-
-- Terminate TLS at nginx / Caddy in front of the platform and forward `X-Forwarded-For` + `X-Forwarded-Proto`.
-- Set a real `queue.cookie_secret`, real `cors_origins`, and either production Turnstile keys or enable `auth.enabled` with a real password.
-- Never expose port 8001 (the hardware service). Public internet → platform only → hardware over the trusted network link.
-- `rt-platform` runs `public_exposure_errors(cfg)` at startup and refuses to boot with placeholder secrets.
-
-## Hardware notes (Raspberry Pi)
-
-- **Motors**: RoboClaw 2×N over USB serial (Packet Serial, address 0x80, 38400 baud). M1 = azimuth, M2 = elevation. Encoders are the only position source — calibrate `az_counts_per_degree`, `alt_counts_per_degree`, and zero offsets before trusting goto.
-- **SDR**: SoapySDR + GNU Radio. Pick the dongle with `[sdr] driver`: `"airspy"` (Airspy Mini/R2) or `"rtlsdr"` (RTL2832U dongles, e.g. the Nooelec NESDR series). On the Pi: `sudo apt install soapysdr-module-airspy soapysdr-module-rtlsdr python3-soapysdr gnuradio gr-soapy python3-zmq` (none of these are on PyPI); add `rtl-sdr` for the `rtl_biast` bias-tee tool. Docker images already install them. Airspy Mini sample rate must be 3 Msps or 6 Msps; RTL-SDR tops out at ~2.4 Msps. Gain scale and bias-tee tool follow the driver (Airspy: 0–21 index / `airspy_gpio`; RTL-SDR: 0–49.6 dB / `rtl_biast`).
-- **Camera**: V4L2 device via OpenCV, configured under `[camera]`.
-
-## Layout
-
-```
-hardware/                Pi-side service: motors, SDR, camera
-  src/rt_hardware/
-  config.example.toml
-  Dockerfile
-platform/                Web-facing service: UI, queue, proxy
-  src/rt_platform/
-  frontend/              Vite + React + TS
-  config.example.toml
-  Dockerfile
-docker-compose.yml       Two-service stack
-docker-compose.dev.yml   Overrides for laptop / no-hardware dev
-deploy.sh                git pull + docker compose up -d --build
-docs/separation-plan.md  Rationale for the two-service split
-```
-
-See [CLAUDE.md](CLAUDE.md) for deeper architecture notes.
+Do not expose the hardware service directly to the internet.

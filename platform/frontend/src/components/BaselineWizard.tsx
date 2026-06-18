@@ -210,7 +210,6 @@ function expRfi(u: number): number {
 
 const EXP_BASELINE = new Float32Array(EXP_N);
 const EXP_SIGNAL = new Float32Array(EXP_N);
-const EXP_FLOAT_RESULT = new Float32Array(EXP_N);
 const EXP_RESULT = new Float32Array(EXP_N);
 for (let i = 0; i < EXP_N; i++) {
   const u = i / (EXP_N - 1);
@@ -218,7 +217,6 @@ for (let i = 0; i < EXP_N; i++) {
   EXP_BASELINE[i] = base;
   // Faint hydrogen bump on top of the same receiver shape — nearly lost in it.
   EXP_SIGNAL[i] = Math.min(1.02, base + 0.11 * expGauss(u, EXP_HYD_C, 0.04));
-  EXP_FLOAT_RESULT[i] = 0.56 + 0.12 * expGauss(u, EXP_HYD_C, 0.045);
   // After subtraction: flat near zero, hydrogen now clearly standing alone.
   EXP_RESULT[i] = 0.1 + 0.28 * expGauss(u, EXP_HYD_C, 0.045);
 }
@@ -236,14 +234,28 @@ function expPath(buf: Float32Array): { line: string; fill: string } {
     fill: `M 0,${EXP_PANEL_H} L ${pts} L ${EXP_PANEL_W},${EXP_PANEL_H} Z`,
   };
 }
+// Clip region used to "delete" the trace during the subtract beat. It's the
+// area of the panel ABOVE a cut contour: top edge along y=0, then back across a
+// lower boundary. ``raise`` ∈ [0,1] lifts that boundary from the floor (raise=0,
+// clips nothing — full trace shows) up to the baseline contour (raise=1, only
+// the above-baseline sliver survives). Animating ``raise`` carves the dome away;
+// reversing it re-opens the clip as the residual settles onto the axis.
+function expClipPath(raise: number): string {
+  let d = `M 0,0 L ${EXP_PANEL_W},0`;
+  for (let i = EXP_N - 1; i >= 0; i--) {
+    const x = (i / (EXP_N - 1)) * EXP_PANEL_W;
+    const cutY = EXP_PANEL_H - EXP_BASELINE[i] * EXP_PEAK_PX * raise;
+    d += ' L ' + x.toFixed(1) + ',' + cutY.toFixed(1);
+  }
+  return d + ' Z';
+}
+// Fully-open clip (raise=0): the whole panel, a no-op for non-subtract frames
+// and the reduced-motion static render.
+const EXP_CLIP_OPEN = expClipPath(0);
 const EXP_BASELINE_PATH = expPath(EXP_BASELINE);
 const EXP_SIGNAL_PATH = expPath(EXP_SIGNAL);
 const EXP_RESULT_PATH = expPath(EXP_RESULT);
 
-function expMix(a: Float32Array, b: Float32Array, t: number, out: Float32Array): Float32Array {
-  for (let i = 0; i < EXP_N; i++) out[i] = a[i] + (b[i] - a[i]) * t;
-  return out;
-}
 
 // Cheap symmetric receiver-noise sample, same as the hero spectrum.
 function expNoise(): number {
@@ -291,6 +303,7 @@ function BaselineExplainer() {
   const rightGroupRef = useRef<SVGGElement | null>(null);
   const flyGroupRef = useRef<SVGGElement | null>(null);
   const overlapRef = useRef<SVGPathElement | null>(null);
+  const clipRef = useRef<SVGPathElement | null>(null);
   const [phase, setPhase] = useState<ExpPhase>(
     reduce ? 'reveal' : 'baseline',
   );
@@ -300,7 +313,8 @@ function BaselineExplainer() {
     const leftBuf = Float32Array.from(EXP_BASELINE);
     const rightBuf = Float32Array.from(EXP_SIGNAL);
     const rightTarget = new Float32Array(EXP_N);
-    const midTarget = new Float32Array(EXP_N);
+    // Scratch top edge for the subtract beat's trace morph (signal → result).
+    const topBuf = new Float32Array(EXP_N);
     let raf = 0;
     let startTs = 0;
     let lastTs = 0;
@@ -332,6 +346,10 @@ function BaselineExplainer() {
           rightBuf.set(EXP_SIGNAL);
         } else if (key === 'signal') {
           rightBuf.set(EXP_SIGNAL);
+        } else if (key === 'reveal') {
+          // The subtract morph ends exactly on EXP_RESULT; seed the EMA buffer
+          // there so reveal doesn't re-animate from the old signal shape.
+          rightBuf.set(EXP_RESULT);
         }
         prevKey = key;
         setPhase(key);
@@ -345,22 +363,39 @@ function BaselineExplainer() {
       leftFillRef.current?.setAttribute('d', lp.fill);
 
       if (key === 'subtract') {
-        const deleteOverlap = expEaseInOut(expSmoothstep(0.18, 0.48, local));
-        const settle = expEaseInOut(expSmoothstep(0.58, 1, local));
-        expMix(EXP_SIGNAL, EXP_FLOAT_RESULT, deleteOverlap, midTarget);
-        expMix(midTarget, EXP_RESULT, settle, rightTarget);
-      } else if (key === 'reveal') {
-        rightTarget.set(EXP_RESULT);
+        // The real trace, drawn once, with an animated clipPath that actually
+        // DELETES the part at/below the baseline. Two sub-beats:
+        //   cut  (local 0 → 0.5): the clip's lower edge rises from the floor up
+        //     to the baseline contour, erasing the dome and RFI spikes (which sit
+        //     at their own baseline) and leaving only the H I bump — the one bit
+        //     above the baseline — hanging in the air where it was cut from.
+        //   drop (local 0.5 → 1): the trace morphs signal→result so the bump
+        //     settles onto a flat axis, while the clip re-opens (baseline→floor)
+        //     so the corrected floor reforms underneath it.
+        const cutProg = expEaseInOut(expSmoothstep(0, 0.5, local));
+        const dropProg = expEaseInOut(expSmoothstep(0.5, 1, local));
+        for (let i = 0; i < EXP_N; i++) {
+          topBuf[i] = EXP_SIGNAL[i] + (EXP_RESULT[i] - EXP_SIGNAL[i]) * dropProg;
+        }
+        const rp = expPath(topBuf);
+        rightLineRef.current?.setAttribute('d', rp.line);
+        rightFillRef.current?.setAttribute('d', rp.fill);
+        // raise: floor → baseline (cut), then held at baseline and re-opened to
+        // floor as the residual lands.
+        const raise = cutProg * (1 - dropProg);
+        clipRef.current?.setAttribute('d', expClipPath(raise));
       } else {
-        rightTarget.set(EXP_SIGNAL);
+        rightTarget.set(key === 'reveal' ? EXP_RESULT : EXP_SIGNAL);
+        const rNoise = key === 'reveal' ? noiseAmp * 0.6 : noiseAmp;
+        for (let i = 0; i < EXP_N; i++) {
+          rightBuf[i] += (rightTarget[i] + expNoise() * rNoise - rightBuf[i]) * alpha;
+        }
+        const rp = expPath(rightBuf);
+        rightLineRef.current?.setAttribute('d', rp.line);
+        rightFillRef.current?.setAttribute('d', rp.fill);
+        // Clip fully open everywhere except the subtract beat.
+        clipRef.current?.setAttribute('d', EXP_CLIP_OPEN);
       }
-      const rNoise = key === 'reveal' ? noiseAmp * 0.6 : noiseAmp;
-      for (let i = 0; i < EXP_N; i++) {
-        rightBuf[i] += (rightTarget[i] + expNoise() * rNoise - rightBuf[i]) * alpha;
-      }
-      const rp = expPath(rightBuf);
-      rightLineRef.current?.setAttribute('d', rp.line);
-      rightFillRef.current?.setAttribute('d', rp.fill);
 
       let rightOpacity = 1;
       if (key === 'baseline') rightOpacity = 0;
@@ -378,9 +413,9 @@ function BaselineExplainer() {
         overlapOpacity = expSmoothstep(0.1, 0.42, local);
         flyX = EXP_PANEL_RX;
       } else if (key === 'subtract') {
-        const deleteOverlap = 1 - expSmoothstep(0.1, 0.48, local);
-        flyOpacity = deleteOverlap;
-        overlapOpacity = deleteOverlap;
+        // Snap-erase: overlap and fly vanish quickly so the "cut" reads as instant deletion.
+        flyOpacity = 1 - expSmoothstep(0, 0.32, local);
+        overlapOpacity = flyOpacity;
         flyX = EXP_PANEL_RX;
       }
       flyGroupRef.current?.setAttribute('transform', `translate(${flyX.toFixed(1)},${EXP_PANEL_Y})`);
@@ -421,10 +456,13 @@ function BaselineExplainer() {
       </text>
       <g ref={rightGroupRef} opacity={reduce ? 1 : 0}>
         <g transform={`translate(${EXP_PANEL_RX},${EXP_PANEL_Y})`}>
+          <clipPath id="bx-cut-clip">
+            <path ref={clipRef} d={EXP_CLIP_OPEN} />
+          </clipPath>
           <rect className="bx-panel" x="0" y="0" width={EXP_PANEL_W} height={EXP_PANEL_H} rx="3" />
-          <path ref={rightFillRef} className="bx-fill" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).fill} />
+          <path ref={rightFillRef} className="bx-fill" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).fill} clipPath="url(#bx-cut-clip)" />
           <path ref={overlapRef} className="bx-overlap" d={EXP_BASELINE_PATH.fill} opacity="0" />
-          <path ref={rightLineRef} className="bx-trace" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).line} />
+          <path ref={rightLineRef} className="bx-trace" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).line} clipPath="url(#bx-cut-clip)" />
           {showHyd && (
             <g className="bx-hyd">
               <line className="bx-hyd-line" x1={EXP_HYD_X} y1="28" x2={EXP_HYD_X} y2={EXP_PANEL_H} />
