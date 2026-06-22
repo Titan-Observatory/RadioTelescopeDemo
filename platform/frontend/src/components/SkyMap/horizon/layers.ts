@@ -141,15 +141,29 @@ export function computeGroundIsInside(
 
 // ─── Drawing primitives ──────────────────────────────────────────────────────
 
-function drawProjectedPolyline(
+// Project a run of sky samples to pixels once. Returns null for any sample that
+// is unprojectable (off the projection / non-finite), so callers can both stroke
+// the polyline and reuse the same pixels (e.g. for label placement) without
+// paying for world2pix — the JS↔WASM boundary call — twice.
+type ProjectedPoint = [number, number] | null;
+
+function projectSamples(aladin: AladinInstance, samples: RaDecTarget[]): ProjectedPoint[] {
+  const out: ProjectedPoint[] = new Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const p = aladin.world2pix(samples[i].ra_deg, samples[i].dec_deg);
+    out[i] = p && isFinite(p[0]) && isFinite(p[1]) ? [p[0], p[1]] : null;
+  }
+  return out;
+}
+
+function strokeProjectedPoints(
   ctx: CanvasRenderingContext2D,
-  aladin: AladinInstance,
-  samples: RaDecTarget[],
+  points: ProjectedPoint[],
   wrap: boolean,
   w: number,
   h: number,
 ): void {
-  // Project to pixels, splitting into segments wherever:
+  // Split into segments wherever:
   //  (a) a sample is off-screen / unprojectable, or
   //  (b) two consecutive samples are absurdly far apart in pixels (the
   //      projection wrapped behind us — connecting them would streak).
@@ -158,12 +172,10 @@ function drawProjectedPolyline(
   let prev: [number, number] | null = null;
   let firstOnscreen: [number, number] | null = null;
   ctx.beginPath();
-  for (const { ra_deg, dec_deg } of samples) {
-    const p = aladin.world2pix(ra_deg, dec_deg);
-    const offscreen = !p || !isFinite(p[0]) || !isFinite(p[1]) ||
-      p[0] < -margin || p[0] > w + margin || p[1] < -margin || p[1] > h + margin;
+  for (const point of points) {
+    const offscreen = !point ||
+      point[0] < -margin || point[0] > w + margin || point[1] < -margin || point[1] > h + margin;
     if (offscreen) { prev = null; continue; }
-    const point = p as [number, number];
     if (prev == null || Math.hypot(point[0] - prev[0], point[1] - prev[1]) > maxSegmentPx) {
       ctx.moveTo(point[0], point[1]);
       if (firstOnscreen == null) firstOnscreen = point;
@@ -179,6 +191,17 @@ function drawProjectedPolyline(
     ctx.lineTo(firstOnscreen[0], firstOnscreen[1]);
   }
   ctx.stroke();
+}
+
+function drawProjectedPolyline(
+  ctx: CanvasRenderingContext2D,
+  aladin: AladinInstance,
+  samples: RaDecTarget[],
+  wrap: boolean,
+  w: number,
+  h: number,
+): void {
+  strokeProjectedPoints(ctx, projectSamples(aladin, samples), wrap, w, h);
 }
 
 
@@ -450,8 +473,12 @@ export const drawAltAzGrid: Layer = ({ ctx, aladin, w, h, config, date, almucant
   for (const ring of almucantars) {
     drawProjectedPolyline(ctx, aladin, ring.samples, true, w, h);
   }
-  for (const meridian of meridians) {
-    drawProjectedPolyline(ctx, aladin, meridian.samples, false, w, h);
+  // Project each meridian once and reuse the pixels for the stroke *and* the
+  // azimuth-label placement below — projecting was the single biggest per-frame
+  // cost in this overlay, and the label pass used to re-project every sample.
+  const meridianPx = meridians.map((meridian) => projectSamples(aladin, meridian.samples));
+  for (const points of meridianPx) {
+    strokeProjectedPoints(ctx, points, false, w, h);
   }
 
   // Azimuth labels — pinned to the top edge, sliding along each meridian
@@ -462,15 +489,15 @@ export const drawAltAzGrid: Layer = ({ ctx, aladin, w, h, config, date, almucant
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineWidth    = 3;
-  for (const meridian of meridians) {
+  for (let m = 0; m < meridians.length; m++) {
+    const meridian = meridians[m];
     let prev: [number, number] | null = null;
     let labelX: number | null = null;
-    for (const { ra_deg, dec_deg } of meridian.samples) {
-      const p = aladin.world2pix(ra_deg, dec_deg);
-      if (!p || !isFinite(p[0]) || !isFinite(p[1])) { prev = null; continue; }
+    for (const point of meridianPx[m]) {
+      if (!point) { prev = null; continue; }
       if (prev) {
         const [x0, y0] = prev;
-        const [x1, y1] = p;
+        const [x1, y1] = point;
         const straddles = (y0 - AZ_LABEL_Y) * (y1 - AZ_LABEL_Y) <= 0;
         const continuous = Math.hypot(x1 - x0, y1 - y0) < maxSegmentPx;
         if (straddles && continuous && y0 !== y1) {
@@ -479,7 +506,7 @@ export const drawAltAzGrid: Layer = ({ ctx, aladin, w, h, config, date, almucant
           if (x >= 0 && x <= w) { labelX = x; break; }
         }
       }
-      prev = [p[0], p[1]];
+      prev = point;
     }
     if (labelX != null) {
       const label = `+${Math.round(meridian.azimuth_deg).toString().padStart(3, '0')}°`;

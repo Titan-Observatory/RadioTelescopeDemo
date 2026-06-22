@@ -39,6 +39,7 @@ sudo useradd --system --create-home --shell /usr/sbin/nologin telescope
 sudo usermod -aG dialout,plugdev,video telescope
 
 sudo install -d -o telescope -g telescope \
+    /opt/radiotelescope/checkout \
     /opt/radiotelescope/hardware \
     /var/log/radiotelescope \
     /var/lib/radiotelescope \
@@ -79,6 +80,7 @@ The hardware service is **unauthenticated** by design — protect it at the netw
 ```bash
 sudo useradd --system --create-home --shell /usr/sbin/nologin telescope
 sudo install -d -o telescope -g telescope \
+    /opt/radiotelescope/checkout \
     /opt/radiotelescope/platform \
     /var/log/radiotelescope \
     /var/lib/radiotelescope \

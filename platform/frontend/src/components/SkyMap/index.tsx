@@ -11,6 +11,7 @@ import { useHorizonCanvas } from './horizon/useHorizonCanvas';
 import { LightSpectrumSurveySelector } from './spectrum/SurveySelector';
 import {
   HYDROGEN_SURVEY_ID,
+  resolveHydrogenSurveySource,
   SURVEYS,
   type SurveyId,
   surveyToneClass,
@@ -126,13 +127,21 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
   useEffect(() => {
     if (!ready || !aladinRef.current) return;
     if (survey === HYDROGEN_SURVEY_ID) {
-      aladinRef.current.setImageLayer(
-        aladinModuleRef.current!.imageHiPS('CDS/P/HI4PI/NHI', {
-          name: 'HI4PI colorized hydrogen line',
-          colormap: 'inferno',
-          stretch: 'asinh',
-        }),
-      );
+      void resolveHydrogenSurveySource().then((source) => {
+        if (!aladinRef.current || !aladinModuleRef.current) return;
+        // The local mirror's PNG tiles are pre-rendered with the inferno
+        // colormap baked in (see scripts/colorize_hips.py), so we load PNG
+        // directly instead of fetching the 32-bit-float FITS tiles and
+        // colormapping them per-frame — far lighter on pan/zoom. The remote
+        // fallback HiPS carries the same png+fits formats, so png is valid
+        // either way; only the local copy is recolored.
+        aladinRef.current.setImageLayer(
+          aladinModuleRef.current.imageHiPS(source, {
+            name: 'HI4PI colorized hydrogen line',
+            imgFormat: 'png',
+          }),
+        );
+      });
       return;
     }
 

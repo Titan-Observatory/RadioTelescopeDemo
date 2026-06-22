@@ -109,6 +109,39 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
     const dashOffset = { current: 0 };
     const hoverZones = { sun: sunZoneRef, beam: beamZoneRef, pending: pendingZoneRef, satellites: satelliteZoneRef };
 
+    // Redraw gating. The overlay only needs to repaint when something visible
+    // changed: the Aladin view moved (pan/zoom/rotate), the beam/pending target
+    // moved, an overlay set changed, or a mode flag flipped. Reprojecting the
+    // whole grid every animation frame regardless — the old behaviour — pinned a
+    // core at 60 fps even while idle and starved Aladin's own render during pans.
+    // We capture a cheap signature (two projection calls vs ~1900 for a full
+    // redraw) and skip when it's unchanged, except: a pending slew animates its
+    // marching-ants dash, and a slow heartbeat lets the sun/moon and the
+    // Earth-rotating grid catch up while the view sits still.
+    let lastSig: string | null = null;
+    let lastDrawTime = 0;
+    const IDLE_REDRAW_MS = 1000;
+
+    const viewSignature = (aladin: AladinInstance, w: number, h: number): string => {
+      // Centre catches pan; an on-screen off-centre point catches zoom (its sky
+      // distance from centre changes) and rotation (it swings around centre).
+      // Both stay on the projection at any reasonable view, unlike a corner.
+      const c = aladin.pix2world(w / 2, h / 2);
+      const e = aladin.pix2world(w / 2, h / 4);
+      const fov = aladin.getFov?.();
+      const t = telemetryRef.current;
+      const p = pendingRef.current;
+      return [
+        w, h,
+        c?.[0], c?.[1], e?.[0], e?.[1], fov?.[0],
+        t?.altitude_deg, t?.azimuth_deg,
+        p?.ra_deg, p?.dec_deg,
+        overlaysRef.current?.length ?? 0,
+        galacticExclusionRef.current ? 1 : 0,
+        surveyRef.current,
+      ].join(',');
+    };
+
     const draw = () => {
       if (Date.now() - lastSampleTime > 30_000) refreshSamples();
 
@@ -118,6 +151,19 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
       const rect = container.getBoundingClientRect();
       const w = Math.round(rect.width);
       const h = Math.round(rect.height);
+
+      // A pending slew keeps animating its dashed path; otherwise skip the heavy
+      // redraw when the signature matches and the idle heartbeat hasn't elapsed.
+      const animating = !!(pendingRef.current && telemetryRef.current);
+      const now = Date.now();
+      const sig = viewSignature(aladin, w, h);
+      if (!animating && sig === lastSig && now - lastDrawTime < IDLE_REDRAW_MS) {
+        frameId = requestAnimationFrame(draw);
+        return;
+      }
+      lastSig = sig;
+      lastDrawTime = now;
+
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width  = w;
         canvas.height = h;

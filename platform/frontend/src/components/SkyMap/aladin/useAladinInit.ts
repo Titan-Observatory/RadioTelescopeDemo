@@ -13,7 +13,7 @@ import {
   raDecToGalactic,
 } from '../../../lib/astro';
 import type { RoboClawTelemetry, TelescopeConfig } from '../../../types';
-import { HYDROGEN_SURVEY_ID, type SurveyId } from '../spectrum/surveys';
+import { HYDROGEN_SURVEY_ID, resolveHydrogenSurveySource, type SurveyId } from '../spectrum/surveys';
 import { DEFAULT_HORIZON_VIEW, initialHorizonRotationDeg } from './orientation';
 
 
@@ -81,15 +81,17 @@ export function useAladinInit(opts: UseAladinInitOptions) {
     let cancelled = false;
     let removeClickHandler: (() => void) | null = null;
 
-    void import('aladin-lite').then(({ default: A }) => A.init.then(() => {
+    void import('aladin-lite').then(({ default: A }) => A.init.then(async () => {
       if (cancelled || !container) return;
       aladinModuleRef.current = A;
+      const hydrogenSource = await resolveHydrogenSurveySource();
+      if (cancelled || !container) return;
       const initialDate = new Date();
       const initialTarget = altAzToRaDec(DEFAULT_HORIZON_VIEW, config, initialDate);
       const initialRotation = initialHorizonRotationDeg(initialTarget, config, initialDate);
 
       const aladin = A.aladin(container, {
-        survey: 'CDS/P/HI4PI/NHI',
+        survey: hydrogenSource,
         fov: 80,
         target: `${initialTarget.ra_deg} ${initialTarget.dec_deg}`,
         cooFrame: 'equatorial',  // equatorial coords, view centred on NE horizon

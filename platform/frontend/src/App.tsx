@@ -163,6 +163,7 @@ function ControlUI({ queue }: ControlUIProps) {
                 onStop={motion.stopMotion}
                 targetRaDeg={map.targetRaDeg}
                 targetDecDeg={map.targetDecDeg}
+                config={telescopeConfig}
               />
             </div>
             {map.hasMapTarget && (

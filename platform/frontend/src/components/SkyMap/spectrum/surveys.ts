@@ -81,6 +81,33 @@ export type SurveyId = (typeof SURVEYS)[number]['id'];
 
 export const HYDROGEN_SURVEY_ID: SurveyId = 'CDS/P/HI4PI/NHI';
 
+// The hydrogen line is the telescope's primary target, so we ship a local
+// mirror of the HI4PI/NHI HiPS (see platform/frontend/public/hips/) to keep it
+// working offline and off the CDS servers. If the local copy is missing or
+// unreachable we fall back to the CDS registry ID, which Aladin resolves to a
+// remote alasky mirror. Both forms are accepted anywhere Aladin takes a survey.
+// No trailing slash: Aladin appends "/Moc.fits" etc. itself, so a trailing
+// slash here would yield "//" paths that the platform's static server may not
+// resolve. The probe below adds the slash explicitly.
+export const HYDROGEN_SURVEY_LOCAL_URL = '/hips/P_HI4PI_NHI';
+export const HYDROGEN_SURVEY_REMOTE_ID = 'CDS/P/HI4PI/NHI';
+
+// Probe the local mirror once and cache the result. Resolves to the local URL
+// when its properties file is reachable, otherwise to the remote registry ID.
+let hydrogenSourcePromise: Promise<string> | null = null;
+
+export function resolveHydrogenSurveySource(): Promise<string> {
+  if (!hydrogenSourcePromise) {
+    hydrogenSourcePromise = fetch(`${HYDROGEN_SURVEY_LOCAL_URL}/properties`, {
+      method: 'GET',
+      cache: 'force-cache',
+    })
+      .then((res) => (res.ok ? HYDROGEN_SURVEY_LOCAL_URL : HYDROGEN_SURVEY_REMOTE_ID))
+      .catch(() => HYDROGEN_SURVEY_REMOTE_ID);
+  }
+  return hydrogenSourcePromise;
+}
+
 export const SPECTRUM_POINTS = 320;
 export const MIN_FREQ_MHZ = 50;
 export const MAX_FREQ_MHZ = 3_000_000_000;

@@ -92,6 +92,12 @@ the connected mount, receiver, observer location, and camera settings.
 For public deployments, configure real secrets, CORS origins, authentication or
 turnstile protection, and keep the hardware service private.
 
+## API Reference
+
+The browser-facing platform API and private hardware API are mapped in
+[`docs/api.md`](docs/api.md). The platform is the public edge and applies queue,
+control, auth, and LAN-admin gates before proxying trusted hardware routes.
+
 ## Testing
 
 ```bash

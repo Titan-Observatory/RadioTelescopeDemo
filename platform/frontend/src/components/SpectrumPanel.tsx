@@ -14,7 +14,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 
 import { RefreshCw, Sliders, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import {
@@ -331,16 +331,39 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     return () => { cancelled = true; window.clearInterval(id); };
   }, [status?.enabled, status?.mode, (status?.latest_frame_age_s ?? 0) > 6]);
 
+  // Coalesce incoming frames to one render per animation frame. The stream
+  // bursts whenever the main thread was busy (queued WS frames then arrive
+  // back-to-back); rendering every one would stack a full chart + waterfall
+  // repaint per frame and stall the UI. We keep only the newest frame and flush
+  // it on the next rAF — the same drop-oldest policy the backend broadcaster
+  // uses, so the live view shows the latest spectrum and never falls behind.
+  const pendingFrameRef = useRef<SpectrumFrame | null>(null);
+  const flushRafRef = useRef<number | null>(null);
+  const ingestFrame = useCallback((f: SpectrumFrame) => {
+    pendingFrameRef.current = f;
+    if (flushRafRef.current != null) return;
+    flushRafRef.current = requestAnimationFrame(() => {
+      flushRafRef.current = null;
+      const latest = pendingFrameRef.current;
+      pendingFrameRef.current = null;
+      if (latest) setFrame(latest);
+    });
+  }, []);
+  useEffect(() => () => {
+    if (flushRafRef.current != null) cancelAnimationFrame(flushRafRef.current);
+  }, []);
+
   // WebSocket subscription. Each frame is a fully-integrated spectrum from
   // the backend — we swap the series wholesale rather than appending.
   const { connected } = useJsonSocket<SpectrumFrame>('/ws/spectrum', {
     enabled: enabled && (status == null || status.enabled !== false),
-    onMessage: setFrame,
+    onMessage: ingestFrame,
   });
 
   useEffect(() => {
     if (connected && status?.latest_frame_age_s !== null) return;
     setFrame(null);
+    pendingFrameRef.current = null; // drop any queued frame so it can't restore stale data
     lastWaterfallFrameRef.current = null;
     waterfallSigRef.current = '';
     yRangeInitRef.current = false;

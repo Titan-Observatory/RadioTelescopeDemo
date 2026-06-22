@@ -1,0 +1,48 @@
+creator_did          = ivo://CDS/P/HI4PI/NHI
+client_category      = Image/Gas-lines/HI
+obs_collection       = HI4PI NHI
+obs_title            = HI4PI NHI survey (full-sky HI column density distribution)
+obs_description      = The HI4PI data release comprises 21-cm neutral atomic hydrogen data of the Milky Way (-600km/s<vlsr<+600km/s for declination >0deg; -470km/s<vlsr<+470km/s for declination <0deg) as observed with the 100-m radio telescope at Effelsberg and the 64-m radio telescope at Parkes. HI4PI covers the full 4-pi sky.
+hips_creator         = Buga M. (CDS)
+hips_copyright       = CNRS/Unistra
+hips_license         = ODbL-1.0
+obs_ack              = Benjamin Winkel, bwinkel(at)mpifr.de
+prov_progenitor      = VizieR Service, CDS (ftp : J/A+A/594/A116/)
+bib_reference        = 2016A&A...594A.116H
+bib_reference_url    = https://ui.adsabs.harvard.edu/?#abs/2016A%26A...594A.116H
+#obs_copyright       = Copyright mention of the original data
+#obs_copyright_url   = URL to copyright page of the original data
+#Measurements were carried out between end of 2008 and early 2013
+t_min                = 54812
+t_max                = 56293
+obs_regime           = Radio
+em_min               = 0.21
+em_max               = 0.21
+hips_builder         = Aladin/HipsGen v10.125
+hips_version         = 1.4
+hips_release_date    = 2019-05-22T05:04Z
+hips_frame           = galactic
+hips_order           = 3
+hips_tile_width      = 128
+#hips_service_url    = ex: http://yourHipsServer/HI4PI NHI
+hips_status          = public master clonableOnce
+hips_tile_format     = png fits
+hips_pixel_bitpix    = -32
+hips_pixel_cut       = 2.286E20 2.056E22
+hips_data_range      = -1.433E22 3.660E22
+hips_pixel_scale     = 0.05726
+dataproduct_type     = image
+moc_sky_fraction     = 1
+hips_estsize         = 72690
+hipsgen_date         = 2017-06-12T13:36Z
+
+hips_initial_fov     = 120.0
+hips_initial_ra      = 266.4168166
+hips_initial_dec     = -29.0078249
+hipsgen_params       = in=NHI_only_HPX.fits ivorn=ivo://CDS/P/HI4PI
+hips_creation_date   = 2017-06-12T13:36Z
+hipsgen_date_1       = 2017-06-12T13:36Z
+hipsgen_params_1     = in=NHI_only_HPX.fits ivorn=ivo://CDS/P/HI4PI
+hips_order_min       = 0
+hipsgen_date_2       = 2019-05-22T05:04Z
+hipsgen_params_2     = out=/asd-volumes/sc1-asd-volume6/HI4PI/P_HI4PI_NHI UPDATE
