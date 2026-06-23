@@ -365,7 +365,8 @@ async def test_capture_baseline_integrates_live_frames(tmp_path, baseline_paths,
 
     monkeypatch.setattr(service, "reconnect", noop_reconnect)
     monkeypatch.setattr(service, "_ensure_running", noop_ensure)
-    # A warm, uncorrected, running pipeline → no warmup frames skipped.
+    # Even with no baseline applied, capture restarts the raw flowgraph and
+    # discards one settling window — capture is uniform regardless of state.
     service._proc = cast("subprocess.Popen[bytes]", object())
     service._mode = "running"
 
@@ -379,8 +380,10 @@ async def test_capture_baseline_integrates_live_frames(tmp_path, baseline_paths,
     assert baseline["power_linear"] == pytest.approx([1e10] * 64, rel=1e-6)
     assert baseline["power_db"] == pytest.approx([100.0] * 64, abs=1e-3)
     assert baseline["capture_samples"] == state.target == 4
-    assert initial_warmup == 0
-    assert reconnects == 1  # only the final respawn that applies the baseline
+    # A full settling window is discarded before accumulation begins.
+    assert initial_warmup == state.target
+    # One reconnect to restart the integration (raw), one to apply the baseline.
+    assert reconnects == 2
     assert service._baseline_power is not None
     assert f32.exists()  # .f32 written from memory for the next spawn
 

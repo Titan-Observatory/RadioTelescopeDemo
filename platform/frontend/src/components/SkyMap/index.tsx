@@ -431,19 +431,6 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
           <p className="skymap-galactic-hint-text">
             Slew the dish onto an empty patch — <strong>clear of the shaded Milky Way band, the Sun, and the pointing limits</strong>. Click the map to set a target, then Slew there.
           </p>
-          <p
-            className={`skymap-galactic-hint-status${
-              baselineValidity?.valid ? ' is-valid' : ''
-            }`}
-            role="status"
-            aria-live="polite"
-          >
-            {baselineValidity == null
-              ? 'Waiting for the telescope position…'
-              : baselineValidity.valid
-                ? '✓ Current pointing is clear — good for a baseline.'
-                : baselineValidity.reason}
-          </p>
           <div className="skymap-galactic-hint-actions">
             <button
               type="button"

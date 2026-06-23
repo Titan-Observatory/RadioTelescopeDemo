@@ -1,3 +1,4 @@
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 
@@ -10,6 +11,7 @@ export function CameraPip() {
   const [label, setLabel] = useState('Cam A');
   const [error, setError] = useState(false);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [minimized, setMinimized] = useState(false);
   const prevUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -91,18 +93,33 @@ export function CameraPip() {
   if (!enabled) return null;
 
   return (
-    <div className={`cam-pip${error ? ' cam-pip-error' : ''}`}>
-      {frameUrl ? (
-        <img className="cam-pip-feed" src={frameUrl} alt="Camera feed" />
-      ) : (
-        <div className="cam-pip-feed" />
+    <div className={`cam-pip${error ? ' cam-pip-error' : ''}${minimized ? ' cam-pip-minimized' : ''}`}>
+      {!minimized && (
+        <>
+          {frameUrl ? (
+            <img className="cam-pip-feed" src={frameUrl} alt="Camera feed" />
+          ) : (
+            <div className="cam-pip-feed" />
+          )}
+          {error ? (
+            <div className="cam-pip-offline">No signal</div>
+          ) : (
+            <div className="cam-pip-live"><span className="cam-pip-dot" />LIVE</div>
+          )}
+        </>
       )}
-      {error ? (
-        <div className="cam-pip-offline">No signal</div>
-      ) : (
-        <div className="cam-pip-live"><span className="cam-pip-dot" />LIVE</div>
-      )}
-      <div className="cam-pip-label">{label}</div>
+      <div className="cam-pip-label">
+        <span>{label}</span>
+        <button
+          type="button"
+          className="cam-pip-minimize"
+          aria-label={minimized ? 'Restore camera overlay' : 'Minimize camera overlay'}
+          onClick={() => setMinimized((value) => !value)}
+          title={minimized ? 'Restore camera overlay' : 'Minimize camera overlay'}
+        >
+          {minimized ? <Maximize2 size={14} strokeWidth={2} /> : <Minimize2 size={14} strokeWidth={2} />}
+        </button>
+      </div>
     </div>
   );
 }

@@ -501,15 +501,15 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
     async def capture_baseline(self) -> dict[str, Any] | None:
         """Capture a baseline by integrating a fresh window of the live stream.
 
-        Averages one ``integration_seconds`` window of the live stream into a
-        per-bin mean, then respawns the live flowgraph so it divides by that
-        mean. When no baseline is active, the already-running raw stream is used
-        directly, so capture takes about as long as filling the frontend
-        integration counter. Re-capturing over an existing baseline still has to
-        drop that baseline, respawn raw, and discard one settling window before
-        accumulating. The SDR keeps running throughout, apart from those brief
-        respawns, so the browser shows the bandpass being measured frame by
-        frame.
+        Capture behaves identically whether or not a baseline is already
+        applied: drop any active baseline, respawn the raw flowgraph, discard
+        one settling window, then average the next ``integration_seconds``
+        window into a per-bin mean and respawn so the live flowgraph divides by
+        it. Restarting unconditionally means the live preview always rebuilds
+        from scratch instead of reusing an already-settled stream, and there is
+        only one code path to reason about. The SDR keeps running throughout,
+        apart from those brief respawns, so the browser shows the bandpass being
+        measured frame by frame.
 
         Bounded by a timeout so the request can never hang; returns ``None`` (→
         HTTP 409) if no frames arrived (pipeline unavailable, dongle busy, etc.).
@@ -532,38 +532,28 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
             # spawn path run (`_ensure_running` bails once capturing is set).
             keepalive = self.subscribe()
             try:
-                # We need uncorrected frames. If a baseline is live, drop it and
-                # respawn raw; otherwise keep the warm raw pipeline flowing and
-                # average the next integration window directly.
-                restarted = self._baseline_active or self._baseline_power is not None
-                if restarted:
-                    self._baseline_power = None
-                    self._baseline_cfg_key = None
-                    self._delete_baseline_files()
-                    self._frames_seen = 0
-                    await self.reconnect()
-                else:
-                    await self._ensure_running()
+                # We need uncorrected frames. Always drop any active baseline
+                # and respawn raw so capture works the same way regardless of
+                # whether a baseline was already applied — one code path, and
+                # the live preview always rebuilds from scratch.
+                self._baseline_power = None
+                self._baseline_cfg_key = None
+                self._delete_baseline_files()
+                self._frames_seen = 0
+                await self.reconnect()
                 target = max(1, int(self._cfg.integration_frames))
-                # A running raw pipeline is already settled. After dropping an
-                # existing baseline, discard one full window while the restarted
-                # rolling average fills before averaging the baseline window.
-                warm = (
-                    not restarted
-                    and self._proc is not None
-                    and self._mode == "running"
-                )
+                # Discard one full window while the freshly-restarted rolling
+                # average fills, then average the next window into the baseline.
                 state = _BaselineCapture(
                     target=target,
-                    warmup=0 if warm else target,
+                    warmup=target,
                     offset_db=float(self._cfg.baseline_offset_db),
                 )
                 self._capture_state = state
                 self._capturing = True
-                # Headroom: optional settling window + capture window + startup grace.
-                windows = 1 if warm else 2
+                # Headroom: settling window + capture window + startup grace.
                 timeout_s = (
-                    windows * self._cfg.integration_seconds
+                    2 * self._cfg.integration_seconds
                     + self.subprocess_start_timeout_s
                     + self.baseline_capture_grace_s
                 )

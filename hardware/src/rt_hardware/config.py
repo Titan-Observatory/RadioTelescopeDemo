@@ -312,6 +312,19 @@ class GoesConfig(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _rtlsdr_sample_rate(self) -> "GoesConfig":
+        # goesrecv hands the rate straight to the dongle: the RTL2832U only
+        # clocks 0.9–3.2 Msps (lossy above ~2.56). Reject configs it can't run
+        # here rather than letting goesrecv fail opaquely on spawn — mirrors
+        # SDRConfig._rtlsdr_sample_rate for the hydrogen-line chain.
+        if self.sdr == "rtlsdr" and not (0.9e6 <= self.sample_rate_hz <= 3.2e6):
+            raise ValueError(
+                "goes.sample_rate_hz must be between 0.9 and 3.2 Msps for the "
+                "rtlsdr driver (2.4 Msps is the highest reliable rate)"
+            )
+        return self
+
 
 class GeneralConfig(BaseModel):
     log_level: str = "INFO"

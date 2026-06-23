@@ -203,7 +203,7 @@ export function galacticToRaDec(l_deg: number, b_deg: number): RaDecTarget {
  * patch at least this far off the plane. Shared by the SkyMap exclusion overlay
  * and the click-to-select guard so the shaded strip and the block agree.
  */
-export const GALACTIC_PLANE_EXCLUSION_DEG = 20;
+export const GALACTIC_PLANE_EXCLUSION_DEG = 15;
 
 /**
  * Angular distance from the Sun (degrees) within which a pointing is unusable

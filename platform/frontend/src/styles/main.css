@@ -2592,12 +2592,51 @@ h2.panel-header {
 }
 
 .cam-pip-label {
-  padding: 5px 9px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 6px 4px 9px;
   font-size: 12px;
   font-weight: 500;
   color: var(--fg-muted);
   background: var(--surface-1);
   border-top: 1px solid var(--hairline);
+}
+
+.cam-pip-minimize {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--fg-subtle);
+  background: transparent;
+  cursor: pointer;
+}
+
+.cam-pip-minimize:hover,
+.cam-pip-minimize:focus-visible {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--hairline);
+}
+
+.cam-pip-minimize:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 1px;
+}
+
+.cam-pip-minimized {
+  width: 180px;
+}
+
+.cam-pip-minimized .cam-pip-label {
+  border-top: none;
 }
 
 .cam-pip-offline {
@@ -4520,7 +4559,7 @@ body.rt-baseline-pick .skymap-panel {
    updating frame-by-frame while the baseline integrates. */
 .baseline-live { margin:0; display:flex; flex-direction:column; gap:6px; }
 .baseline-live-spectrum {
-  width:100%; height:104px; display:block;
+  width:100%; height:215px; display:block;
   background:var(--surface-1);
   border:1px solid var(--hairline); border-radius:var(--r-md);
   color:var(--accent);

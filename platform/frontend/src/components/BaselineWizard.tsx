@@ -79,9 +79,14 @@ type Step = 'intro' | 'pick' | 'capture' | 'done';
 // stream. The x-window and y-fit reuse the main SpectrumPanel helpers so the
 // shape matches the chart the baseline will be applied to. Self-contained SVG —
 // no axes or interaction, just the shape, with a dashed 21 cm reference line.
-const SPARK_W = 320;
-const SPARK_H = 104;
-const SPARK_PAD = 6;
+// Sized to match the main SpectrumPanel chart (.spectrum-chart is 215px tall):
+// the preview fills the same-shaped box so the bandpass the user sees building
+// here reads as the same chart the baseline will be applied to. The viewBox is
+// stretched to the CSS box (preserveAspectRatio="none"), so these are just the
+// internal drawing resolution and proportion.
+const SPARK_W = 720;
+const SPARK_H = 215;
+const SPARK_PAD = 12;
 
 function LiveSpectrum({ frame, active }: { frame: SpectrumFrame | null; active: boolean }) {
   const geom = useMemo(() => {
@@ -516,6 +521,16 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   const [step, setStep] = useState<Step>('intro');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // `building` gates the live trace on the capture step. We only draw it once a
+  // *fresh* (post-reset) frame has arrived, so the preview shows the integration
+  // rebuilding from scratch instead of flashing the already-settled spectrum
+  // that was on screen when the user hit Trigger. See `capture()` and the
+  // freshness effect below.
+  const [building, setBuilding] = useState(false);
+  // `frames_seen` of the last frame observed when capture started. After the
+  // reset flushes the rolling average, `frames_seen` restarts near zero; the
+  // first frame below this marker is our cue that the rebuild has begun.
+  const captureFramesMarkerRef = useRef<number | null>(null);
 
   // Reset to intro every time the wizard re-opens so we never resume mid-flow
   // from a stale prior session.
@@ -524,26 +539,38 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
       setStep('intro');
       setBusy(false);
       setError(null);
+      setBuilding(false);
       track('baseline_wizard_opened');
     }
   }, [open]);
 
-  // During the 'pick' step we hide the Radix dialog and apply a body-level
-  // class. The class triggers a CSS spotlight (box-shadow on .skymap-panel
-  // darkens everything outside it) - pure visual, no DOM overlay, so Aladin
-  // keeps full pointer interaction (click-to-select, click-and-drag-to-pan,
-  // hover tooltips). The pick instructions and the Cancel / confirm buttons
-  // live on the sky map's own in-map hint banner; it signals us back through
-  // the BASELINE_PICK_* window events below.
+  // Detect the first post-reset frame so the preview starts drawing the rebuild.
+  // `capture()` flushes the live integration, after which `frames_seen` drops
+  // back near zero; once we see that (or there was no prior frame to wait on),
+  // flip `building` on and leave it on for the rest of the capture.
+  useEffect(() => {
+    if (!busy || building || !frame) return;
+    const marker = captureFramesMarkerRef.current;
+    if (marker == null || frame.frames_seen < marker) setBuilding(true);
+  }, [busy, building, frame]);
+
+  // During the 'pick' step we hide the Radix dialog and take the sky map
+  // fullscreen via the Fullscreen API, so the user picks their quiet patch on
+  // an unobstructed, full-viewport map (no header, no surrounding panels). We
+  // also keep the body-level `rt-baseline-pick` class: SkyMap reads it to show
+  // its in-map hint banner and gate the Continue button, and its CSS spotlight
+  // is a graceful fallback if the browser rejects the fullscreen request.
+  // The pick instructions and the Cancel / confirm buttons live on the sky
+  // map's own in-map hint banner (visible inside the fullscreen panel); it
+  // signals us back through the BASELINE_PICK_* window events below.
   useEffect(() => {
     if (!open || step !== 'pick') return;
-    // Scroll the sky map into view BEFORE we lock body scroll, otherwise on
-    // mobile (where panels stack vertically) the map can be offscreen and the
-    // user has no way to reach it.
-    const target = document.querySelector('.skymap-panel');
-    // Instant (not smooth) so the scroll completes before we lock body overflow.
-    target?.scrollIntoView({ block: 'start', behavior: 'auto' });
     document.body.classList.add('rt-baseline-pick');
+    // The sky map is always the first thing on the page; take its panel
+    // fullscreen. Best-effort: a rejected request (no user activation, or
+    // unsupported) just falls back to the CSS spotlight above.
+    const panel = document.querySelector('.skymap-panel');
+    void (panel as HTMLElement | null)?.requestFullscreen?.().catch(() => {});
 
     const onConfirm = () => { track('baseline_pick_confirmed'); setStep('capture'); };
     const onCancel = () => { track('baseline_pick_cancelled'); onOpenChange(false); };
@@ -551,6 +578,9 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
     window.addEventListener(BASELINE_PICK_CANCEL_EVENT, onCancel);
     return () => {
       document.body.classList.remove('rt-baseline-pick');
+      // Exit fullscreen when the step ends (confirm/cancel/unmount). Guard on
+      // fullscreenElement so we don't reject when the user already pressed Esc.
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
       window.removeEventListener(BASELINE_PICK_CONFIRM_EVENT, onConfirm);
       window.removeEventListener(BASELINE_PICK_CANCEL_EVENT, onCancel);
     };
@@ -567,18 +597,24 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
     setStep('pick');
   }
 
-  // Initial capture averages one live integration window. Re-capture first
-  // drops the active baseline, lets the raw stream settle for one window, then
-  // averages the next one.
+  // Every capture restarts the raw flowgraph, lets it settle for one
+  // integration window, then averages the next one — so budget two windows
+  // regardless of whether a baseline was already applied.
   const expectedWaitSeconds = frame
-    ? Math.max(2, Math.ceil((frame.baseline_corrected ? 2 : 1) * frame.integration_seconds + 1))
+    ? Math.max(2, Math.ceil(2 * frame.integration_seconds + 1))
     : null;
 
   async function capture() {
     const startedAt = Date.now();
     setBusy(true);
+    setBuilding(false);
+    captureFramesMarkerRef.current = frame?.frames_seen ?? null;
     setError(null);
     try {
+      // The capture itself flushes the live integration server-side (it always
+      // respawns the raw flowgraph), so `frames_seen` drops back to zero and the
+      // preview rebuilds from scratch. The freshness effect above watches for
+      // that drop to switch `building` on — no separate reset call needed.
       const r = await fetch('/api/spectrum/baseline', { method: 'POST' });
       if (!r.ok) {
         setError(await errorDetail(r));
@@ -631,10 +667,12 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
                 <p className="baseline-step-label">{tourCopy.baselineWizard.capture.stepLabel}</p>
                 <p>{tourCopy.baselineWizard.capture.body}</p>
                 <figure className={`baseline-live${busy ? ' baseline-live-active' : ''}`}>
-                  <LiveSpectrum frame={frame} active={busy} />
+                  <LiveSpectrum frame={frame} active={building} />
                   <figcaption className="baseline-live-caption">
                     {busy
-                      ? tourCopy.baselineWizard.capture.liveCaptionActive
+                      ? (building
+                        ? tourCopy.baselineWizard.capture.liveCaptionActive
+                        : 'Restarting the integration…')
                       : tourCopy.baselineWizard.capture.liveCaption}
                   </figcaption>
                 </figure>
