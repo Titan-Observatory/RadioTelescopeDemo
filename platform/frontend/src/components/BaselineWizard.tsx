@@ -533,7 +533,10 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
   const captureFramesMarkerRef = useRef<number | null>(null);
 
   // Reset to intro every time the wizard re-opens so we never resume mid-flow
-  // from a stale prior session.
+  // from a stale prior session. We also reset on *close*: otherwise `step`
+  // lingers at 'pick' after a cancel, and on the next open the pick effect
+  // (which also keys on `open`) sees that stale step and re-enters fullscreen
+  // in the same commit, before this effect's setStep('intro') can run.
   useEffect(() => {
     if (open) {
       setStep('intro');
@@ -541,6 +544,8 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
       setError(null);
       setBuilding(false);
       track('baseline_wizard_opened');
+    } else {
+      setStep('intro');
     }
   }, [open]);
 
@@ -574,10 +579,18 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
 
     const onConfirm = () => { track('baseline_pick_confirmed'); setStep('capture'); };
     const onCancel = () => { track('baseline_pick_cancelled'); onOpenChange(false); };
+    // Leaving fullscreen (Esc, the browser's exit gesture, or the map's own
+    // minimize button) means the user is backing out of the pick step, so
+    // quit the wizard. The programmatic exit in cleanup can't reach this
+    // handler: cleanup removes the listener synchronously, before the async
+    // fullscreenchange event fires.
+    const onFullscreenChange = () => { if (!document.fullscreenElement) onCancel(); };
     window.addEventListener(BASELINE_PICK_CONFIRM_EVENT, onConfirm);
     window.addEventListener(BASELINE_PICK_CANCEL_EVENT, onCancel);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => {
       document.body.classList.remove('rt-baseline-pick');
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
       // Exit fullscreen when the step ends (confirm/cancel/unmount). Guard on
       // fullscreenElement so we don't reject when the user already pressed Esc.
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});

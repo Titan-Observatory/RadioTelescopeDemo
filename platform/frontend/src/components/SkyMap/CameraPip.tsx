@@ -1,4 +1,4 @@
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Camera, Minus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 
@@ -109,7 +109,6 @@ export function CameraPip() {
         </>
       )}
       <div className="cam-pip-label">
-        <span>{label}</span>
         <button
           type="button"
           className="cam-pip-minimize"
@@ -117,8 +116,9 @@ export function CameraPip() {
           onClick={() => setMinimized((value) => !value)}
           title={minimized ? 'Restore camera overlay' : 'Minimize camera overlay'}
         >
-          {minimized ? <Maximize2 size={14} strokeWidth={2} /> : <Minimize2 size={14} strokeWidth={2} />}
+          {minimized ? <Camera size={15} strokeWidth={2} /> : <Minus size={14} strokeWidth={2.25} />}
         </button>
+        {!minimized && <span>{label}</span>}
       </div>
     </div>
   );

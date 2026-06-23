@@ -23,7 +23,6 @@ import {
   TRACE_BOXCAR_BINS,
   boxcarSmooth,
   displayWindow,
-  rawSpectrumYRange,
   robustYRange,
   zeroBaselineSpectrum,
   zeroBaselineYRange,
@@ -250,20 +249,19 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     }
   };
 
+  // Median-subtract the trace whether or not a cold-sky baseline has been
+  // applied, so the y-axis fit and trace position behave identically before and
+  // after baseline capture. Without a baseline this just re-centres the
+  // receiver bandpass at 0 dB rather than plotting its absolute power level;
+  // the red trace + "Baseline Needed" overlay still signal that it's raw.
   const displayed = useMemo(() => {
     if (!frame) return null;
-    const values = frame.baseline_corrected === true
-      ? zeroBaselineSpectrum(frame.power_db)
-      : frame.power_db;
-    return boxcarSmooth(values, TRACE_BOXCAR_BINS);
+    return boxcarSmooth(zeroBaselineSpectrum(frame.power_db), TRACE_BOXCAR_BINS);
   }, [frame]);
 
   const waterfallDisplayed = useMemo(() => {
     if (!frame) return null;
-    if (frame.baseline_corrected === true) {
-      return zeroBaselineSpectrum(frame.power_db);
-    }
-    return frame.power_db;
+    return zeroBaselineSpectrum(frame.power_db);
   }, [frame]);
 
   // Initialise the ECharts instance once. ResizeObserver keeps it sized
@@ -377,18 +375,17 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
     const chart = chartInstance.current;
     if (!chart || !frame || !displayed) return;
     const data = frame.freqs_mhz.map((f, i) => [f, displayed[i]] as [number, number]);
-    // Raw spectra use a tight fit with modest label headroom so receiver
-    // bandpass shape remains legible. Baseline-corrected frames are rendered relative
-    // to their own robust median (see zeroBaselineSpectrum), so the trace
-    // baseline remains visually pinned at 0 dB even if receiver gain or
-    // temperature drifts.
-    // Both targets are robust percentile fits (spurs/dead bins can't blow them
+    // Both raw and baseline-corrected frames are median-subtracted (see
+    // `displayed`/zeroBaselineSpectrum) and fit with the same symmetric
+    // zero-baseline range, so the trace stays pinned at 0 dB and the axis
+    // scales the same way before and after a baseline is captured.
+    // The target is a robust percentile fit (spurs/dead bins can't blow it
     // open) that we EMA-smooth toward each frame, so the axis tracks without
     // jitter or jumps. We snap (skip the EMA) only when the FFT layout /
     // baseline state changes, since the dB scale shifts wholesale there and
     // sliding across it would look wrong. The waterfall keeps its own tight
     // colour range so its inferno palette still spans the full trace.
-    const axisTarget = frame.baseline_corrected === true ? zeroBaselineYRange(displayed) : rawSpectrumYRange(displayed);
+    const axisTarget = zeroBaselineYRange(displayed);
     const wfTarget = robustYRange(displayed);
     const sig = `${frame.center_freq_mhz.toFixed(6)}|${frame.sample_rate_mhz.toFixed(6)}|${frame.freqs_mhz.length}|${baselineApplies ? 'baseline' : 'raw'}`;
     const fresh = !yRangeInitRef.current || sig !== yRangeSigRef.current;
@@ -797,7 +794,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
             </p>
           )}
           <div className="spectrum-chart-caption">
-            <span className="spectrum-chart-title">Power vs. frequency</span>
+            <span className="spectrum-chart-title">Relative Power vs. frequency</span>
             {integrationStats && (
               <p className="spectrum-stats" aria-label="Integration statistics">
                 Integrating <strong>~{integrationStats.windowSeconds.toFixed(1)} s</strong>

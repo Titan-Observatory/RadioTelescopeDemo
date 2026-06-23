@@ -1887,7 +1887,7 @@ h2.panel-header.spectrum-title-lg {
   --spectrum-alert-red: #ff5a5f;
   position: absolute;
   left: 50%;
-  bottom: 54px;
+  bottom: 40px;
   transform: translateX(-50%);
   z-index: 3;
   color: var(--spectrum-alert-red);
@@ -2594,10 +2594,8 @@ h2.panel-header {
 .cam-pip-label {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 28px;
-  padding: 4px 6px 4px 9px;
+  gap: 6px;
+  padding: 5px 9px 6px 7px;
   font-size: 12px;
   font-weight: 500;
   color: var(--fg-muted);
@@ -2606,17 +2604,19 @@ h2.panel-header {
 }
 
 .cam-pip-minimize {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: var(--r-sm);
+  border-radius: 3px;
   color: var(--fg-subtle);
   background: transparent;
   cursor: pointer;
+  flex: 0 0 auto;
 }
 
 .cam-pip-minimize:hover,
@@ -2632,11 +2632,18 @@ h2.panel-header {
 }
 
 .cam-pip-minimized {
-  width: 180px;
+  width: auto;
+  border-radius: var(--r-sm);
 }
 
 .cam-pip-minimized .cam-pip-label {
+  padding: 5px;
   border-top: none;
+}
+
+.cam-pip-minimized .cam-pip-minimize {
+  width: 24px;
+  height: 24px;
 }
 
 .cam-pip-offline {
