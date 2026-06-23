@@ -336,11 +336,9 @@ async def _feed_capture_window(service, power_db, *, max_polls: int = 200):
         await asyncio.sleep(0)
     state = service._capture_state
     assert state is not None, "capture never installed its accumulator"
-    # warmup + target frames so `done` fires regardless of the warmup window.
-    initial_warmup = state.warmup
-    for _ in range(initial_warmup + state.target):
+    for _ in range(state.target):
         state.feed(power_db)
-    return state, initial_warmup
+    return state
 
 
 @pytest.mark.asyncio
@@ -366,22 +364,20 @@ async def test_capture_baseline_integrates_live_frames(tmp_path, baseline_paths,
     monkeypatch.setattr(service, "reconnect", noop_reconnect)
     monkeypatch.setattr(service, "_ensure_running", noop_ensure)
     # Even with no baseline applied, capture restarts the raw flowgraph and
-    # discards one settling window — capture is uniform regardless of state.
+    # immediately captures the next integration window.
     service._proc = cast("subprocess.Popen[bytes]", object())
     service._mode = "running"
 
     power_db = np.full(64, 100.0, dtype=np.float32)  # 100 dB → 1e10 linear
     feeder = asyncio.create_task(_feed_capture_window(service, power_db))
     baseline = await service.capture_baseline()
-    state, initial_warmup = await feeder
+    state = await feeder
 
     assert baseline is not None
     # Mean of identical frames = the frame: linear 10^(100/10) = 1e10, → 100 dB.
     assert baseline["power_linear"] == pytest.approx([1e10] * 64, rel=1e-6)
     assert baseline["power_db"] == pytest.approx([100.0] * 64, abs=1e-3)
     assert baseline["capture_samples"] == state.target == 4
-    # A full settling window is discarded before accumulation begins.
-    assert initial_warmup == state.target
     # One reconnect to restart the integration (raw), one to apply the baseline.
     assert reconnects == 2
     assert service._baseline_power is not None
@@ -393,8 +389,8 @@ async def test_capture_baseline_drops_existing_baseline_before_integrating(
     tmp_path, baseline_paths, monkeypatch,
 ):
     # A re-capture while a baseline is live must integrate *uncorrected* frames:
-    # the service drops the old baseline, respawns raw, and discards one warmup
-    # window before accumulating.
+    # the service drops the old baseline, respawns raw, and immediately captures
+    # the next integration window.
     f32 = baseline_paths
     service = SpectrumService(
         SDRConfig(fft_size=64, integration_seconds=0.8, publish_rate_hz=5.0),
@@ -417,12 +413,10 @@ async def test_capture_baseline_drops_existing_baseline_before_integrating(
     power_db = np.zeros(64, dtype=np.float32)  # 0 dB → 1.0 linear
     feeder = asyncio.create_task(_feed_capture_window(service, power_db))
     baseline = await service.capture_baseline()
-    state, initial_warmup = await feeder
+    state = await feeder
 
     assert baseline is not None
-    # A full settling window is discarded before accumulation begins.
     assert state.target == service._cfg.integration_frames
-    assert initial_warmup == state.target
     assert baseline["capture_samples"] == state.target
     # One reconnect to restart the integration (raw), one to apply the new baseline.
     assert reconnects == 2

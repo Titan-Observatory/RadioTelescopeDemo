@@ -96,24 +96,19 @@ class _BaselineCapture:
 
     Sums the linear power of successive *uncorrected* live frames so their
     per-bin mean becomes the baseline (``power / baseline ≈ 1`` → ~0 dB once the
-    live flowgraph divides by it). ``warmup`` frames are skipped first so a
-    freshly (re)started flowgraph's filling rolling average doesn't drag the mean down.
-    ``done`` fires once ``target`` frames past warmup have been collected. Fed
-    from the ZMQ consumer (event-loop thread), so no locking is needed.
+    live flowgraph divides by it). ``done`` fires once ``target`` frames have
+    been collected. Fed from the ZMQ consumer (event-loop thread), so no locking
+    is needed.
     """
 
-    def __init__(self, *, target: int, warmup: int, offset_db: float) -> None:
+    def __init__(self, *, target: int, offset_db: float) -> None:
         self.target = max(1, target)
-        self.warmup = max(0, warmup)
         self.offset_db = offset_db
         self.count = 0
         self._sum: np.ndarray | None = None
         self.done = asyncio.Event()
 
     def feed(self, power_db: np.ndarray) -> None:
-        if self.warmup > 0:
-            self.warmup -= 1
-            return
         if self.done.is_set():
             return
         # Back out the configured dB offset and convert to linear power so the
@@ -150,9 +145,9 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
     # block construction, tb.start(), and the first ZMQ frame.
     subprocess_start_timeout_s: float = 30.0
     subprocess_kill_timeout_s: float = 2.0
-    # Extra slack on the baseline-capture deadline, on top of the settling +
-    # capture windows and the subprocess start timeout. Small so the request
-    # fails fast when the pipeline never produces frames.
+    # Extra slack on the baseline-capture deadline, on top of the capture window
+    # and the subprocess start timeout. Small so the request fails fast when the
+    # pipeline never produces frames.
     baseline_capture_grace_s: float = 5.0
     # Backoff schedule when the subprocess dies unexpectedly while subscribers
     # are still attached. Resets to the first value on every successful run.
@@ -502,14 +497,13 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         """Capture a baseline by integrating a fresh window of the live stream.
 
         Capture behaves identically whether or not a baseline is already
-        applied: drop any active baseline, respawn the raw flowgraph, discard
-        one settling window, then average the next ``integration_seconds``
-        window into a per-bin mean and respawn so the live flowgraph divides by
-        it. Restarting unconditionally means the live preview always rebuilds
-        from scratch instead of reusing an already-settled stream, and there is
-        only one code path to reason about. The SDR keeps running throughout,
-        apart from those brief respawns, so the browser shows the bandpass being
-        measured frame by frame.
+        applied: drop any active baseline, respawn the raw flowgraph, average
+        the next ``integration_seconds`` window into a per-bin mean, and respawn
+        so the live flowgraph divides by it. Restarting unconditionally means
+        the live preview always rebuilds from scratch instead of reusing an
+        already-settled stream, and there is only one code path to reason about.
+        The SDR keeps running throughout, apart from those brief respawns, so
+        the browser shows the bandpass being measured frame by frame.
 
         Bounded by a timeout so the request can never hang; returns ``None`` (→
         HTTP 409) if no frames arrived (pipeline unavailable, dongle busy, etc.).
@@ -542,18 +536,15 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
                 self._frames_seen = 0
                 await self.reconnect()
                 target = max(1, int(self._cfg.integration_frames))
-                # Discard one full window while the freshly-restarted rolling
-                # average fills, then average the next window into the baseline.
                 state = _BaselineCapture(
                     target=target,
-                    warmup=target,
                     offset_db=float(self._cfg.baseline_offset_db),
                 )
                 self._capture_state = state
                 self._capturing = True
-                # Headroom: settling window + capture window + startup grace.
+                # Headroom: capture window + startup grace.
                 timeout_s = (
-                    2 * self._cfg.integration_seconds
+                    self._cfg.integration_seconds
                     + self.subprocess_start_timeout_s
                     + self.baseline_capture_grace_s
                 )

@@ -610,11 +610,10 @@ export function BaselineWizard({ open, onOpenChange, frame, onBaselineReady }: P
     setStep('pick');
   }
 
-  // Every capture restarts the raw flowgraph, lets it settle for one
-  // integration window, then averages the next one — so budget two windows
-  // regardless of whether a baseline was already applied.
+  // Every capture restarts the raw flowgraph and averages the next integration
+  // window regardless of whether a baseline was already applied.
   const expectedWaitSeconds = frame
-    ? Math.max(2, Math.ceil(2 * frame.integration_seconds + 1))
+    ? Math.max(2, Math.ceil(frame.integration_seconds + 1))
     : null;
 
   async function capture() {
