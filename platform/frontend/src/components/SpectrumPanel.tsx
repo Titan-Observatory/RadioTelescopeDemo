@@ -691,7 +691,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
             )}
           </div>
           <p className="spectrum-subtitle">
-            Neutral hydrogen in the Milky Way emits radio waves with a frequency of <strong>1420.4 MHz</strong>. This panel shows a live spectrum from the SDR, with a vertical marker at that reference frequency. Gas moving toward or away from the telescope shifts the signal slightly by the{' '}
+            Neutral hydrogen in the Milky Way emits radio waves with a frequency of <strong>1420.4 MHz</strong>. The spectrum below displays the range of frequencies being received by the telescope, centered on this reference frequency. Gas moving toward or away from the telescope shifts the signal slightly by the{' '}
             <InlineInfoPopover
               label="Doppler effect"
               ariaLabel="Show what the Doppler effect means"
@@ -700,7 +700,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
               <span>
                 Gas clouds moving toward us are blueshifted slightly higher in frequency, while gas clouds moving away are redshifted slightly lower.
               </span>
-            </InlineInfoPopover>. By observing several points along the galactic plane, you can see the motion and distribution of the hydrogen gas in our own Milky Way galaxy.
+            </InlineInfoPopover>. By observing several points along the galactic plane, you can see the relative motion and distribution of the hydrogen gas in our own Milky Way galaxy.
           </p>
         </div>
         <div className="spectrum-status">
@@ -753,14 +753,6 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
               </span>
             )}
           </div>
-          {detection && !detection.detected && (
-            <div className="spectrum-readout spectrum-readout-wide">
-              <span className="spectrum-readout-hint">
-                No clear hydrogen peak yet — the signal is strongest along the galactic plane
-                (galactic latitude near 0°).
-              </span>
-            </div>
-          )}
           <button
             type="button"
             className="ghost-btn spectrum-recapture-btn"

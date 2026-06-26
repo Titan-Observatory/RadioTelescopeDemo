@@ -466,12 +466,16 @@ export const drawGround: Layer = ({ ctx, w, h, horizonPx, groundIsInside }) => {
 };
 
 
-export const drawAltAzGrid: Layer = ({ ctx, aladin, w, h, config, date, almucantars, meridians }) => {
+export const drawAltAzGrid: Layer = ({ ctx, aladin, w, h, almucantars, meridians }) => {
   ctx.save();
   ctx.strokeStyle = 'rgba(114, 224, 173, 0.28)';
   ctx.lineWidth = 1;
-  for (const ring of almucantars) {
-    drawProjectedPolyline(ctx, aladin, ring.samples, true, w, h);
+  // Project each almucantar once and reuse the pixels for the stroke *and* the
+  // altitude-label placement below (the same trick the meridians use), so the
+  // labels can ride the ring to wherever it crosses the left edge.
+  const almucantarPx = almucantars.map((ring) => projectSamples(aladin, ring.samples));
+  for (const points of almucantarPx) {
+    strokeProjectedPoints(ctx, points, true, w, h);
   }
   // Project each meridian once and reuse the pixels for the stroke *and* the
   // azimuth-label placement below — projecting was the single biggest per-frame
@@ -517,19 +521,90 @@ export const drawAltAzGrid: Layer = ({ ctx, aladin, w, h, config, date, almucant
     }
   }
 
-  // Almucantar altitude labels — placed on opposite meridians for readability
-  ctx.fillStyle    = 'rgba(114, 224, 173, 0.55)';
+  // Altitude labels — pinned to both side edges, sliding along each almucantar
+  // as the user pans so every visible ring's altitude stays readable. Mirrors
+  // the azimuth labels above (which ride the top edge along each meridian).
+  const ALT_LABEL_X = 22;
+
+  // All on-screen y's where this ring crosses the vertical line at x = edgeX.
+  // A ring crosses a given vertical line at most twice (upper + lower arc).
+  const ringEdgeCrossings = (points: ProjectedPoint[], edgeX: number): number[] => {
+    const ys: number[] = [];
+    let prev: [number, number] | null = null;
+    for (const point of points) {
+      if (!point) { prev = null; continue; }
+      if (prev) {
+        const [x0, y0] = prev;
+        const [x1, y1] = point;
+        const straddles = (x0 - edgeX) * (x1 - edgeX) <= 0;
+        const continuous = Math.hypot(x1 - x0, y1 - y0) < maxSegmentPx;
+        if (straddles && continuous && x0 !== x1) {
+          const t = (edgeX - x0) / (x1 - x0);
+          const y = y0 + t * (y1 - y0);
+          if (y >= 0 && y <= h) ys.push(y);
+        }
+      }
+      prev = point;
+    }
+    return ys;
+  };
+
+  // All on-screen x's where this ring crosses the horizontal line at y = lineY.
+  // A ring clipped at the top crosses it twice (its left + right rising tips),
+  // so we label both, the same way the azimuth labels ride the top edge.
+  const ringPinXs = (points: ProjectedPoint[], lineY: number): number[] => {
+    const xs: number[] = [];
+    let prev: [number, number] | null = null;
+    for (const point of points) {
+      if (!point) { prev = null; continue; }
+      if (prev) {
+        const [x0, y0] = prev;
+        const [x1, y1] = point;
+        const straddles = (y0 - lineY) * (y1 - lineY) <= 0;
+        const continuous = Math.hypot(x1 - x0, y1 - y0) < maxSegmentPx;
+        if (straddles && continuous && y0 !== y1) {
+          const t = (lineY - y0) / (y1 - y0);
+          const x = x0 + t * (x1 - x0);
+          if (x >= 0 && x <= w) xs.push(x);
+        }
+      }
+      prev = point;
+    }
+    return xs;
+  };
+
+  const drawAltLabel = (text: string, x: number, y: number, align: CanvasTextAlign) => {
+    ctx.textAlign = align;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = 'rgba(114, 224, 173, 0.85)';
+    ctx.fillText(text, x, y);
+  };
+
   ctx.font         = '10px "IBM Plex Sans", system-ui, sans-serif';
   ctx.textBaseline = 'middle';
-  for (const az of [180, 0]) {
-    ctx.textAlign = az === 180 ? 'left' : 'right';
-    const xOffset = az === 180 ? 4 : -4;
-    for (const ring of almucantars) {
-      const labelPos = altAzToRaDec({ altitude_deg: ring.altitude_deg, azimuth_deg: az }, config, date);
-      const lp = aladin.world2pix(labelPos.ra_deg, labelPos.dec_deg);
-      if (lp && isFinite(lp[0]) && isFinite(lp[1]) &&
-          lp[0] >= 0 && lp[0] <= w && lp[1] >= 0 && lp[1] <= h) {
-        ctx.fillText(`${ring.altitude_deg}°`, lp[0] + xOffset, lp[1]);
+  ctx.lineWidth    = 3;
+  for (let a = 0; a < almucantars.length; a++) {
+    const label = `${almucantars[a].altitude_deg}°`;
+    const leftYs  = ringEdgeCrossings(almucantarPx[a], ALT_LABEL_X);
+    const rightYs = ringEdgeCrossings(almucantarPx[a], w - ALT_LABEL_X);
+    if (leftYs.length)  drawAltLabel(label, ALT_LABEL_X, leftYs[0], 'left');
+    if (rightYs.length) drawAltLabel(label, w - ALT_LABEL_X, rightYs[0], 'right');
+
+    // Rings that don't reach either side edge: pin the label to the top, like
+    // the azimuth labels. If the ring's top is clipped off-screen it crosses a
+    // near-top horizontal line — ride that crossing (azimuth-style). Otherwise
+    // the whole ring is on-screen, so anchor to the top of its centre-line arc.
+    if (!leftYs.length && !rightYs.length) {
+      const ALT_TOP_PIN_Y = 38;
+      const topXs = ringPinXs(almucantarPx[a], ALT_TOP_PIN_Y);
+      if (topXs.length) {
+        for (const topX of topXs) drawAltLabel(label, topX, ALT_TOP_PIN_Y, 'center');
+      } else {
+        const centreYs = ringEdgeCrossings(almucantarPx[a], w / 2);
+        if (centreYs.length) {
+          drawAltLabel(label, w / 2, Math.max(10, Math.min(...centreYs) - 7), 'center');
+        }
       }
     }
   }

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -329,6 +331,16 @@ def cli() -> None:
     parser = argparse.ArgumentParser(description="RT Platform Service")
     parser.add_argument("-c", "--config", default="config.toml", help="Path to config.toml")
     args = parser.parse_args()
+
+    # On Windows the default Proactor event loop tears down the entire
+    # listening socket if a single accept() completes with a transient error
+    # (WinError 64/121/1236 — a client that vanished mid-handshake). When that
+    # happens the process stays alive but stops accepting all new connections,
+    # i.e. the site goes dark with no crash. The platform proxies HTTP/WS only
+    # and never spawns subprocesses, so the Selector loop (which has no such
+    # accept-teardown behaviour) is a safe and more robust choice here.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     app = create_app(args.config)
     cfg = app.state.config
