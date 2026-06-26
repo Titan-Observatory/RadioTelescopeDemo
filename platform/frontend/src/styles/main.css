@@ -1182,7 +1182,7 @@ input:focus-visible {
   position: absolute;
   left: 50%;
   top: calc(100% + 10px);
-  z-index: 10;
+  z-index: 200;
   display: grid;
   gap: 8px;
   width: min(280px, calc(100vw - 32px));
@@ -1221,11 +1221,34 @@ input:focus-visible {
   line-height: 1.25;
   letter-spacing: 0.01em;
 }
+.spectrum-inline-popover-cta {
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 188, 66, 0.16);
+  color: #ffbc42;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
 .spectrum-inline-popover.is-open .spectrum-inline-popover-panel,
 .spectrum-inline-popover:hover .spectrum-inline-popover-panel,
 .spectrum-inline-popover:focus-within .spectrum-inline-popover-panel {
   opacity: 1;
   transform: translateX(-50%) translateY(0) scale(1);
+}
+/* Portal variant: rendered on document.body to escape the spectrum column's
+   clip/stacking context. Positioned via inline left/top from the term's rect. */
+.spectrum-inline-popover-panel.is-portal {
+  position: fixed;
+  z-index: 230;
+  opacity: 1;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.spectrum-inline-popover-panel.is-portal::after {
+  /* The panel is clamped to the viewport, so the centered arrow would no longer
+     point at the term. Drop it for the portal variant. */
+  display: none;
 }
 .spectrum-status {
   grid-column: 2;
@@ -4624,17 +4647,9 @@ body.rt-baseline-pick .skymap-panel {
   fill:var(--crit); font-size:7.5px; font-weight:700;
   text-anchor:middle; font-family:ui-monospace,monospace;
 }
-.bx-hyd-line { stroke:var(--ok); stroke-width:1.4; stroke-dasharray:4 3; opacity:.85; }
-.bx-hyd-label {
-  fill:var(--ok); font-size:9px; font-weight:700;
-  text-anchor:middle; font-family:ui-monospace,monospace;
-}
-.bx-hyd { animation:bx-hyd-pulse 1.8s ease-in-out infinite; }
-@keyframes bx-hyd-pulse { 0%,100% { opacity:.55; } 50% { opacity:1; } }
 .baseline-explainer-caption {
   font-size:14px; color:var(--fg-muted); line-height:1.5;
 }
-@media (prefers-reduced-motion: reduce) { .bx-hyd { animation:none; } }
 
 /* "÷" symbol between the baseline and signal panels on the subtract slide. */
 .bx-divide {
@@ -5850,4 +5865,63 @@ body.rt-baseline-pick .skymap-panel {
   .goes-explorer-host { padding: 0 10px 16px; }
   .goes-scopes { grid-template-columns: 1fr; }
   .goes-target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* =========================================================================
+   Doppler "learn more" modal — launched from the spectrum subtitle term.
+   Reuses the queue page's DopplerExplainer (animation + copy).
+   ========================================================================= */
+.doppler-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  background: rgba(5, 6, 12, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.doppler-modal-body {
+  position: relative;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  width: min(980px, 96vw);
+  max-height: 92svh;
+  overflow: auto;
+}
+.doppler-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.doppler-modal-close:hover {
+  border-color: var(--hairline-strong);
+  color: var(--fg);
+}
+.doppler-modal-content {
+  display: grid;
+  grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
+  gap: clamp(24px, 4vw, 48px);
+  align-items: center;
+  padding: clamp(28px, 4vw, 48px);
+}
+.doppler-modal-content .h1-section-heading { margin-bottom: 16px; }
+@media (max-width: 760px) {
+  .doppler-modal-content {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
 }

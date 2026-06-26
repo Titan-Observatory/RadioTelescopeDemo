@@ -171,7 +171,7 @@ const EXP_N = 140;
 const EXP_PANEL_W = 196;
 const EXP_PANEL_H = 104;
 const EXP_PEAK_PX = 92; // power 1.0 → this many px above the panel baseline
-const EXP_HYD_C = 0.54; // hydrogen-bump centre (normalised x)
+const EXP_HYD_C = 0.38; // hydrogen-bump centre (normalised x), left of the dome
 
 function expSmoothstep(a: number, b: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -222,10 +222,10 @@ for (let i = 0; i < EXP_N; i++) {
   EXP_BASELINE[i] = base;
   // Faint hydrogen bump on top of the same receiver shape — nearly lost in it.
   EXP_SIGNAL[i] = Math.min(1.02, base + 0.11 * expGauss(u, EXP_HYD_C, 0.04));
-  // After subtraction: flat near zero, hydrogen now clearly standing alone.
-  EXP_RESULT[i] = 0.1 + 0.28 * expGauss(u, EXP_HYD_C, 0.045);
+  // After subtraction: flat near zero, the hydrogen bump left standing at its
+  // OWN amplitude — same height/width as in the signal, not exaggerated.
+  EXP_RESULT[i] = 0.1 + 0.11 * expGauss(u, EXP_HYD_C, 0.04);
 }
-const EXP_HYD_X = EXP_HYD_C * EXP_PANEL_W;
 
 function expPath(buf: Float32Array): { line: string; fill: string } {
   let pts = '';
@@ -239,24 +239,6 @@ function expPath(buf: Float32Array): { line: string; fill: string } {
     fill: `M 0,${EXP_PANEL_H} L ${pts} L ${EXP_PANEL_W},${EXP_PANEL_H} Z`,
   };
 }
-// Clip region used to "delete" the trace during the subtract beat. It's the
-// area of the panel ABOVE a cut contour: top edge along y=0, then back across a
-// lower boundary. ``raise`` ∈ [0,1] lifts that boundary from the floor (raise=0,
-// clips nothing — full trace shows) up to the baseline contour (raise=1, only
-// the above-baseline sliver survives). Animating ``raise`` carves the dome away;
-// reversing it re-opens the clip as the residual settles onto the axis.
-function expClipPath(raise: number): string {
-  let d = `M 0,0 L ${EXP_PANEL_W},0`;
-  for (let i = EXP_N - 1; i >= 0; i--) {
-    const x = (i / (EXP_N - 1)) * EXP_PANEL_W;
-    const cutY = EXP_PANEL_H - EXP_BASELINE[i] * EXP_PEAK_PX * raise;
-    d += ' L ' + x.toFixed(1) + ',' + cutY.toFixed(1);
-  }
-  return d + ' Z';
-}
-// Fully-open clip (raise=0): the whole panel, a no-op for non-subtract frames
-// and the reduced-motion static render.
-const EXP_CLIP_OPEN = expClipPath(0);
 const EXP_BASELINE_PATH = expPath(EXP_BASELINE);
 const EXP_SIGNAL_PATH = expPath(EXP_SIGNAL);
 const EXP_RESULT_PATH = expPath(EXP_RESULT);
@@ -283,12 +265,12 @@ const EXP_PANEL_Y = 44;
 
 
 const EXP_PHASES = [
-  { key: 'baseline', dur: 1.4 },
-  { key: 'signal', dur: 1.6 },
-  { key: 'overlay', dur: 0.9 },
-  { key: 'overlap', dur: 1.3 },
-  { key: 'subtract', dur: 1.6 },
-  { key: 'reveal', dur: 2.6 },
+  { key: 'baseline', dur: 2.4 },
+  { key: 'signal', dur: 2.6 },
+  { key: 'overlay', dur: 1.1 },
+  { key: 'overlap', dur: 2.2 },
+  { key: 'subtract', dur: 2.8 },
+  { key: 'reveal', dur: 3.8 },
 ] as const;
 type ExpPhase = (typeof EXP_PHASES)[number]['key'];
 const EXP_TOTAL = EXP_PHASES.reduce((s, p) => s + p.dur, 0);
@@ -308,7 +290,6 @@ function BaselineExplainer() {
   const rightGroupRef = useRef<SVGGElement | null>(null);
   const flyGroupRef = useRef<SVGGElement | null>(null);
   const overlapRef = useRef<SVGPathElement | null>(null);
-  const clipRef = useRef<SVGPathElement | null>(null);
   const [phase, setPhase] = useState<ExpPhase>(
     reduce ? 'reveal' : 'baseline',
   );
@@ -368,27 +349,19 @@ function BaselineExplainer() {
       leftFillRef.current?.setAttribute('d', lp.fill);
 
       if (key === 'subtract') {
-        // The real trace, drawn once, with an animated clipPath that actually
-        // DELETES the part at/below the baseline. Two sub-beats:
-        //   cut  (local 0 → 0.5): the clip's lower edge rises from the floor up
-        //     to the baseline contour, erasing the dome and RFI spikes (which sit
-        //     at their own baseline) and leaving only the H I bump — the one bit
-        //     above the baseline — hanging in the air where it was cut from.
-        //   drop (local 0.5 → 1): the trace morphs signal→result so the bump
-        //     settles onto a flat axis, while the clip re-opens (baseline→floor)
-        //     so the corrected floor reforms underneath it.
-        const cutProg = expEaseInOut(expSmoothstep(0, 0.5, local));
-        const dropProg = expEaseInOut(expSmoothstep(0.5, 1, local));
+        // Subtraction made literal: the trace morphs straight from the live
+        // SIGNAL to the corrected RESULT. Every x-column eases from signal[i]
+        // down to result[i], so the dome and all the RFI spikes deflate to the
+        // flat corrected floor (signal − baseline ≈ 0 there) while the H I bump —
+        // the one feature NOT in the baseline — is left standing on its own. No
+        // clipping, so there's nothing for a steep stroke to poke through.
+        const m = expEaseInOut(local);
         for (let i = 0; i < EXP_N; i++) {
-          topBuf[i] = EXP_SIGNAL[i] + (EXP_RESULT[i] - EXP_SIGNAL[i]) * dropProg;
+          topBuf[i] = EXP_SIGNAL[i] + (EXP_RESULT[i] - EXP_SIGNAL[i]) * m;
         }
         const rp = expPath(topBuf);
         rightLineRef.current?.setAttribute('d', rp.line);
         rightFillRef.current?.setAttribute('d', rp.fill);
-        // raise: floor → baseline (cut), then held at baseline and re-opened to
-        // floor as the residual lands.
-        const raise = cutProg * (1 - dropProg);
-        clipRef.current?.setAttribute('d', expClipPath(raise));
       } else {
         rightTarget.set(key === 'reveal' ? EXP_RESULT : EXP_SIGNAL);
         const rNoise = key === 'reveal' ? noiseAmp * 0.6 : noiseAmp;
@@ -398,8 +371,6 @@ function BaselineExplainer() {
         const rp = expPath(rightBuf);
         rightLineRef.current?.setAttribute('d', rp.line);
         rightFillRef.current?.setAttribute('d', rp.fill);
-        // Clip fully open everywhere except the subtract beat.
-        clipRef.current?.setAttribute('d', EXP_CLIP_OPEN);
       }
 
       let rightOpacity = 1;
@@ -418,8 +389,10 @@ function BaselineExplainer() {
         overlapOpacity = expSmoothstep(0.1, 0.42, local);
         flyX = EXP_PANEL_RX;
       } else if (key === 'subtract') {
-        // Snap-erase: overlap and fly vanish quickly so the "cut" reads as instant deletion.
-        flyOpacity = 1 - expSmoothstep(0, 0.32, local);
+        // The flown baseline dissolves as it's subtracted: fade it out in step
+        // with the dome collapsing (a touch ahead of the morph) so it reads as
+        // the baseline being consumed, not just disappearing.
+        flyOpacity = 1 - expEaseInOut(expSmoothstep(0, 0.55, local));
         overlapOpacity = flyOpacity;
         flyX = EXP_PANEL_RX;
       }
@@ -432,7 +405,6 @@ function BaselineExplainer() {
   }, [reduce]);
 
   const rightLabel = phase === 'subtract' || phase === 'reveal' ? 'CORRECTED' : 'SIGNAL';
-  const showHyd = reduce || phase === 'subtract' || phase === 'reveal';
 
   return (
     <svg
@@ -461,21 +433,10 @@ function BaselineExplainer() {
       </text>
       <g ref={rightGroupRef} opacity={reduce ? 1 : 0}>
         <g transform={`translate(${EXP_PANEL_RX},${EXP_PANEL_Y})`}>
-          <clipPath id="bx-cut-clip">
-            <path ref={clipRef} d={EXP_CLIP_OPEN} />
-          </clipPath>
           <rect className="bx-panel" x="0" y="0" width={EXP_PANEL_W} height={EXP_PANEL_H} rx="3" />
-          <path ref={rightFillRef} className="bx-fill" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).fill} clipPath="url(#bx-cut-clip)" />
+          <path ref={rightFillRef} className="bx-fill" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).fill} />
           <path ref={overlapRef} className="bx-overlap" d={EXP_BASELINE_PATH.fill} opacity="0" />
-          <path ref={rightLineRef} className="bx-trace" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).line} clipPath="url(#bx-cut-clip)" />
-          {showHyd && (
-            <g className="bx-hyd">
-              <line className="bx-hyd-line" x1={EXP_HYD_X} y1="28" x2={EXP_HYD_X} y2={EXP_PANEL_H} />
-              <text className="bx-hyd-label" x={EXP_HYD_X} y="22">
-                H I
-              </text>
-            </g>
-          )}
+          <path ref={rightLineRef} className="bx-trace" d={(reduce ? EXP_RESULT_PATH : EXP_SIGNAL_PATH).line} />
         </g>
       </g>
 

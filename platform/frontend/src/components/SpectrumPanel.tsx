@@ -13,9 +13,10 @@ import {
 import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 
-import { RefreshCw, Sliders, Sparkles } from 'lucide-react';
+import { RefreshCw, Sliders, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   DEFAULT_Y_RANGE,
@@ -30,6 +31,7 @@ import {
 import { useJsonSocket } from '../lib/useJsonSocket';
 import { startSpectrumTour } from '../tour';
 import { BaselineWizard } from './BaselineWizard';
+import { DopplerExplainer } from './QueuePage';
 
 echarts.use([
   LineChart,
@@ -162,13 +164,82 @@ type InlineInfoPopoverProps = {
   label: ReactNode;
   ariaLabel: string;
   children: ReactNode;
+  /** When set, clicking the term opens this deeper explainer instead of just
+   *  toggling the hover popover. The popover gains a "Click to learn more" cue. */
+  onActivate?: () => void;
 };
 
-function InlineInfoPopover({ label, ariaLabel, children }: InlineInfoPopoverProps) {
+// Full explainer modal launched from the "Doppler effect" term. Reuses the
+// same animation + copy shown on the queue landing page so the in-app term
+// links through to the deeper explanation.
+function DopplerLearnMoreModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="doppler-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="The Doppler effect"
+      onClick={onClose}
+    >
+      <div className="doppler-modal-body" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="doppler-modal-close" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
+        <div className="doppler-modal-content">
+          <DopplerExplainer />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InlineInfoPopover({ label, ariaLabel, children, onActivate }: InlineInfoPopoverProps) {
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement | null>(null);
+  // The popover panel is rendered in a portal on document.body. The spectrum
+  // panel lives in a narrow, `overflow: hidden` column, so an in-flow panel
+  // gets clipped (and the term sits close enough to the sky-map column that the
+  // clipped remainder reads as "behind Aladin"). A portal escapes every
+  // ancestor's clip and stacking context so the panel floats over everything.
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+
+  const measure = useCallback(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const halfWidth = Math.min(280, window.innerWidth - 32) / 2;
+    // Center under the term, then clamp so the panel stays fully on-screen.
+    const center = Math.min(
+      Math.max(rect.left + rect.width / 2, halfWidth + 8),
+      window.innerWidth - halfWidth - 8,
+    );
+    setCoords({ left: center, top: rect.bottom + 10 });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    measure();
+    // Reposition on scroll (capture phase catches scrolling ancestors too) and
+    // on resize while the panel is visible.
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
+    };
+  }, [open, measure]);
 
   return (
     <span
+      ref={wrapRef}
       className={`spectrum-inline-popover${open ? ' is-open' : ''}`}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
@@ -180,13 +251,26 @@ function InlineInfoPopover({ label, ariaLabel, children }: InlineInfoPopoverProp
         className="spectrum-doppler-term"
         aria-label={ariaLabel}
         aria-expanded={open ? 'true' : 'false'}
-        onClick={() => setOpen((value) => !value)}
+        aria-haspopup={onActivate ? 'dialog' : undefined}
+        onClick={() => (onActivate ? onActivate() : setOpen((value) => !value))}
       >
         {label}
       </button>
-      <span className="spectrum-inline-popover-panel" role="tooltip">
-        {children}
-      </span>
+      {open && coords && createPortal(
+        <span
+          className="spectrum-inline-popover-panel is-portal"
+          role="tooltip"
+          style={{ left: coords.left, top: coords.top }}
+        >
+          {children}
+          {onActivate && (
+            <span className="spectrum-inline-popover-cta" aria-hidden="true">
+              Click to learn more →
+            </span>
+          )}
+        </span>,
+        document.body,
+      )}
     </span>
   );
 }
@@ -224,6 +308,7 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
   // palette spans the full trace rather than just the bottom third of the axis.
   const waterfallRangeRef = useRef<[number, number]>(DEFAULT_Y_RANGE);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [dopplerOpen, setDopplerOpen] = useState(false);
   const [waterfallOpen, setWaterfallOpen] = useState(false);
   const [integrationRestarting, setIntegrationRestarting] = useState(false);
   const [integrationRestartError, setIntegrationRestartError] = useState<string | null>(null);
@@ -694,7 +779,8 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
             Neutral hydrogen in the Milky Way emits radio waves with a frequency of <strong>1420.4 MHz</strong>. The spectrum below displays the range of frequencies being received by the telescope, centered on this reference frequency. Gas moving toward or away from the telescope shifts the signal slightly by the{' '}
             <InlineInfoPopover
               label="Doppler effect"
-              ariaLabel="Show what the Doppler effect means"
+              ariaLabel="Learn more about the Doppler effect"
+              onActivate={() => setDopplerOpen(true)}
             >
               <strong>Motion shifts the observed frequency.</strong>
               <span>
@@ -873,6 +959,8 @@ export function SpectrumPanel({ enabled = true, onStartGuided }: SpectrumPanelPr
         onOpenChange={setWizardOpen}
         frame={frame}
       />
+
+      {dopplerOpen && <DopplerLearnMoreModal onClose={() => setDopplerOpen(false)} />}
     </section>
   );
 }
