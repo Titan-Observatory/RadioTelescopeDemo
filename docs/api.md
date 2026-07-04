@@ -23,8 +23,8 @@ checks described below.
 
 If password auth is enabled, most HTTP and WebSocket paths also require the
 signed `rt_auth` cookie. `/`, static assets, `/api/queue/config`,
-`/api/queue/join`, `/api/auth/logout`, and `/api/admin/*` are exempt from that
-global password middleware.
+`/api/queue/join`, and `/api/admin/*` are exempt from that global password
+middleware.
 
 ## Platform API
 
@@ -35,7 +35,6 @@ Base URL in local Docker/dev examples: `http://localhost:8000`.
 | Method | Path | Access | Description |
 |---|---|---|---|
 | `GET` | `/api/queue/config` | Public | Queue/auth bootstrap data plus operator telescope status. |
-| `GET` | `/api/telescope/status` | Public | Operator-set status: `operational`, `maintenance`, or `closed`. |
 | `GET` | `/api/queue/status` | Public | Queue status for the caller's queue cookie, or not-in-queue status. |
 | `POST` | `/api/queue/join` | Public | Join or rejoin the queue. Sets the queue session cookie. |
 | `POST` | `/api/queue/leave` | Public | Leave the queue and clear the queue cookie. |
@@ -70,21 +69,16 @@ These platform routes proxy the same hardware paths and add queue/admin gates.
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| `GET` | `/api/health` | Active controller | Hardware connection health. |
 | `GET` | `/api/roboclaw/status` | Active controller | Latest mount telemetry and host stats. |
 | `GET` | `/api/roboclaw/commands` | Active controller | Operator-safe RoboClaw command catalog. |
 | `POST` | `/api/roboclaw/commands/{command_id}` | Active controller | Execute an operator-safe low-level command. |
 | `POST` | `/api/roboclaw/stop` | Active controller | Stop both motors. |
 | `POST` | `/api/telescope/jog` | Active controller | Start or refresh a jog command. |
 | `POST` | `/api/telescope/jog/stop` | Active controller | Stop a jog sequence. |
-| `GET` | `/api/telescope/goto` | Active controller | Alt/az goto request help and encoder mapping. |
 | `GET` | `/api/telescope/config` | Active controller | Observer location, beam width, goto defaults, and safety limits. |
 | `POST` | `/api/telescope/goto` | Active controller | Slew to altitude/azimuth. |
 | `POST` | `/api/telescope/goto_radec` | Active controller | Convert RA/Dec to alt/az and slew. |
-| `POST` | `/api/telescope/sync` | LAN admin | Recalibrate in-memory alt/az zero offsets without moving. |
 | `POST` | `/api/telescope/home/elevation` | LAN admin | Drive elevation downward until counts stall, then zero M2. |
-| `POST` | `/api/telescope/home/azimuth` | LAN admin | Zero the azimuth encoder at the current position. |
-| `POST` | `/api/telescope/home/altitude` | LAN admin | Zero the altitude/M2 encoder at the current position. |
 | `WS` | `/ws/roboclaw` | Active controller | Live mount telemetry stream. |
 
 Motion request bodies:
@@ -136,7 +130,6 @@ the `CommandResult` shape:
 |---|---|---|---|
 | `GET` | `/api/spectrum/status` | Active controller | SDR/LNA/pipeline status. Returns a structured disconnected fallback if the hardware gateway is unavailable. |
 | `POST` | `/api/spectrum/baseline` | Active controller | Capture and apply a spectrum baseline. |
-| `DELETE` | `/api/spectrum/baseline` | Active controller | Clear the saved baseline and restart processing. |
 | `POST` | `/api/spectrum/reset` | Active controller | Flush the rolling integration by restarting processing. |
 | `POST` | `/api/spectrum/reconnect` | Active controller | Kill and respawn the SDR pipeline. |
 | `WS` | `/ws/spectrum` | Active controller | Live spectrum frames. |
@@ -172,9 +165,7 @@ Processing update body, all fields optional:
 | `GET` | `/api/goes/status` | Active controller | GOES demod/decode status. |
 | `POST` | `/api/goes/reconnect` | Active controller | Restart the GOES receive chain. |
 | `GET` | `/api/goes/products?limit=60` | Active controller | List decoded product metadata. `limit` is clamped by hardware to 1..500. |
-| `GET` | `/api/goes/products/{product_id}` | Active controller | One decoded product metadata record. |
 | `GET` | `/api/goes/products/{product_id}/file` | Active controller | Binary product file passthrough. |
-| `DELETE` | `/api/goes/products` | Active controller | Clear decoded products from the product store. |
 | `WS` | `/ws/goes` | Active controller | Live GOES acquisition/status frames. |
 
 GOES product list shape:
@@ -203,7 +194,6 @@ GOES product list shape:
 |---|---|---|---|
 | `GET` | `/api/camera/status` | Public | Camera availability and label. Returns a disabled fallback if hardware is unavailable. |
 | `GET` | `/api/camera/frame` | Public | Single no-store JPEG frame. |
-| `GET` | `/api/camera/stream` | Public | MJPEG stream proxied from hardware. |
 
 ### Admin
 
@@ -250,11 +240,10 @@ PID body shape:
 For writes, each top-level PID group is optional, but at least one must be
 present.
 
-### Auth, feedback, and analytics
+### Feedback and analytics
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| `POST` | `/api/auth/logout` | Public | Clears the `rt_auth` password cookie and redirects to `/`. |
 | `POST` | `/api/feedback` | Public | Append a feedback record. |
 | `POST` | `/api/events` | Public | Append a frontend analytics event. Returns 204. |
 
@@ -311,14 +300,10 @@ understanding platform proxy responses.
 | `POST` | `/api/roboclaw/stop` | Stop both motors. |
 | `POST` | `/api/telescope/jog` | Start or refresh a jog sequence. |
 | `POST` | `/api/telescope/jog/stop` | Stop a jog sequence. |
-| `GET` | `/api/telescope/goto` | Alt/az goto help and mapping information. |
 | `POST` | `/api/telescope/goto` | Slew to alt/az, with safety and pointing-limit checks. |
 | `POST` | `/api/telescope/goto_radec` | Convert RA/Dec to alt/az and slew. |
-| `POST` | `/api/telescope/sync` | Recalibrate in-memory zero offsets. |
 | `GET` | `/api/telescope/config` | Mount/observer/safety config exposed to clients. |
 | `POST` | `/api/telescope/home/elevation` | Home and zero elevation. |
-| `POST` | `/api/telescope/home/azimuth` | Zero azimuth encoder. |
-| `POST` | `/api/telescope/home/altitude` | Zero altitude encoder. |
 | `GET` | `/api/admin/pid` | Read PID bundle. |
 | `POST` | `/api/admin/pid` | Write PID bundle fields. |
 | `POST` | `/api/admin/pid/save` | Persist controller settings. |
@@ -335,9 +320,7 @@ understanding platform proxy responses.
 | `GET` | `/api/goes/status` | GOES receive-chain status. |
 | `POST` | `/api/goes/reconnect` | Restart GOES receive chain. |
 | `GET` | `/api/goes/products?limit=60` | List decoded GOES products. |
-| `GET` | `/api/goes/products/{product_id}` | GOES product metadata. |
 | `GET` | `/api/goes/products/{product_id}/file` | GOES product file. |
-| `DELETE` | `/api/goes/products` | Clear GOES product store. |
 | `WS` | `/ws/goes` | Live GOES status frames. |
 | `GET` | `/api/camera/status` | Camera status. |
 | `GET` | `/api/camera/frame` | Single JPEG frame. |

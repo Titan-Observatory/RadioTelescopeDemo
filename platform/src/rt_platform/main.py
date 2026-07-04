@@ -26,7 +26,6 @@ from rt_platform.api import (
     routes_spectrum,
 )
 from rt_platform.api.auth import AuthManager, PasswordAuthMiddleware
-from rt_platform.api.auth import router as auth_router
 from rt_platform.api.client_allowlist import ClientAllowlistMiddleware
 from rt_platform.api.rate_limit import RateLimitMiddleware
 from rt_platform.api.security_headers import SecurityHeadersMiddleware
@@ -156,7 +155,6 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
     )
     app.add_middleware(PasswordAuthMiddleware, auth=auth)
 
-    app.include_router(auth_router)
     app.include_router(routes_admin.router)
     app.include_router(routes_motor.router)
     app.include_router(routes_queue.router)

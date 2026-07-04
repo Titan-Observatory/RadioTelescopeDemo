@@ -42,7 +42,6 @@ export interface HoverZoneRefs {
  *
  * Mutable fields:
  *  - `hoverZones`  — populated by drawSunAndMoon (sun) + computeFwhmHoverZones
- *  - `dashOffset.current` — incremented by drawSlewPath for its dash animation
  */
 export interface FrameState {
   ctx: CanvasRenderingContext2D;
@@ -60,7 +59,12 @@ export interface FrameState {
   meridians: { azimuth_deg: number; samples: RaDecTarget[] }[];
   groundIsInside: boolean;
   hoverZones: HoverZoneRefs;
-  dashOffset: { current: number };
+  /**
+   * The hard-limits safe window projected once per frame — shared by
+   * drawAltitudeLimitOverlay and drawGalacticExclusion so neither re-projects
+   * the boundary loop itself.
+   */
+  safeWindow: SafeWindow;
   /** When true, shade the galactic-plane band the baseline wizard excludes. */
   galacticExclusion: boolean;
   /**
@@ -247,8 +251,12 @@ function buildAzimuthBoundary(
  * → az_min (alt ascending). Built from the same per-edge samplers the boundary
  * *strokes* use, so the filled region's edge is identical to the stroked curve —
  * no chord-vs-curve gap between the hatch and the outline.
+ *
+ * Exported so useHorizonCanvas can cache the RA/Dec samples alongside the
+ * horizon/grid samples (they drift with Earth rotation at the same rate)
+ * instead of rebuilding them every frame.
  */
-function buildAltitudeBandLoop(
+export function buildAltitudeBandLoop(
   config: TelescopeConfig,
   date: Date,
   minAltDeg: number,
@@ -264,34 +272,52 @@ function buildAltitudeBandLoop(
 }
 
 /**
- * The safe window projected to one closed pixel loop. `ok` is false when any
- * vertex is unprojectable or blew up (the window is partly behind us), in which
- * case callers should fall back to the per-quad tiling. Used both to fill/stroke
- * the altitude-limit overlay and to clip the galactic band, so the band's edge
- * tracks the same smooth curve as the safe-window outline.
+ * The safe window projected to screen space for one frame. `ok` is false when
+ * any loop vertex is unprojectable or blew up (the window is partly behind us),
+ * in which case `quads` carries the per-quad fallback tiling (empty otherwise).
+ * Used both to fill/stroke the altitude-limit overlay and to clip the galactic
+ * band, so the band's edge tracks the same smooth curve as the safe-window
+ * outline. Computed once per frame in useHorizonCanvas and shared via
+ * FrameState so the two layers don't project the boundary twice.
  */
-function projectAltitudeBandLoop(
+export interface SafeWindow {
+  loopPx: [number, number][];
+  ok: boolean;
+  quads: [number, number][][];
+}
+
+export const EMPTY_SAFE_WINDOW: SafeWindow = { loopPx: [], ok: false, quads: [] };
+
+export function computeSafeWindow(
   aladin: AladinInstance,
   config: TelescopeConfig,
   date: Date,
+  loopSamples: RaDecTarget[],
   w: number,
   h: number,
-): { loopPx: [number, number][]; ok: boolean } {
-  const limits = config.hard_safety_limits;
+): SafeWindow {
   const maxCoord = 50 * Math.max(w, h);
   const loopPx: [number, number][] = [];
-  for (const { ra_deg, dec_deg } of buildAltitudeBandLoop(
-    config, date,
-    limits.altitude_min_deg, limits.altitude_max_deg,
-    limits.azimuth_min_deg, limits.azimuth_max_deg,
-  )) {
+  let ok = true;
+  for (const { ra_deg, dec_deg } of loopSamples) {
     const p = aladin.world2pix(ra_deg, dec_deg);
     if (!p || !isFinite(p[0]) || !isFinite(p[1]) || Math.abs(p[0]) > maxCoord || Math.abs(p[1]) > maxCoord) {
-      return { loopPx, ok: false };
+      ok = false;
+      break;
     }
     loopPx.push([p[0], p[1]]);
   }
-  return { loopPx, ok: loopPx.length >= 3 };
+  if (loopPx.length < 3) ok = false;
+  if (ok) return { loopPx, ok, quads: [] };
+
+  const limits = config.hard_safety_limits;
+  const quads = buildAltitudeBandQuads(
+    aladin, config, date,
+    limits.altitude_min_deg, limits.altitude_max_deg,
+    limits.azimuth_min_deg, limits.azimuth_max_deg,
+    w, h,
+  );
+  return { loopPx, ok, quads };
 }
 
 function buildAltitudeBandQuads(
@@ -368,15 +394,17 @@ export const drawAltitudeLimitOverlay: Layer = ({
   date,
   horizonPx,
   groundIsInside,
+  safeWindow,
   showHardwareLimits,
 }) => {
   if (!showHardwareLimits) return;
   const limits = config.hard_safety_limits;
 
-  // Project the boundary as a single closed loop. When every vertex projects
-  // cleanly (the common case: the window is in front of us) we fill and stroke
-  // from this one path, so the hatch edge and the outline are pixel-identical.
-  const { loopPx, ok: loopOk } = projectAltitudeBandLoop(aladin, config, date, w, h);
+  // The boundary as a single closed loop, projected once per frame upstream.
+  // When every vertex projects cleanly (the common case: the window is in
+  // front of us) we fill and stroke from this one path, so the hatch edge and
+  // the outline are pixel-identical.
+  const { loopPx, ok: loopOk, quads } = safeWindow;
 
   ctx.save();
   ctx.beginPath();
@@ -397,12 +425,6 @@ export const drawAltitudeLimitOverlay: Layer = ({
     // Fallback: the window is partly behind the projection, where the loop
     // would streak. Tile it from independent quads (slight chord error here,
     // but the region is off-screen or clipped, so it doesn't read).
-    const quads = buildAltitudeBandQuads(
-      aladin, config, date,
-      limits.altitude_min_deg, limits.altitude_max_deg,
-      limits.azimuth_min_deg, limits.azimuth_max_deg,
-      w, h,
-    );
     for (const quad of quads) {
       ctx.moveTo(quad[0][0], quad[0][1]);
       for (const [x, y] of quad.slice(1)) ctx.lineTo(x, y);
@@ -663,7 +685,7 @@ function galacticStripePattern(ctx: CanvasRenderingContext2D): CanvasPattern | n
   return stripePattern;
 }
 
-export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, config, date, galacticExclusion }) => {
+export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, safeWindow, galacticExclusion }) => {
   if (!galacticExclusion) return;
 
   const L = GALACTIC_PLANE_EXCLUSION_DEG;
@@ -703,24 +725,10 @@ export const drawGalacticExclusion: Layer = ({ ctx, aladin, w, h, config, date, 
   // Clip the band to the safe window. Prefer the smooth boundary loop so the
   // hatch reaches exactly to the safe-window outline (the quad approximation
   // bows inside it on the curved edges, leaving a visible gap); fall back to
-  // the quad tiling when the window is partly behind the projection.
-  const limits = config.hard_safety_limits;
-  const { loopPx: windowLoop, ok: windowOk } = projectAltitudeBandLoop(aladin, config, date, w, h);
-  let hardWindowQuads: [number, number][][] = [];
-  if (!windowOk) {
-    hardWindowQuads = buildAltitudeBandQuads(
-      aladin,
-      config,
-      date,
-      limits.altitude_min_deg,
-      limits.altitude_max_deg,
-      limits.azimuth_min_deg,
-      limits.azimuth_max_deg,
-      w,
-      h,
-    );
-    if (hardWindowQuads.length === 0) return;
-  }
+  // the quad tiling when the window is partly behind the projection. Both are
+  // projected once per frame upstream and shared with drawAltitudeLimitOverlay.
+  const { loopPx: windowLoop, ok: windowOk, quads: hardWindowQuads } = safeWindow;
+  if (!windowOk && hardWindowQuads.length === 0) return;
 
   ctx.save();
   ctx.beginPath();
@@ -846,7 +854,7 @@ export const drawCardinals: Layer = ({ ctx, aladin, w, h, config, date }) => {
 };
 
 
-export const drawSlewPath: Layer = ({ ctx, aladin, config, date, telemetry, pending, dashOffset }) => {
+export const drawSlewPath: Layer = ({ ctx, aladin, config, date, telemetry, pending }) => {
   if (!pending || !telemetry) return;
 
   // Resolve telescope RA/Dec via the same conversion the click handler uses,
@@ -868,11 +876,15 @@ export const drawSlewPath: Layer = ({ ctx, aladin, config, date, telemetry, pend
   if (!pTel     || !isFinite(pTel[0])     || !isFinite(pTel[1])) return;
   if (!pPending || !isFinite(pPending[0]) || !isFinite(pPending[1])) return;
 
-  dashOffset.current = (dashOffset.current + 0.4) % 22;
+  // Marching-ants offset derived from wall clock (24 px/s — the old
+  // 0.4 px/frame at 60 fps), so the ant speed is independent of how often the
+  // throttled draw loop repaints. Modulo the dash period ([7, 5] → 12 px) so
+  // the wrap is seamless.
+  const dashOffset = (date.getTime() * 0.024) % 12;
 
   ctx.save();
   ctx.setLineDash([7, 5]);
-  ctx.lineDashOffset = -dashOffset.current;
+  ctx.lineDashOffset = -dashOffset;
   ctx.strokeStyle    = 'rgba(243, 204, 107, 0.75)';
   ctx.lineWidth      = 1.5;
   ctx.lineCap        = 'round';

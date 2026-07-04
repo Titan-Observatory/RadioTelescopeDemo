@@ -36,12 +36,6 @@ const config = {
   goto_decel_qpps2: 0,
   observer_latitude_deg: 40.0,
   observer_longitude_deg: -74.5,
-  pointing_limit_altaz: [
-    { altitude_deg: 10, azimuth_deg: 90 },
-    { altitude_deg: 80, azimuth_deg: 90 },
-    { altitude_deg: 80, azimuth_deg: 270 },
-    { altitude_deg: 10, azimuth_deg: 270 },
-  ],
   hard_safety_limits: {
     altitude_min_deg: 0,
     altitude_max_deg: 85,
@@ -70,13 +64,10 @@ function compute(): Record<string, unknown> {
     position_angle: astro.positionAngleDeg({ ra_deg: 10, dec_deg: 20 }, { ra_deg: 15, dec_deg: 25 }),
     angular_separation: astro.angularSeparationDeg({ ra_deg: 10, dec_deg: 20 }, { ra_deg: 15, dec_deg: 25 }),
     moon_illumination: astro.moonIllumination(astro.sunRaDec(T_NOON), astro.moonRaDec(T_NOON)),
-    inside_polygon_true: astro.isInsidePolygon({ altitude_deg: 45, azimuth_deg: 180 }, config.pointing_limit_altaz),
-    inside_polygon_false: astro.isInsidePolygon({ altitude_deg: 5, azimuth_deg: 180 }, config.pointing_limit_altaz),
     // The safety gate the BaselineWizard depends on — freeze each decision,
-    // hitting a distinct branch in each case (clean / hard-limit / polygon).
+    // hitting a distinct branch in each case (clean / hard-limit).
     validate_clean: astro.validateBaselinePointing({ altitude_deg: 60, azimuth_deg: 180 }, config, T0),
     validate_too_high: astro.validateBaselinePointing({ altitude_deg: 88, azimuth_deg: 180 }, config, T0),
-    validate_outside_polygon: astro.validateBaselinePointing({ altitude_deg: 45, azimuth_deg: 30 }, config, T0),
   };
 }
 

@@ -174,7 +174,6 @@ def test_control_endpoint_requires_lease(platform_config_path):
         "/api/spectrum/status",
         "/api/roboclaw/status",
         "/api/roboclaw/commands",
-        "/api/telescope/goto",
         "/api/telescope/config",
     ],
 )

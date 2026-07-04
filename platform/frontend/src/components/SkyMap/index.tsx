@@ -105,7 +105,6 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
     aladinRef,
     aladinModuleRef,
     beamOverlayRef,
-    limitOverlayRef,
     pendingOverlayRef,
     horizonOverlayRef,
     targetCatalogRef,
@@ -168,34 +167,6 @@ export function SkyMap({ telemetry, config, onNotice, onTarget, onClearTarget, p
     galacticExclusionRef,
     surveyRef,
   });
-
-  // Project the fixed Alt/Az pointing-limit triangle onto the current sky.
-  useEffect(() => {
-    if (!ready || !limitOverlayRef.current) return;
-
-    limitOverlayRef.current.removeAll();
-    if (config && config.pointing_limit_altaz.length >= 3) {
-      const date = telemetry?.timestamp != null
-        ? new Date(telemetry.timestamp * 1000)
-        : new Date();
-      const vertices = config.pointing_limit_altaz.map((point) => altAzToRaDec(point, config, date));
-      const polyline = vertices.map((point): [number, number] => [point.ra_deg, point.dec_deg]);
-      limitOverlayRef.current.add(
-        aladinModuleRef.current!.polyline([...polyline, polyline[0]], {
-          color: 'rgba(255,126,89,0.9)',
-          lineWidth: 2,
-        }),
-      );
-      vertices.forEach((point) => {
-        limitOverlayRef.current?.add(
-          aladinModuleRef.current!.circle(point.ra_deg, point.dec_deg, 0.08, {
-            color: '#ff7e59',
-            lineWidth: 2,
-          }),
-        );
-      });
-    }
-  }, [config, ready, telemetry?.timestamp]);
 
   // Update beam circle on every telemetry tick
   useEffect(() => {

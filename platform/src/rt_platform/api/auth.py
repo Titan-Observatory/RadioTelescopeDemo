@@ -1,4 +1,8 @@
-"""Password-based auth: middleware, logout route, and brute-force protection."""
+"""Password-based auth: middleware and brute-force protection.
+
+The password itself is submitted through ``POST /api/queue/join`` (see
+``routes_queue``), which sets the signed ``rt_auth`` cookie on success.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import APIRouter, Response
-from fastapi.responses import RedirectResponse
+from fastapi import Response
 from itsdangerous import BadSignature, URLSafeSerializer
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -19,7 +22,6 @@ logger = logging.getLogger("radiotelescope.auth")
 
 _COOKIE_NAME = "rt_auth"
 _EXEMPT_PATHS = frozenset({
-    "/api/auth/logout",
     # The SPA root and queue bootstrap/join must be reachable before the user
     # has an auth cookie so the inline password form can load and submit.
     "/",
@@ -265,15 +267,3 @@ async def _http_response(send: Send, status: int, content_type: bytes, body: byt
         ],
     })
     await send({"type": "http.response.body", "body": body})
-
-
-# ── Routes ───────────────────────────────────────────────────────────────────
-
-router = APIRouter()
-
-
-@router.post("/api/auth/logout", include_in_schema=False)
-async def do_logout() -> RedirectResponse:
-    resp = RedirectResponse(url="/", status_code=303)
-    resp.delete_cookie(_COOKIE_NAME, path="/")
-    return resp

@@ -59,7 +59,7 @@ Owns the physical hardware. Routes are unauthenticated — the service binds on 
 - `services/geometry.py` — altitude-calibration polynomial fitting (linear/quadratic through `altitude_calibration.points`).
 - `services/_pubsub.py` — `Broadcaster[T]` drop-oldest fanout (a copy also lives in the platform package).
 - `sdr_pipeline.py` — GNU Radio top-block (Soapy → FFT → mag² → integrate_ff → zeromq.pub_sink) run as a subprocess via `python -m rt_hardware.sdr_pipeline -c config.toml`. This is where the per-sample DSP actually happens.
-- `geometry.py` / `pointing.py` — encoder ↔ altitude and katpoint J2000 conversions. The frontend keeps a deliberately low-precision TS port in `frontend/src/lib/astro.ts`, synced by hand.
+- `pointing.py` — katpoint J2000 conversions (encoder ↔ altitude lives in `services/geometry.py`). The frontend keeps a deliberately low-precision TS port in `frontend/src/lib/astro.ts`, synced by hand.
 - `models/state.py` — canonical Pydantic response models. Frontend types are generated from this via `scripts/dump_types.py`.
 - `api/routes_roboclaw.py`, `api/routes_spectrum.py`, `api/routes_camera.py`, `api/routes_goes.py` — the HTTP routers. Hardware has no queue/auth dependencies; mutations are unrestricted. Includes `/api/camera/frame` (single JPEG snapshot) and `/api/admin/spectrum/processing` (live DSP tuning) alongside the streams. `routes_goes` also serves `/api/observation` (boot mode + satellite look angles, available in both modes) and the decoded-product archive.
 
@@ -73,18 +73,18 @@ Web-facing. Enforces the queue and motion audit log; proxies all motor/spectrum/
 - `services/status.py` — `TelescopeStatusService`: operator-set telescope state (`operational` / `maintenance` / `closed`) with disk persistence and broadcast; the queue gates new joins on it.
 - `services/_pubsub.py` — `Broadcaster[T]` drop-oldest fanout, shared by queue, bridge, and status.
 - `loki.py` — fire-and-forget Loki log push (`loki_url` / `LOKI_URL`; no-op when unset).
-- `api/routes_motor.py` — proxies all motor/telescope HTTP endpoints to the hardware service; bridges `/ws/roboclaw`. Enforces `require_control` on mutations; writes motion audit log to `motion.jsonl`. Read-only endpoints require an active queue session; sync/homing/PID require `require_lan_admin`.
+- `api/routes_motor.py` — proxies all motor/telescope HTTP endpoints to the hardware service; bridges `/ws/roboclaw`. Enforces `require_control` on mutations; writes motion audit log to `motion.jsonl`. Read-only endpoints require an active queue session; homing/PID require `require_lan_admin`.
 - `api/routes_spectrum.py` — proxies spectrum HTTP, bridges `/ws/spectrum`.
-- `api/routes_goes.py` — proxies `/api/observation` (degrades to hydrogen-line when the gateway is down) and `/api/goes/*` (status, products, files), bridges `/ws/goes`. Viewers read; only the controller can reconnect the pipeline or clear products.
-- `api/routes_camera.py` — proxies camera MJPEG stream, snapshot frame, and status.
+- `api/routes_goes.py` — proxies `/api/observation` (degrades to hydrogen-line when the gateway is down) and `/api/goes/*` (status, products, files), bridges `/ws/goes`. Viewers read; only the controller can reconnect the pipeline.
+- `api/routes_camera.py` — proxies camera snapshot frame and status (the frontend polls frames; the hardware MJPEG stream is not proxied).
 - `api/routes_admin.py` — LAN-admin-only control panel: telescope status flag, queue snapshot, kick a session. Returns 404 to non-allowlisted clients so the admin surface is invisible. Audits to `motion.jsonl`.
-- `api/routes_queue.py`, `api/routes_feedback.py`, `api/routes_events.py` — fully local. `routes_queue` also serves the public `/api/telescope/status`.
+- `api/routes_queue.py`, `api/routes_feedback.py`, `api/routes_events.py` — fully local.
 - `api/auth.py` — optional `PasswordAuthMiddleware`. `api/dependencies.py` — shared auth/queue dependencies. `api/log_files.py` — rotating JSONL append + IP hashing helpers.
 - Cross-cutting middleware: `SecurityHeadersMiddleware`, `RateLimitMiddleware`, `CORSMiddleware`, `ClientAllowlistMiddleware`, `PasswordAuthMiddleware`. Auth helpers: `require_active_queue_session` (viewer), `require_control` (must hold the queue), `require_lan_admin` / `is_lan_admin`.
 
 ### Frontend (`platform/frontend/`)
 
-Vite + React + TypeScript. `App.tsx` is the root and routes between the live view, `QueuePage`, and the LAN-admin `AdminPage`. Subdirs: `components/` (incl. `SkyMap/` built on aladin-lite, `SpectrumPanel`, `MotionControls`, `TelemetryDashboard`, `BaselineWizard`, and `goes/` — `GoesConnectPanel` + `GoesDataExplorer`), `lib/` (hooks — `useJsonSocket`, `useTelemetry`, `useQueueLease`, `useMotionCommands`, `useObservationMode`, `useGoesStream` — plus `astro.ts`, a hand-synced low-precision TS port of `hardware/geometry.py`/`pointing.py`), `types/` and `types.gen.ts` (auto-generated from `rt_hardware.models.state`). The platform serves `frontend/dist/` from `/` with a SPA fallback for unknown GETs.
+Vite + React + TypeScript. `App.tsx` is the root and routes between the live view, `QueuePage`, and the LAN-admin `AdminPage`. Subdirs: `components/` (incl. `SkyMap/` built on aladin-lite, `SpectrumPanel`, `MotionControls`, `TelemetryDashboard`, `BaselineWizard`, and `goes/` — `GoesConnectPanel` + `GoesDataExplorer`), `lib/` (hooks — `useJsonSocket`, `useTelemetry`, `useQueueLease`, `useMotionCommands`, `useObservationMode`, `useGoesStream` — plus `astro.ts`, a hand-synced low-precision TS port of `hardware/pointing.py`), `types/` and `types.gen.ts` (auto-generated from `rt_hardware.models.state`). The platform serves `frontend/dist/` from `/` with a SPA fallback for unknown GETs.
 
 The observation screen is mode-aware: `useObservationMode` fetches `/api/observation` once and `ControlUI` swaps the right-column hydrogen-line panels for `GoesConnectPanel` (satellite look angles + slew, SNR meter, acquisition stepper, band PSD, constellation) in GOES mode. Once frame lock is achieved (or archived products exist) `GoesDataExplorer` renders full-width below the Aladin/side-panel grid: link stats, virtual-channel activity, and a decoded-product gallery with lightbox.
 

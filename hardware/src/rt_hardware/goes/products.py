@@ -118,14 +118,6 @@ class ProductStore:
             self._prune_locked()
         return added
 
-    def clear(self) -> int:
-        with self._lock:
-            removed = len(self._by_id)
-            for _, path in self._by_id.values():
-                path.unlink(missing_ok=True)
-            self._by_id = {}
-        return removed
-
     def _build_product(
         self, product_id: str, path: Path, rel: Path, size: int, mtime: float,
     ) -> GoesProduct | None:

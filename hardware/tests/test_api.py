@@ -429,74 +429,18 @@ def test_active_jog_stops_when_it_crosses_hard_safety_limits(simulated_config_pa
     assert service.client._speeds["m2"] == 0
 
 
-def test_api_rejects_goto_outside_pointing_limit_triangle(simulated_config_path):
-    simulated_config_path.write_text(
-        simulated_config_path.read_text(encoding="utf-8").replace(
-            "goto_decel_qpps2 = 5000",
-            """goto_decel_qpps2 = 5000
-pointing_limit_altaz = [
-  { altitude_deg = 10.0, azimuth_deg = 10.0 },
-  { altitude_deg = 70.0, azimuth_deg = 90.0 },
-  { altitude_deg = 10.0, azimuth_deg = 170.0 },
-]
-""",
-        ),
-        encoding="utf-8",
-    )
-
-    with TestClient(create_app(simulated_config_path)) as client:
-        # The pointing-limit check is skipped when the client is "disconnected",
-        # so reach in and flip the simulated client's connection mode so the
-        # guard engages.
-        client.app.state.roboclaw_service.client.connection.mode = "ok"
-        rejected = client.post("/api/telescope/goto", json={"altitude_deg": 70, "azimuth_deg": 55})
-
-    assert rejected.status_code == 400
-    assert "outside configured pointing limits" in rejected.json()["detail"]
-
-
-def test_api_telescope_config_includes_pointing_limits(simulated_config_path):
-    simulated_config_path.write_text(
-        simulated_config_path.read_text(encoding="utf-8").replace(
-            "goto_decel_qpps2 = 5000",
-            """goto_decel_qpps2 = 5000
-pointing_limit_altaz = [
-  { altitude_deg = 10.0, azimuth_deg = 10.0 },
-  { altitude_deg = 70.0, azimuth_deg = 90.0 },
-  { altitude_deg = 10.0, azimuth_deg = 170.0 },
-]
-""",
-        ),
-        encoding="utf-8",
-    )
-
+def test_api_telescope_config_includes_hard_safety_limits(simulated_config_path):
     with TestClient(create_app(simulated_config_path)) as client:
         response = client.get("/api/telescope/config")
 
     body = response.json()
     assert response.status_code == 200
-    assert body["pointing_limit_altaz"] == [
-        {"altitude_deg": 10.0, "azimuth_deg": 10.0},
-        {"altitude_deg": 70.0, "azimuth_deg": 90.0},
-        {"altitude_deg": 10.0, "azimuth_deg": 170.0},
-    ]
     assert body["hard_safety_limits"] == {
         "altitude_min_deg": 30.0,
         "altitude_max_deg": 70.0,
         "azimuth_min_deg": 55.0,
         "azimuth_max_deg": 190.0,
     }
-
-
-def test_api_describes_alt_az_goto_for_browser_gets(simulated_config_path):
-    with TestClient(create_app(simulated_config_path)) as client:
-        response = client.get("/api/telescope/goto")
-
-    body = response.json()
-    assert response.status_code == 200
-    assert body["method"] == "POST"
-    assert body["mapping"]["m1"] == "azimuth"
-    assert body["mapping"]["m2"] == "altitude"
 
 
 def test_api_rejects_out_of_range_alt_az(simulated_config_path):

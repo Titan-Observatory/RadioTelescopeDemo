@@ -5,7 +5,6 @@ import time
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
-from rt_hardware.geometry import normalise_azimuth, point_in_polygon, unwrap_azimuth
 from rt_hardware.hardware.roboclaw import COMMANDS, OPERATOR_COMMAND_IDS, command_registry
 from rt_hardware.models.state import (
     AltAzRequest,
@@ -57,20 +56,6 @@ def _position_targets(command_id: str, args: dict[str, int | bool]) -> dict[str,
     return None
 
 
-def _inside_pointing_limits(altitude_deg: float, azimuth_deg: float, request: Request) -> bool:
-    limits = request.app.state.config.mount.pointing_limit_altaz
-    if not limits:
-        return True
-
-    reference = limits[0].azimuth_deg
-    polygon = [
-        (unwrap_azimuth(p.azimuth_deg, reference), p.altitude_deg)
-        for p in limits
-    ]
-    point = (unwrap_azimuth(normalise_azimuth(azimuth_deg), reference), altitude_deg)
-    return point_in_polygon(point, polygon)
-
-
 def _resolve(override: int | None, stored: int | None, default: int) -> int:
     """User override → stored controller value → config default."""
     if override is not None:
@@ -92,16 +77,6 @@ def _is_disconnected(request: Request) -> bool:
     # Only the explicit "no hardware wired up" state bypasses safety gates.
     # Transient errors and remote-gateway failures (mode="error") still enforce.
     return _service(request).client.connection.mode == "disconnected"
-
-
-def _enforce_pointing_limits(altitude_deg: float, azimuth_deg: float, request: Request) -> None:
-    if _is_disconnected(request):
-        return  # no physical hardware to protect
-    if not _inside_pointing_limits(altitude_deg, azimuth_deg, request):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Target is outside configured pointing limits (alt={altitude_deg:.1f} deg, az={azimuth_deg:.1f} deg)",
-        )
 
 
 def _enforce_hard_safety_limits(altitude_deg: float, azimuth_deg: float) -> None:
@@ -222,37 +197,6 @@ async def stop_jog(body: JogStopRequest, request: Request):
     return await service.stop_all()
 
 
-@router.get("/api/telescope/goto")
-async def goto_alt_az_info(request: Request):
-    cfg = request.app.state.config.mount
-    stored_m1, stored_m2 = _service(request).stored_qpps
-    altitude_mapping: dict = {"alt_zero_count": cfg.alt_zero_count}
-    if cfg.altitude_calibration is not None:
-        altitude_mapping["calibration_points"] = [
-            {"counts": p.counts, "alt_deg": p.alt_deg} for p in cfg.altitude_calibration.points
-        ]
-    else:
-        altitude_mapping["alt_counts_per_degree"] = cfg.alt_counts_per_degree
-    return {
-        "method": "POST",
-        "body": {
-            "altitude_deg": f"{HARD_ALTITUDE_MIN_DEG:.0f}..{HARD_ALTITUDE_MAX_DEG:.0f}",
-            "azimuth_deg": f"{HARD_AZIMUTH_MIN_DEG:.0f}..{HARD_AZIMUTH_MAX_DEG:.0f}",
-            "speed_qpps": f"optional; default = controller stored QPPS, fallback {cfg.goto_speed_qpps}",
-            "accel_qpps2": "optional; defaults to resolved speed",
-            "decel_qpps2": "optional; defaults to resolved speed",
-        },
-        "mapping": {
-            "m1": "azimuth",
-            "m2": "altitude",
-            "az_counts_per_degree": cfg.az_counts_per_degree,
-            "az_zero_count": cfg.az_zero_count,
-            "altitude": altitude_mapping,
-            "stored_qpps": {"m1": stored_m1, "m2": stored_m2},
-        },
-    }
-
-
 def _software_goto_commands(
     snap: RoboClawTelemetry,
     m1_position: int,
@@ -332,7 +276,6 @@ async def _execute_goto_altaz(
     cfg = request.app.state.config.mount
     azimuth = 0.0 if azimuth_deg == 360 else azimuth_deg
     _enforce_hard_safety_limits(altitude_deg, azimuth)
-    _enforce_pointing_limits(altitude_deg, azimuth, request)
     m1_position = round(cfg.az_zero_count + azimuth * cfg.az_counts_per_degree)
     m2_position = altitude_to_encoder_counts(altitude_deg, cfg)
     if cfg.goto_software_side:
@@ -387,39 +330,6 @@ async def goto_alt_az(body: AltAzRequest, request: Request):
     )
 
 
-@router.post("/api/telescope/sync")
-async def sync_alt_az(body: AltAzRequest, request: Request):
-    """Recalibrate the alt/az offsets so the current encoder positions are reported as the given alt/az.
-
-    Doesn't move the dish or touch the encoders — just shifts the zero references
-    in memory. The change is non-persistent (lost on restart).
-    """
-    cfg = request.app.state.config.mount
-    service = _service(request)
-
-    enc_m1 = await service.execute("read_encoder_m1", {})
-    enc_m2 = await service.execute("read_encoder_m2", {})
-    if not enc_m1.ok or not enc_m2.ok:
-        raise HTTPException(400, detail=enc_m1.error or enc_m2.error or "Failed to read encoders")
-    current_m1 = enc_m1.response.get("encoder")
-    current_m2 = enc_m2.response.get("encoder")
-    if current_m1 is None or current_m2 is None:
-        raise HTTPException(400, detail="Encoder read returned no value")
-
-    azimuth = normalise_azimuth(body.azimuth_deg)
-    cfg.az_zero_count = int(round(current_m1 - azimuth * cfg.az_counts_per_degree))
-    cfg.alt_zero_count = 0
-    cfg.alt_zero_count = int(current_m2 - altitude_to_encoder_counts(body.altitude_deg, cfg))
-
-    await service.refresh()
-    return {
-        "az_zero_count": cfg.az_zero_count,
-        "alt_zero_count": cfg.alt_zero_count,
-        "reported_azimuth_deg": azimuth,
-        "reported_altitude_deg": body.altitude_deg,
-    }
-
-
 @router.get("/api/telescope/config", response_model=TelescopeConfig)
 async def telescope_config(request: Request):
     cfg = request.app.state.config.mount
@@ -431,7 +341,6 @@ async def telescope_config(request: Request):
         goto_decel_qpps2=cfg.goto_decel_qpps2,
         observer_latitude_deg=observer.latitude_deg,
         observer_longitude_deg=observer.longitude_deg,
-        pointing_limit_altaz=[point.model_dump() for point in cfg.pointing_limit_altaz],
         hard_safety_limits=HardSafetyLimits(
             altitude_min_deg=HARD_ALTITUDE_MIN_DEG,
             altitude_max_deg=HARD_ALTITUDE_MAX_DEG,
@@ -534,34 +443,6 @@ async def home_elevation(request: Request, body: ElevationHomeRequest | None = N
     except ElevationHomingError as exc:
         raise HTTPException(exc.status_code, detail=str(exc)) from exc
     return {"status": "ok", "message": message}
-
-
-@router.post("/api/telescope/home/azimuth")
-async def home_azimuth(request: Request):
-    """Zero the azimuth encoder at whatever position the telescope is currently pointing."""
-    service = _service(request)
-    result = await service.execute("set_encoder_m1", {"value": 0})
-    if not result.ok:
-        raise HTTPException(400, detail=f"Failed to zero azimuth encoder: {result.error}")
-    return {"status": "ok", "message": "Azimuth encoder zeroed at current position"}
-
-
-@router.post("/api/telescope/home/altitude")
-async def home_altitude(request: Request):
-    """Zero the M2 encoder register at the current position.
-
-    Mirrors `home_azimuth`: we only touch the encoder count. The reported
-    altitude is then whatever the configured calibration maps `counts = 0`
-    to — any `alt_zero_count` offset from a prior `/sync` is preserved.
-    """
-    service = _service(request)
-    result = await service.execute("set_encoder_m2", {"value": 0})
-    if not result.ok:
-        raise HTTPException(400, detail=f"Failed to zero altitude encoder: {result.error}")
-    # Force a fresh snapshot so the encoder readout updates immediately rather
-    # than waiting up to one telemetry poll (≈200 ms).
-    await service.refresh()
-    return {"status": "ok", "message": "Altitude encoder zeroed at current position"}
 
 
 async def _read_velocity_pid(service, motor: int) -> VelocityPid:

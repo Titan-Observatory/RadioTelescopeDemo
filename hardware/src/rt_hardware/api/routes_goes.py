@@ -80,14 +80,6 @@ async def list_products(request: Request, limit: int = Query(default=60, ge=1, l
     }
 
 
-@router.get("/api/goes/products/{product_id}")
-async def product_meta(product_id: str, request: Request):
-    found = _service(request).products.get(product_id)
-    if found is None:
-        raise HTTPException(404, "Product not found")
-    return found[0]
-
-
 @router.get("/api/goes/products/{product_id}/file")
 async def product_file(product_id: str, request: Request):
     found = _service(request).products.get(product_id)
@@ -95,12 +87,6 @@ async def product_file(product_id: str, request: Request):
         raise HTTPException(404, "Product not found")
     product, path = found
     return FileResponse(path, media_type=product.media_type)
-
-
-@router.delete("/api/goes/products")
-async def clear_products(request: Request):
-    removed = _service(request).products.clear()
-    return {"ok": True, "removed": removed}
 
 
 @router.websocket("/ws/goes")

@@ -43,6 +43,7 @@ EXPORTED_MODELS: tuple[type[BaseModel], ...] = (
     state.LnaStatus,
     state.RoboClawTelemetry,
     state.AltAzPoint,
+    state.HardSafetyLimits,
     state.TelescopeConfig,
     state.SkyOverlay,
     state.CommandArg,

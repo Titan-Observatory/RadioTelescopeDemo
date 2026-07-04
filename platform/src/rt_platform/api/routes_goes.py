@@ -55,11 +55,6 @@ async def list_products(request: Request) -> JSONResponse:
     return await _proxy.proxy_json("GET", request, f"/api/goes/products?limit={limit}", label="GOES")
 
 
-@router.get("/api/goes/products/{product_id}", dependencies=[Depends(require_active_queue_session)])
-async def product_meta(product_id: str, request: Request) -> JSONResponse:
-    return await _proxy.proxy_json("GET", request, f"/api/goes/products/{product_id}", label="GOES")
-
-
 @router.get("/api/goes/products/{product_id}/file", dependencies=[Depends(require_active_queue_session)])
 async def product_file(product_id: str, request: Request) -> Response:
     """Binary passthrough for decoded product files (images, bulletins)."""
@@ -77,7 +72,6 @@ async def product_file(product_id: str, request: Request) -> Response:
 _proxy.register_proxy_routes(router, [
     # Bouncing the demod pipeline takes a few seconds; allow for it.
     _proxy.ProxyRoute("POST", "/api/goes/reconnect", require_control, timeout_s=15.0, label="GOES"),
-    _proxy.ProxyRoute("DELETE", "/api/goes/products", require_control, label="GOES"),
 ])
 
 

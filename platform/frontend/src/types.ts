@@ -95,7 +95,6 @@ export interface TelescopeConfig {
   goto_decel_qpps2: number;
   observer_latitude_deg: number;
   observer_longitude_deg: number;
-  pointing_limit_altaz: AltAzPoint[];
   hard_safety_limits: HardSafetyLimits;
 }
 

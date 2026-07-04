@@ -63,12 +63,6 @@ async def queue_config(request: Request) -> QueueConfigResponse:
     )
 
 
-@router.get("/api/telescope/status", response_model=TelescopeStatus)
-async def telescope_status(request: Request) -> TelescopeStatus:
-    """Public read of the operator-controlled telescope status."""
-    return request.app.state.status_service.status
-
-
 @router.get("/api/queue/status", response_model=QueueStatus)
 async def queue_status(request: Request) -> QueueStatus:
     token = read_session_token(request)

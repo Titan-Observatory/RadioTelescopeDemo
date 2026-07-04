@@ -57,8 +57,6 @@ class RateLimitMiddleware:
             return ("feedback", self.config.feedback_per_minute)
         if method == "POST" and path == "/api/events":
             return ("events", self.config.events_per_minute)
-        if method == "GET" and path == "/api/camera/stream":
-            return ("camera_stream", self.config.camera_stream_per_minute)
         if method == "POST" and path in {
             "/api/telescope/goto",
             "/api/telescope/goto_radec",

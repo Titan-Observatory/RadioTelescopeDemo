@@ -36,7 +36,6 @@ def test_goes_status_degrades_to_disconnected(platform_config_path: Path):
 def test_goes_mutations_require_control(platform_config_path: Path):
     with TestClient(create_app(platform_config_path)) as client:
         assert client.post("/api/goes/reconnect").status_code == 403
-        assert client.delete("/api/goes/products").status_code == 403
         assert client.get("/api/goes/products").status_code == 403
 
 

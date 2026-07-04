@@ -133,19 +133,13 @@ def test_products_endpoints_serve_files_from_product_tree(goes_config_path):
         assert product["name"] == "20260612T000000Z_TEST.txt"
         assert product["group"] == "text/2026-06-12"
         assert "Product index" in product["preview"]
-
-        meta = client.get(f"/api/goes/products/{product['id']}")
-        assert meta.status_code == 200
-        assert meta.json()["media_type"] == "text/plain"
+        assert product["media_type"] == "text/plain"
 
         file_resp = client.get(f"/api/goes/products/{product['id']}/file")
         assert file_resp.status_code == 200
         assert b"Product index" in file_resp.content
 
-        cleared = client.delete("/api/goes/products").json()
-        assert cleared == {"ok": True, "removed": 1}
-        assert client.get(f"/api/goes/products/{product['id']}").status_code == 404
-        assert not bulletin.exists()
+        assert client.get("/api/goes/products/unknown-id/file").status_code == 404
 
 
 def test_goes_endpoints_404_in_hydrogen_mode(simulated_config_path):

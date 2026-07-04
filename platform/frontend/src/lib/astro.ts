@@ -27,31 +27,6 @@ export function unwrapDeg(deg: number, reference: number): number {
   return value;
 }
 
-/** Ray-casting point-in-polygon test (matches the Python copy in geometry.py). */
-export function isInsidePolygon(point: AltAzPoint, polygon: AltAzPoint[]): boolean {
-  if (polygon.length < 3) return true;
-
-  const reference = polygon[0].azimuth_deg;
-  const px = unwrapDeg(point.azimuth_deg, reference);
-  const py = point.altitude_deg;
-  const verts = polygon.map((v) => ({
-    x: unwrapDeg(v.azimuth_deg, reference),
-    y: v.altitude_deg,
-  }));
-
-  let inside = false;
-  let j = verts.length - 1;
-  for (let i = 0; i < verts.length; i++) {
-    const { x: xi, y: yi } = verts[i];
-    const { x: xj, y: yj } = verts[j];
-    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
-      inside = !inside;
-    }
-    j = i;
-  }
-  return inside;
-}
-
 export function julianDay(date: Date): number {
   return date.getTime() / 86_400_000 + 2_440_587.5;
 }
@@ -233,10 +208,10 @@ export interface BaselinePointingValidity {
 /**
  * Decide whether the dish's current pointing is a clean spot to capture a
  * bandpass baseline. Mirrors the guards in the sky-map click handler and the
- * overlays the user sees: inside the hard limits and configured pointing
- * polygon, above the horizon, clear of the shaded Milky Way band, and outside
- * the solar exclusion ring. Used to gate the baseline wizard's "Continue"
- * button on the live telescope position.
+ * overlays the user sees: inside the hard alt/az safety limits (the hatched
+ * region on the map), above the horizon, clear of the shaded Milky Way band,
+ * and outside the solar exclusion ring. Used to gate the baseline wizard's
+ * "Continue" button on the live telescope position.
  */
 export function validateBaselinePointing(
   altAz: AltAzPoint,
@@ -254,12 +229,6 @@ export function validateBaselinePointing(
   }
   if (altAz.altitude_deg < 0) {
     return { valid: false, reason: 'Pointing is below the horizon.' };
-  }
-  if (
-    config.pointing_limit_altaz.length >= 3 &&
-    !isInsidePolygon(altAz, config.pointing_limit_altaz)
-  ) {
-    return { valid: false, reason: 'Pointing is outside the configured pointing limits.' };
   }
 
   const { ra_deg, dec_deg } = altAzToRaDec(altAz, config, date);

@@ -197,17 +197,12 @@ async def save_pid_to_nvm(request: Request) -> JSONResponse:
 # latency-sensitive), except homing which physically sweeps the axis. Rows that
 # forward the request body mirror the old `_safe_json` ({} when absent/!JSON).
 _proxy.register_proxy_routes(router, [
-    _proxy.ProxyRoute("GET", "/api/health", require_active_queue_session, timeout_s=3.0),
     _proxy.ProxyRoute("GET", "/api/roboclaw/status", require_active_queue_session, timeout_s=3.0),
     _proxy.ProxyRoute("GET", "/api/roboclaw/commands", require_active_queue_session, timeout_s=3.0),
-    _proxy.ProxyRoute("GET", "/api/telescope/goto", require_active_queue_session, timeout_s=3.0),
     _proxy.ProxyRoute("GET", "/api/telescope/config", require_active_queue_session, timeout_s=3.0),
     _proxy.ProxyRoute("POST", "/api/roboclaw/stop", require_control, timeout_s=10.0),
     _proxy.ProxyRoute("POST", "/api/telescope/jog/stop", require_control, timeout_s=10.0, forward_body=True),
-    _proxy.ProxyRoute("POST", "/api/telescope/sync", require_lan_admin, timeout_s=10.0, forward_body=True),
     _proxy.ProxyRoute("POST", "/api/telescope/home/elevation", require_lan_admin, timeout_s=120.0, forward_body=True),
-    _proxy.ProxyRoute("POST", "/api/telescope/home/azimuth", require_lan_admin, timeout_s=10.0),
-    _proxy.ProxyRoute("POST", "/api/telescope/home/altitude", require_lan_admin, timeout_s=10.0),
     _proxy.ProxyRoute("GET", "/api/admin/pid", require_lan_admin, timeout_s=5.0),
 ])
 

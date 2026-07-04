@@ -6,9 +6,12 @@ import {
   type AladinInstance,
   type FrameState,
   type Layer,
+  EMPTY_SAFE_WINDOW,
+  buildAltitudeBandLoop,
   buildHorizonSamples,
   computeFwhmHoverZones,
   computeGroundIsInside,
+  computeSafeWindow,
   drawAltitudeLimitOverlay,
   drawAltAzGrid,
   drawCardinals,
@@ -92,21 +95,28 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
     let horizonRaDec: RaDecTarget[] = [];
     let almucantars: { altitude_deg: number; samples: RaDecTarget[] }[] = [];
     let meridians: { azimuth_deg: number; samples: RaDecTarget[] }[] = [];
+    let safeWindowRaDec: RaDecTarget[] = [];
     let lastSampleTime = -Infinity;
 
-    // Sample caching: the horizon polygon + alt/az grid rotate with Earth.
-    // Recompute roughly twice a minute — visually indistinguishable from real-time
-    // but cheap.
+    // Sample caching: the horizon polygon, alt/az grid, and hard-limits
+    // safe-window boundary all rotate with Earth. Recompute roughly twice a
+    // minute — visually indistinguishable from real-time but cheap.
     const refreshSamples = () => {
-      const samples = buildHorizonSamples(config, new Date());
+      const date = new Date();
+      const samples = buildHorizonSamples(config, date);
       horizonRaDec = samples.horizonRaDec;
       almucantars  = samples.almucantars;
       meridians    = samples.meridians;
+      const limits = config.hard_safety_limits;
+      safeWindowRaDec = buildAltitudeBandLoop(
+        config, date,
+        limits.altitude_min_deg, limits.altitude_max_deg,
+        limits.azimuth_min_deg, limits.azimuth_max_deg,
+      );
       lastSampleTime = Date.now();
     };
 
     let frameId: number;
-    const dashOffset = { current: 0 };
     const hoverZones = { sun: sunZoneRef, beam: beamZoneRef, pending: pendingZoneRef, satellites: satelliteZoneRef };
 
     // Redraw gating. The overlay only needs to repaint when something visible
@@ -116,11 +126,15 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
     // core at 60 fps even while idle and starved Aladin's own render during pans.
     // We capture a cheap signature (two projection calls vs ~1900 for a full
     // redraw) and skip when it's unchanged, except: a pending slew animates its
-    // marching-ants dash, and a slow heartbeat lets the sun/moon and the
-    // Earth-rotating grid catch up while the view sits still.
+    // marching-ants dash (repainted at ~15 fps — the dash offset is wall-clock
+    // driven, so the ant speed is unchanged), and a slow heartbeat lets the
+    // sun/moon and the Earth-rotating grid catch up while the view sits still
+    // (sidereal drift is ~0.04 px/s at typical zoom, so even 5 s between
+    // repaints stays well under a pixel).
     let lastSig: string | null = null;
     let lastDrawTime = 0;
-    const IDLE_REDRAW_MS = 1000;
+    const IDLE_REDRAW_MS = 5000;
+    const DASH_REDRAW_MS = 66;
 
     const viewSignature = (aladin: AladinInstance, w: number, h: number): string => {
       // Centre catches pan; an on-screen off-centre point catches zoom (its sky
@@ -152,12 +166,14 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
       const w = Math.round(rect.width);
       const h = Math.round(rect.height);
 
-      // A pending slew keeps animating its dashed path; otherwise skip the heavy
-      // redraw when the signature matches and the idle heartbeat hasn't elapsed.
+      // A pending slew keeps animating its dashed path, but the ants only need
+      // ~15 fps; otherwise skip the heavy redraw when the signature matches and
+      // the idle heartbeat hasn't elapsed. A signature change (pan/zoom, dish
+      // motion, new overlays) always repaints immediately.
       const animating = !!(pendingRef.current && telemetryRef.current);
       const now = Date.now();
       const sig = viewSignature(aladin, w, h);
-      if (!animating && sig === lastSig && now - lastDrawTime < IDLE_REDRAW_MS) {
+      if (sig === lastSig && now - lastDrawTime < (animating ? DASH_REDRAW_MS : IDLE_REDRAW_MS)) {
         frameId = requestAnimationFrame(draw);
         return;
       }
@@ -180,6 +196,15 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
       const cfg = configRef.current ?? config;
       const groundIsInside = computeGroundIsInside(aladin, cfg, date, horizonPx);
 
+      // Project the hard-limits safe window once and share it with both layers
+      // that clip to it. Skipped entirely on exploration surveys, where neither
+      // the limit shading nor the galactic band draws.
+      const galacticExclusion = galacticExclusionRef.current ?? false;
+      const showHardwareLimits = (surveyRef.current ?? HYDROGEN_SURVEY_ID) === HYDROGEN_SURVEY_ID;
+      const safeWindow = galacticExclusion || showHardwareLimits
+        ? computeSafeWindow(aladin, cfg, date, safeWindowRaDec, w, h)
+        : EMPTY_SAFE_WINDOW;
+
       // Reset zones each frame; drawSunAndMoon + computeFwhmHoverZones re-populate.
       sunZoneRef.current = null;
       beamZoneRef.current = null;
@@ -201,9 +226,9 @@ export function useHorizonCanvas(opts: UseHorizonCanvasOptions) {
         meridians,
         groundIsInside,
         hoverZones,
-        dashOffset,
-        galacticExclusion: galacticExclusionRef.current ?? false,
-        showHardwareLimits: (surveyRef.current ?? HYDROGEN_SURVEY_ID) === HYDROGEN_SURVEY_ID,
+        safeWindow,
+        galacticExclusion,
+        showHardwareLimits,
       };
 
       for (const layer of LAYERS) layer(state);

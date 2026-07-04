@@ -42,8 +42,6 @@
     "fraction": 0.8496667546589991,
     "waxing": true
   },
-  "inside_polygon_true": true,
-  "inside_polygon_false": false,
   "validate_clean": {
     "valid": true,
     "reason": null
@@ -51,9 +49,5 @@
   "validate_too_high": {
     "valid": false,
     "reason": "Pointing is outside the available sky region."
-  },
-  "validate_outside_polygon": {
-    "valid": false,
-    "reason": "Pointing is outside the configured pointing limits."
   }
 }

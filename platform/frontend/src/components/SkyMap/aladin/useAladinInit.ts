@@ -8,7 +8,6 @@ import { type Dispatch, type RefObject, type SetStateAction, useEffect, useRef }
 import {
   GALACTIC_PLANE_EXCLUSION_DEG,
   altAzToRaDec,
-  isInsidePolygon,
   raDecToAltAz,
   raDecToGalactic,
 } from '../../../lib/astro';
@@ -42,7 +41,7 @@ interface UseAladinInitOptions {
 
 
 /**
- * Initialise Aladin Lite, attach pointer/click handlers, create the four
+ * Initialise Aladin Lite, attach pointer/click handlers, create the three
  * graphic overlays + target catalog, and surface them as refs.
  *
  * Owns the local handler state (active pointer, drag rAF, click-suppression
@@ -65,7 +64,6 @@ export function useAladinInit(opts: UseAladinInitOptions) {
 
   const aladinRef = useRef<AladinInstance | null>(null);
   const beamOverlayRef = useRef<GraphicOverlay | null>(null);
-  const limitOverlayRef = useRef<GraphicOverlay | null>(null);
   const pendingOverlayRef = useRef<GraphicOverlay | null>(null);
   const horizonOverlayRef = useRef<GraphicOverlay | null>(null);
   const targetCatalogRef = useRef<AladinCatalog | null>(null);
@@ -180,10 +178,8 @@ export function useAladinInit(opts: UseAladinInitOptions) {
       // Overlays — horizon drawn first so it sits under everything else
       const horizonOverlay = A.graphicOverlay({ color: 'rgba(255,126,89,0.7)', lineWidth: 2 });
       const beamOverlay    = A.graphicOverlay({ color: 'rgba(114,224,173,0.85)', lineWidth: 2 });
-      const limitOverlay   = A.graphicOverlay({ color: 'rgba(255,126,89,0.85)', lineWidth: 2 });
       const pendingOverlay = A.graphicOverlay({ color: '#f3cc6b', lineWidth: 1.5 });
       aladin.addOverlay(horizonOverlay);
-      aladin.addOverlay(limitOverlay);
       aladin.addOverlay(beamOverlay);
       aladin.addOverlay(pendingOverlay);
 
@@ -201,7 +197,6 @@ export function useAladinInit(opts: UseAladinInitOptions) {
 
       aladinRef.current = aladin;
       beamOverlayRef.current    = beamOverlay;
-      limitOverlayRef.current   = limitOverlay;
       pendingOverlayRef.current = pendingOverlay;
       horizonOverlayRef.current = horizonOverlay;
       targetCatalogRef.current  = targetCatalog;
@@ -325,17 +320,9 @@ export function useAladinInit(opts: UseAladinInitOptions) {
 
         // No physical hardware to protect when disconnected — skip limit checks
         const isDisconnected = telemetryRef.current?.connection.mode === 'disconnected';
-        if (!isDisconnected) {
-          if (altAz.altitude_deg < 0) {
-            onNoticeRef.current?.('Selected point is below the horizon.');
-            return;
-          }
-          if (currentConfig.pointing_limit_altaz.length >= 3 &&
-              !isInsidePolygon(altAz, currentConfig.pointing_limit_altaz)) {
-            clearPendingTarget();
-            onNoticeRef.current?.('Selected target is outside configured pointing limits.');
-            return;
-          }
+        if (!isDisconnected && altAz.altitude_deg < 0) {
+          onNoticeRef.current?.('Selected point is below the horizon.');
+          return;
         }
 
         onNoticeRef.current?.(null);
@@ -373,7 +360,6 @@ export function useAladinInit(opts: UseAladinInitOptions) {
     aladinRef,
     aladinModuleRef,
     beamOverlayRef,
-    limitOverlayRef,
     pendingOverlayRef,
     horizonOverlayRef,
     targetCatalogRef,

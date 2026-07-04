@@ -17,7 +17,6 @@ const DEFAULT_TELESCOPE_CONFIG: TelescopeConfig = {
   goto_decel_qpps2: 25000,
   observer_latitude_deg: 51.5,
   observer_longitude_deg: -0.1,
-  pointing_limit_altaz: [],
   hard_safety_limits: {
     altitude_min_deg: 30,
     altitude_max_deg: 70,

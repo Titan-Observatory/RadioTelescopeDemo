@@ -8,11 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# The pointing-limit triangle uses the same alt/az shape as `AltAzPoint` from
-# the response models. Re-export under the historical name to preserve config
-# imports while keeping a single source of truth for the field validators.
-from rt_hardware.models.state import AltAzPoint as AltAzLimitPoint
-
 
 class RoboClawConfig(BaseModel):
     port: str = "/dev/ttyACM0"
@@ -79,16 +74,8 @@ class MountConfig(BaseModel):
     # onboard position PID. Set False to use the position-PID command.
     goto_software_side: bool = True
     goto_jog_speed: int = Field(default=100, ge=0, le=127)
-    pointing_limit_altaz: list[AltAzLimitPoint] = Field(default_factory=list)
     altitude_calibration: AltitudeCalibrationConfig | None = None
     home_elevation_on_boot: bool = False
-
-    @field_validator("pointing_limit_altaz")
-    @classmethod
-    def validate_pointing_limit_altaz(cls, value: list[AltAzLimitPoint]) -> list[AltAzLimitPoint]:
-        if len(value) != 0 and len(value) < 3:
-            raise ValueError("pointing_limit_altaz must be empty or contain at least 3 alt/az points")
-        return value
 
 
 class CameraConfig(BaseModel):

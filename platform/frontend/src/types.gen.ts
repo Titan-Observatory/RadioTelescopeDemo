@@ -98,7 +98,6 @@ export interface TelescopeConfig {
   goto_decel_qpps2: number;
   observer_latitude_deg: number;
   observer_longitude_deg: number;
-  pointing_limit_altaz: AltAzPoint[];
   hard_safety_limits: HardSafetyLimits;
 }
 
@@ -108,9 +107,6 @@ export interface SkyOverlay {
   ra_deg: number;
   dec_deg: number;
   color: string;
-  kind?: 'source' | 'satellite';
-  altitude_deg?: number;
-  azimuth_deg?: number;
 }
 
 export interface CommandArg {

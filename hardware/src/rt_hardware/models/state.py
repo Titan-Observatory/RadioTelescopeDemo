@@ -168,7 +168,6 @@ class TelescopeConfig(BaseModel):
     goto_decel_qpps2: int
     observer_latitude_deg: float
     observer_longitude_deg: float
-    pointing_limit_altaz: list[AltAzPoint] = Field(default_factory=list)
     hard_safety_limits: HardSafetyLimits
 
 

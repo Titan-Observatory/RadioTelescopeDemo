@@ -56,8 +56,9 @@ async def spectrum_status(request: Request) -> JSONResponse:
 _proxy.register_proxy_routes(router, [
     # Capture integrates a full window then bounces the flowgraph to apply it.
     _proxy.ProxyRoute("POST", "/api/spectrum/baseline", require_control, timeout_s=90.0, label="Spectrum"),
-    # Clearing / resetting both respawn the flowgraph; allow for the bounce.
-    _proxy.ProxyRoute("DELETE", "/api/spectrum/baseline", require_control, timeout_s=15.0, label="Spectrum"),
+    # Resetting respawns the flowgraph; allow for the bounce. (Baseline *clearing*
+    # is platform-initiated: the queue's control-handover callback calls the
+    # hardware DELETE endpoint directly via HardwareClient.)
     _proxy.ProxyRoute("POST", "/api/spectrum/reset", require_control, timeout_s=15.0, label="Spectrum"),
     _proxy.ProxyRoute("POST", "/api/spectrum/reconnect", require_control, label="Spectrum"),
     _proxy.ProxyRoute("GET", "/api/admin/spectrum/processing", require_lan_admin, timeout_s=3.0, label="Spectrum"),

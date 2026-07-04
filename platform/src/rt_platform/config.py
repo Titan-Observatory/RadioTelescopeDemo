@@ -30,7 +30,6 @@ class RateLimitConfig(BaseModel):
     queue_join_per_minute: int = Field(default=10, ge=1)
     feedback_per_minute: int = Field(default=5, ge=1)
     events_per_minute: int = Field(default=120, ge=1)
-    camera_stream_per_minute: int = Field(default=12, ge=1)
     websocket_connect_per_minute: int = Field(default=30, ge=1)
     motion_per_minute: int = Field(default=20, ge=1)
 
