@@ -9,9 +9,9 @@ import { H1_REST_MHZ } from './queueHeroSpectrum';
 // sine wave drawn from source to telescope has its crests pinned to those
 // leftmost edges via segment-by-segment phase interpolation, so the local
 // wavelength varies along the path. A mini spectrum below the scene tracks the
-// frequency *actually arriving at the telescope right now* — accounting for the
-// light-travel delay, so the peak position lags slightly behind the source's
-// instantaneous motion. Pure logic only (no React).
+// frequency the source is *emitting right now* - light-travel delay is
+// deliberately ignored so the peak stays in lockstep with the cloud's velocity
+// readout. Pure logic only (no React).
 
 export const DA_W = 600;
 export const DA_H = 392;                   // total SVG height (scene + mini spectrum)
@@ -138,18 +138,18 @@ export const dopplerColor = (vFrac: number): string => {
   return `#${hex(amber[0] + (target[0] - amber[0]) * a)}${hex(amber[1] + (target[1] - amber[1]) * a)}${hex(amber[2] + (target[2] - amber[2]) * a)}`;
 };
 
-// Solve for the time at which the wave currently arriving at x = TELESCOPE_X
-// was emitted. Source motion is periodic and sourceXAt wraps for negative
-// arguments, so we can search arbitrarily far back in time — there's no
+// Solve for the time at which the wave whose leftmost edge currently sits at
+// `x` was emitted. Source motion is periodic and sourceXAt wraps for negative
+// arguments, so we can search arbitrarily far back in time - there's no
 // startup transient where "no wave has reached the dish yet". Monotonicity of
 // lhs in `emit` is guaranteed by |v_toward| < C, so binary search converges.
-export function findEmitTimeAtTelescope(t: number): number {
+export function emitTimeAtX(t: number, x: number): number {
   let lo = t - DA_MAX_R / DA_C_PX_S;
   let hi = t;
   for (let k = 0; k < 26; k++) {
     const mid = (lo + hi) / 2;
     const lhs = sourceXAt(mid) - DA_C_PX_S * (t - mid);
-    if (lhs > DA_TELESCOPE_X) hi = mid;
+    if (lhs > x) hi = mid;
     else lo = mid;
   }
   return (lo + hi) / 2;

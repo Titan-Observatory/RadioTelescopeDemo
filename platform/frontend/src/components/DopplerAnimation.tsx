@@ -6,7 +6,7 @@ import { noiseSample, deterministicNoise } from '../lib/queueHeroSpectrum';
 import {
   DA_W, DA_H, DA_AXIS_Y, DA_TELESCOPE_X, DA_DISH_BACK_X, DA_DISH_FEED_X,
   DA_C_PX_S, DA_T_EMIT_S, DA_MAX_R, DA_WAVE_AMP, DA_V_MAX,
-  vTowardAt, sourceXAt, findEmitTimeAtTelescope, dopplerColor, daFreqToX,
+  vTowardAt, sourceXAt, emitTimeAtX, dopplerColor, daFreqToX,
   DA_MINI_LEFT_X, DA_MINI_W, DA_MINI_CX, DA_MINI_TOP_Y, DA_MINI_HEADER_Y,
   DA_MINI_PLOT_TOP_Y, DA_MINI_BASE_Y, DA_MINI_BOTTOM_PAD, DA_MINI_PLOT_LEFT_X,
   DA_MINI_PLOT_RIGHT_X, DA_MINI_PLOT_W, DA_MINI_PEAK_PX, DA_MINI_PEAK_SIGMA,
@@ -58,15 +58,16 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
       if (!startRef.current) startRef.current = ts;
       const newT = (ts - startRef.current) / 1000;
 
-      // Update the mini spectrum bins: gaussian peak centered on the
-      // delayed-reception velocity, perturbed by per-frame receiver noise and
-      // low-passed across frames so the trace breathes rather than strobes.
+      // Update the mini spectrum bins: gaussian peak centered on the source's
+      // instantaneous velocity (light-travel delay ignored, so the peak tracks
+      // the velocity readout under the cloud), perturbed by per-frame receiver
+      // noise and low-passed across frames so the trace breathes rather than
+      // strobes.
       const dt = Math.max(0.001, Math.min(0.1, newT - lastTickT));
       lastTickT = newT;
       const alpha = 1 - Math.exp(-dt / DA_MINI_NOISE_TAU_S);
-      const emitTAtDish = findEmitTimeAtTelescope(newT);
-      const vReceived = vTowardAt(emitTAtDish);
-      const peakCenter = DA_MINI_CX + (vReceived / DA_V_MAX) * DA_MINI_HALF_RANGE;
+      const vSource = vTowardAt(newT);
+      const peakCenter = DA_MINI_CX + (vSource / DA_V_MAX) * DA_MINI_HALF_RANGE;
       const prev = miniBinsRef.current;
       const next = new Array<number>(DA_MINI_BINS);
       for (let i = 0; i < DA_MINI_BINS; i++) {
@@ -92,7 +93,7 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
   const ageMax = DA_MAX_R / DA_C_PX_S;
   const firstI = Math.ceil((t - ageMax) / DA_T_EMIT_S);
   const lastI = Math.floor(t / DA_T_EMIT_S);
-  const wfs: Array<{ emitT: number; cx: number; r: number; L: number; opacity: number }> = [];
+  const wfs: Array<{ cx: number; r: number; opacity: number }> = [];
   for (let i = firstI; i <= lastI; i++) {
     const emitT = i * DA_T_EMIT_S;
     const age = t - emitT;
@@ -100,69 +101,73 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
     if (r > DA_MAX_R) continue;
     const emitX = sourceXAt(emitT);
     const fade = 1 - Math.max(0, r - DA_MAX_R * 0.55) / (DA_MAX_R * 0.45);
-    wfs.push({ emitT, cx: emitX, r, L: emitX - r, opacity: Math.max(0, fade) * 0.55 });
+    wfs.push({ cx: emitX, r, opacity: Math.max(0, fade) * 0.55 });
   }
-  // Order by leftmost-edge x ascending — equivalent to oldest-first under our
-  // motion model, and the order the wave-path interpolator expects.
-  wfs.sort((a, b) => a.L - b.L);
-
-  // Build the sine-wave path from telescope to source by solving the
-  // wave-propagation equation per pixel:
+  // Build the sine-wave path from telescope to source by marching the
+  // wave-propagation equation parametrically in emission time. A wavefront
+  // emitted at emitT has its leftmost edge at
   //
-  //   sourceXAt(emitT) - C·(t - emitT) = x
+  //   x(emitT) = sourceXAt(emitT) - C·(t - emitT)
   //
-  // i.e. "what emission time produces a wavefront whose leftmost edge is at x
-  // right now?" That equation is monotonic in emitT because v_toward < C, so a
-  // binary search converges fast. The wave field at (x, t) is then the source
-  // signal *at* emitT — `cos(2π · emitT / T_EMIT)` — which puts crests
-  // exactly on the leftmost edges of the integer-emission wavefronts (since
-  // those occur when emitT is a multiple of T_EMIT). Local wavelength
-  // naturally compresses where the source was approaching at that emit time
-  // and stretches where it was receding, with no per-frame phase wobble.
+  // which is strictly increasing in emitT (because |v_toward| < C), so
+  // stepping emitT forward traces the wave left-to-right directly - no
+  // per-pixel root-finding. The wave field at that x is the source signal
+  // *at* emitT - `cos(2π · emitT / T_EMIT)` - which puts crests exactly on
+  // the leftmost edges of the integer-emission wavefronts (since those occur
+  // when emitT is a multiple of T_EMIT). Local wavelength naturally
+  // compresses where the source was approaching at that emit time and
+  // stretches where it was receding, with no per-frame phase wobble.
   const waveStart = DA_DISH_FEED_X;
   const waveEnd = sourceX - 54;
   const wavePts: Array<{ x: number; y: number; emitT: number }> = [];
   if (waveEnd > waveStart) {
     const emitLo = t - DA_MAX_R / DA_C_PX_S;
-    const lhsLo = sourceXAt(emitLo) - DA_C_PX_S * (t - emitLo);
-    for (let x = waveStart; x <= waveEnd; x += 1.5) {
-      // Skip pixels the oldest tracked wavefront hasn't reached yet.
-      if (x < lhsLo) continue;
-      let lo = emitLo;
-      let hi = t;
-      for (let k = 0; k < 22; k++) {
-        const mid = (lo + hi) / 2;
-        const lhs = sourceXAt(mid) - DA_C_PX_S * (t - mid);
-        if (lhs > x) hi = mid;
-        else lo = mid;
-      }
-      const emitT = (lo + hi) / 2;
+    const xAtEmitLo = sourceXAt(emitLo) - DA_C_PX_S * (t - emitLo);
+    // Start at the dish feed, or at the oldest tracked wavefront if it hasn't
+    // reached the feed yet.
+    let emitT = xAtEmitLo >= waveStart ? emitLo : emitTimeAtX(t, waveStart);
+    for (;;) {
+      const x = sourceXAt(emitT) - DA_C_PX_S * (t - emitT);
+      if (x > waveEnd) break;
       // Mod into [0,1) before multiplying by 2π to keep float precision sharp
       // for long sessions; cos is periodic so this is exact.
       const phaseFrac = ((emitT / DA_T_EMIT_S) % 1 + 1) % 1;
       const y = DA_AXIS_Y - DA_WAVE_AMP * Math.cos(2 * Math.PI * phaseFrac);
       wavePts.push({ x, y, emitT });
+      // dx/d(emitT) = C - v_toward, so this advances x by ~1.5 px.
+      emitT += 1.5 / (DA_C_PX_S - vTowardAt(emitT));
     }
   }
-  const waveSegments = wavePts.slice(1).map((pt, i) => {
-    const prev = wavePts[i];
+  // Colour varies slowly along the wave (and not at all during dwells), so
+  // merge contiguous same-colour segments into single polyline paths instead
+  // of emitting one two-point <path> per 1.5 px step.
+  const waveRuns: Array<{ d: string; color: string }> = [];
+  for (let i = 1; i < wavePts.length; i++) {
+    const prev = wavePts[i - 1];
+    const pt = wavePts[i];
     const emitMid = (prev.emitT + pt.emitT) / 2;
-    return {
-      d: `M ${prev.x.toFixed(1)},${prev.y.toFixed(1)} L ${pt.x.toFixed(1)},${pt.y.toFixed(1)}`,
-      color: dopplerColor(vTowardAt(emitMid) / DA_C_PX_S),
-    };
-  });
-  const receivedSignalColor = dopplerColor(vTowardAt(findEmitTimeAtTelescope(t)) / DA_C_PX_S);
+    const color = dopplerColor(vTowardAt(emitMid) / DA_C_PX_S);
+    const lastRun = waveRuns[waveRuns.length - 1];
+    if (lastRun && lastRun.color === color) {
+      lastRun.d += ` L ${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+    } else {
+      waveRuns.push({
+        d: `M ${prev.x.toFixed(1)},${prev.y.toFixed(1)} L ${pt.x.toFixed(1)},${pt.y.toFixed(1)}`,
+        color,
+      });
+    }
+  }
+  // The mini spectrum shows the signal the cloud is emitting right now, so its
+  // colour follows the source's instantaneous velocity.
+  const spectrumColor = dopplerColor(vToward / DA_C_PX_S);
 
   // Build the mini spectrum trace from the smoothed bin values updated in the
   // rAF loop.
+  const miniPeakCenter = DA_MINI_CX + (vToward / DA_V_MAX) * DA_MINI_HALF_RANGE;
   const miniBins = isRenderFrame
     ? Array.from({ length: DA_MINI_BINS }, (_, i) => {
-      const emitTAtDish = findEmitTimeAtTelescope(t);
-      const vReceived = vTowardAt(emitTAtDish);
-      const peakCenter = DA_MINI_CX + (vReceived / DA_V_MAX) * DA_MINI_HALF_RANGE;
       const x = DA_MINI_PLOT_LEFT_X + (i / (DA_MINI_BINS - 1)) * DA_MINI_PLOT_W;
-      const dx = x - peakCenter;
+      const dx = x - miniPeakCenter;
       const peakNorm = Math.exp(-0.5 * (dx / DA_MINI_PEAK_SIGMA) ** 2);
       return Math.max(0, peakNorm + deterministicNoise(i, t) * DA_MINI_NOISE_AMP);
     })
@@ -213,12 +218,12 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
         />
       ))}
 
-      {waveSegments.map((segment, i) => (
+      {waveRuns.map((run, i) => (
         <path
           key={i}
-          d={segment.d}
+          d={run.d}
           fill="none"
-          stroke={segment.color}
+          stroke={run.color}
           strokeWidth="3"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -315,8 +320,8 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
       {/* ── Mini spectrum ─────────────────────────────────────────────────── */}
       <defs>
         <linearGradient id="daMiniGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor={receivedSignalColor} stopOpacity="0.22" />
-          <stop offset="100%" stopColor={receivedSignalColor} stopOpacity="0" />
+          <stop offset="0%"   stopColor={spectrumColor} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={spectrumColor} stopOpacity="0" />
         </linearGradient>
       </defs>
       <rect
@@ -367,7 +372,7 @@ export function DopplerAnimation({ renderTimeSeconds, paused = false }: { render
       <path
         d={miniLine}
         fill="none"
-        stroke={receivedSignalColor}
+        stroke={spectrumColor}
         strokeWidth="2.5"
         strokeLinejoin="round"
       />
