@@ -189,30 +189,6 @@ class HealthStatus(BaseModel):
     connection: ConnectionStatus
 
 
-class VelocityPid(BaseModel):
-    p: int = Field(ge=0, le=4_294_967_295)
-    i: int = Field(ge=0, le=4_294_967_295)
-    d: int = Field(ge=0, le=4_294_967_295)
-    qpps: int = Field(ge=0, le=4_294_967_295)
-
-
-class PositionPid(BaseModel):
-    p: int = Field(ge=0, le=4_294_967_295)
-    i: int = Field(ge=0, le=4_294_967_295)
-    d: int = Field(ge=0, le=4_294_967_295)
-    i_max: int = Field(ge=0, le=4_294_967_295)
-    deadzone: int = Field(ge=0, le=4_294_967_295)
-    min: int = Field(ge=-2_147_483_648, le=2_147_483_647)
-    max: int = Field(ge=-2_147_483_648, le=2_147_483_647)
-
-
-class PidBundle(BaseModel):
-    vel_m1: VelocityPid
-    vel_m2: VelocityPid
-    pos_m1: PositionPid
-    pos_m2: PositionPid
-
-
 class GoesSatelliteInfo(BaseModel):
     """A geostationary satellite from the config catalog, with look angles
     computed for the configured observer location."""
@@ -254,10 +230,3 @@ class GoesProduct(BaseModel):
     # First few hundred characters for text products so the explorer can show
     # them inline without a second request.
     preview: str | None = None
-
-
-class PidWriteRequest(BaseModel):
-    vel_m1: VelocityPid | None = None
-    vel_m2: VelocityPid | None = None
-    pos_m1: PositionPid | None = None
-    pos_m2: PositionPid | None = None

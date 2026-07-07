@@ -4,15 +4,9 @@ import type {
   GoesProductList,
   GoesStatus,
   ObservationInfo,
-  PidBundle,
-  QueueSnapshot,
   RaDecTarget,
   RoboClawTelemetry,
-  SpectrumProcessing,
-  SpectrumProcessingUpdate,
   TelescopeConfig,
-  TelescopeState,
-  TelescopeStatus,
 } from './types';
 import type { QueueConfig, QueueStatus } from './queue';
 
@@ -102,8 +96,6 @@ export const api = {
       dec_deg: target.dec_deg,
       ...motionParams(speedQpps, accelQpps2, decelQpps2),
     }),
-  homeElevation: (speed: number) =>
-    request<{ status: string; message: string }>('POST', '/api/telescope/home/elevation', { speed }),
   stop: () => request<Record<string, CommandResult>>('POST', '/api/roboclaw/stop'),
   // ─── Queue ────────────────────────────────────────────────────────────
   queueConfig: () => request<QueueConfig>('GET', '/api/queue/config'),
@@ -116,22 +108,6 @@ export const api = {
   goesStatus: () => request<GoesStatus>('GET', '/api/goes/status'),
   goesReconnect: () => request<{ ok: boolean; mode: string }>('POST', '/api/goes/reconnect'),
   goesProducts: (limit = 60) => request<GoesProductList>('GET', `/api/goes/products?limit=${limit}`),
-  // ─── Admin (LAN-only on the server side) ──────────────────────────────
-  adminGetStatus: () => request<TelescopeStatus>('GET', '/api/admin/status'),
-  adminSetStatus: (state: TelescopeState, message: string | null) =>
-    request<TelescopeStatus>('POST', '/api/admin/status', { state, message }),
-  adminGetQueue: () => request<QueueSnapshot>('GET', '/api/admin/queue'),
-  adminKick: (token: string) =>
-    request<{ kicked: boolean }>('POST', '/api/admin/queue/kick', { token }),
-  adminReadPid: () => request<PidBundle>('GET', '/api/admin/pid'),
-  adminWritePid: (body: Partial<PidBundle>) =>
-    request<PidBundle>('POST', '/api/admin/pid', body),
-  adminSavePidNvm: () =>
-    request<{ status: string; message: string }>('POST', '/api/admin/pid/save'),
-  adminGetSpectrumProcessing: () =>
-    request<SpectrumProcessing>('GET', '/api/admin/spectrum/processing'),
-  adminSetSpectrumProcessing: (update: SpectrumProcessingUpdate) =>
-    request<SpectrumProcessing>('POST', '/api/admin/spectrum/processing', update),
 };
 
 export function goesProductFileUrl(productId: string): string {

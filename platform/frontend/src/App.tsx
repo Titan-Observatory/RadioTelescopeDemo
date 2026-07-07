@@ -6,7 +6,6 @@ import { BRAND } from './branding';
 import { InfoSection } from './components/InfoSection';
 import { MobileHint } from './components/MobileHint';
 import { MotionControls } from './components/MotionControls';
-import { AdminPage } from './components/AdminPage';
 import { GoesConnectPanel } from './components/goes/GoesConnectPanel';
 import { GoesDataExplorer } from './components/goes/GoesDataExplorer';
 import { QueuePage } from './components/QueuePage';
@@ -255,13 +254,6 @@ function useAfterInitialPaint() {
 }
 
 export default function App() {
-  // Tiny path-based router. The admin surface is LAN-only on the server side
-  // (require_lan_admin returns 404 for non-LAN clients), so it's safe to expose
-  // the route here unconditionally — the panel just fails to load data.
-  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
-    return <AdminPage />;
-  }
-
   const queue = useQueueLease();
 
   // Keep analytics context current so every tracked event is tagged with

@@ -46,7 +46,7 @@ sudo install -d -o telescope -g telescope \
     /etc/radiotelescope
 
 # install
-sudo -u telescope git clone <repo> /opt/radiotelescope/checkout
+sudo -u telescope git clone https://github.com/Titan-Observatory/RadioTelescopeDemo.git /opt/radiotelescope/checkout
 sudo -u telescope python3 -m venv --system-site-packages /opt/radiotelescope/hardware/.venv
 sudo -u telescope /opt/radiotelescope/hardware/.venv/bin/pip install --upgrade pip
 sudo -u telescope /opt/radiotelescope/hardware/.venv/bin/pip install /opt/radiotelescope/checkout/hardware
@@ -87,7 +87,7 @@ sudo install -d -o telescope -g telescope \
     /etc/radiotelescope
 
 # install
-sudo -u telescope git clone <repo> /opt/radiotelescope/checkout
+sudo -u telescope git clone https://github.com/Titan-Observatory/RadioTelescopeDemo.git /opt/radiotelescope/checkout
 sudo -u telescope python3 -m venv /opt/radiotelescope/platform/.venv
 sudo -u telescope /opt/radiotelescope/platform/.venv/bin/pip install --upgrade pip
 sudo -u telescope /opt/radiotelescope/platform/.venv/bin/pip install /opt/radiotelescope/checkout/platform
@@ -122,7 +122,15 @@ sudo systemctl status rt-platform.service
 
 The platform's `public_exposure_errors()` startup gate refuses to boot with placeholder secrets, wildcard CORS, or missing Turnstile keys whenever `lan_only=false` and the bind is `0.0.0.0`/`::`. A misconfigured deploy fails loudly.
 
-For beta-only access, enable `[auth]` and provide `passwords.txt`. With auth enabled, the queue page can still load and submit `/api/queue/join`, but other API and WebSocket endpoints require the signed auth cookie set by a successful beta-password join.
+For beta-only access in a systemd deployment, enable `[auth]`, copy the repo
+root `passwords.example.txt` to `/etc/radiotelescope/passwords.txt`, replace
+the examples, set `auth.passwords_file` to that path, and keep the real file
+out of Git. With auth enabled, the queue page can still load and submit
+`/api/queue/join`, but other API and WebSocket endpoints require the signed
+auth cookie set by a successful beta-password join.
+
+For container deployments, prefer `RT_BETA_PASSWORDS`; the Docker entrypoint
+materializes `/app/passwords.txt` inside the container when auth is enabled.
 
 ### Caddy host
 

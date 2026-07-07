@@ -163,36 +163,9 @@ async def goto_radec(request: Request) -> JSONResponse:
     return resp
 
 
-# ─── PID admin proxy (LAN-only) ───────────────────────────────────────────
-
-
-@router.post("/api/admin/pid", dependencies=[Depends(require_lan_admin)])
-async def write_pid(request: Request) -> JSONResponse:
-    body = await _safe_json(request)
-    resp = await _forward("POST", request, "/api/admin/pid", json_body=body, timeout_s=5.0)
-    await _audit_motion(
-        request, "pid_write",
-        accepted=resp.status_code < 400,
-        params={k: True for k in body.keys() if body.get(k) is not None},
-        reason=_reason_from(_payload(resp), resp.status_code, resp.status_code < 400),
-    )
-    return resp
-
-
-@router.post("/api/admin/pid/save", dependencies=[Depends(require_lan_admin)])
-async def save_pid_to_nvm(request: Request) -> JSONResponse:
-    resp = await _forward("POST", request, "/api/admin/pid/save", timeout_s=5.0)
-    await _audit_motion(
-        request, "pid_save_nvm",
-        accepted=resp.status_code < 400,
-        reason=_reason_from(_payload(resp), resp.status_code, resp.status_code < 400),
-    )
-    return resp
-
-
 # ─── Straight pass-throughs ───────────────────────────────────────────────
 # No audit, no body inspection — just forward, so they live in a table rather
-# than a function each. Reads use a tight 3 s timeout; control/admin writes
+# than a function each. Reads use a tight 3 s timeout; control writes
 # keep this proxy's generous 10 s default (the hardware-side jog watchdog is
 # latency-sensitive), except homing which physically sweeps the axis. Rows that
 # forward the request body mirror the old `_safe_json` ({} when absent/!JSON).
@@ -203,7 +176,6 @@ _proxy.register_proxy_routes(router, [
     _proxy.ProxyRoute("POST", "/api/roboclaw/stop", require_control, timeout_s=10.0),
     _proxy.ProxyRoute("POST", "/api/telescope/jog/stop", require_control, timeout_s=10.0, forward_body=True),
     _proxy.ProxyRoute("POST", "/api/telescope/home/elevation", require_lan_admin, timeout_s=120.0, forward_body=True),
-    _proxy.ProxyRoute("GET", "/api/admin/pid", require_lan_admin, timeout_s=5.0),
 ])
 
 

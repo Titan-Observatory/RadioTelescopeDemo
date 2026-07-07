@@ -165,68 +165,6 @@ export interface QueueConfigResponse {
   telescope_status: TelescopeStatus;
 }
 
-export interface QueueSessionSnapshot {
-  token: string;
-  ip_hash: string;
-  joined_at: number;
-  age_s: number;
-  ws_connected: boolean;
-  is_active: boolean;
-  queue_position: number;
-}
-
-export interface QueueSnapshot {
-  sessions: QueueSessionSnapshot[];
-  active_lease_remaining_s: number | null;
-  active_idle_remaining_s: number | null;
-}
-
-export interface VelocityPid {
-  p: number;
-  i: number;
-  d: number;
-  qpps: number;
-}
-
-export interface PositionPid {
-  p: number;
-  i: number;
-  d: number;
-  i_max: number;
-  deadzone: number;
-  min: number;
-  max: number;
-}
-
-export interface PidBundle {
-  vel_m1: VelocityPid;
-  vel_m2: VelocityPid;
-  pos_m1: PositionPid;
-  pos_m2: PositionPid;
-}
-
-export interface SpectrumProcessing {
-  // Every knob is a flowgraph-build parameter — applying any bounces the SDR.
-  integration_seconds: number;
-  baseline_scale: number;
-  baseline_offset_db: number;
-  gain_db: number | null;
-  agc: boolean;
-  center_freq_mhz: number;
-  sample_rate_msps: number;
-  fft_size: number;
-  publish_rate_hz: number;
-  // Derived
-  integration_frames: number;
-  freq_resolution_hz: number;
-  effective_publish_rate_hz: number;
-  // Only present in POST response
-  restarted?: boolean;
-  live_applied?: boolean;
-}
-
-export type SpectrumProcessingUpdate = Partial<Omit<SpectrumProcessing, 'integration_frames' | 'freq_resolution_hz' | 'effective_publish_rate_hz' | 'restarted' | 'live_applied'>>;
-
 export interface RaDecTarget {
   ra_deg: number;
   dec_deg: number;

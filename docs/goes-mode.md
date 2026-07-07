@@ -89,12 +89,13 @@ look angles, so the slew → peak → lock workflow is faithfully demoable.
 ## Surfaces
 
 Hardware (trusted network): `GET /api/observation`, `GET /api/goes/status`,
-`POST /api/goes/reconnect`, `GET /api/goes/products[/{id}[/file]]`,
-`DELETE /api/goes/products`, `WS /ws/goes`.
+`POST /api/goes/reconnect`, `GET /api/goes/products`,
+`GET /api/goes/products/{id}/file`, `WS /ws/goes`.
 
-Platform (public, queue-gated): same paths proxied; reads need an active
-queue session, mutations need control. `/api/observation` degrades to
-`{"mode": "hydrogen_line", "degraded": true}` when the gateway is down.
+Platform (public, queue-gated): same paths are proxied; live reads and streams
+need the active queue session, and mutations such as reconnect need control.
+`/api/observation` degrades to `{"mode": "hydrogen_line", "degraded": true}`
+when the gateway is down.
 
 ## UI flow
 

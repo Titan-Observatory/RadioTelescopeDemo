@@ -1,7 +1,7 @@
 # API map
 
 The browser talks to the platform service. The platform service is the public
-edge: it serves the frontend, owns queue/auth/admin policy, and proxies hardware
+edge: it serves the frontend, owns queue/auth policy, and proxies hardware
 requests to the private hardware service.
 
 ```text
@@ -18,13 +18,13 @@ checks described below.
 |---|---|
 | Public | Reachable before joining the queue. |
 | Queue session | Caller has a valid queue session cookie. Used for queue lease updates while waiting or controlling. |
-| Active controller | Caller owns the active queue lease, or is a LAN admin. Required for live hardware reads and telescope/observation mutations. |
-| LAN admin | Caller IP is in the platform `server.allowed_clients` allowlist. Off-LAN callers receive 404 for most admin surfaces. |
+| Active queue session | Caller owns the active queue lease, or is a LAN admin. Required for live hardware reads and WebSocket streams. |
+| Active controller | Caller owns the active queue lease, or is a LAN admin. Required for telescope/observation mutations and also refreshes command activity. |
+| LAN admin | Caller IP is in the platform `server.allowed_clients` allowlist. Used for local-only hardware maintenance routes. |
 
 If password auth is enabled, most HTTP and WebSocket paths also require the
-signed `rt_auth` cookie. `/`, static assets, `/api/queue/config`,
-`/api/queue/join`, and `/api/admin/*` are exempt from that global password
-middleware.
+signed `rt_auth` cookie. `/`, static assets, `/api/queue/config`, and
+`/api/queue/join` are exempt from that global password middleware.
 
 ## Platform API
 
@@ -65,21 +65,21 @@ Queue status shape:
 
 ### Telescope and mount control
 
-These platform routes proxy the same hardware paths and add queue/admin gates.
+These platform routes proxy the same hardware paths and add queue/LAN gates.
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| `GET` | `/api/roboclaw/status` | Active controller | Latest mount telemetry and host stats. |
-| `GET` | `/api/roboclaw/commands` | Active controller | Operator-safe RoboClaw command catalog. |
+| `GET` | `/api/roboclaw/status` | Active queue session | Latest mount telemetry and host stats. |
+| `GET` | `/api/roboclaw/commands` | Active queue session | Operator-safe RoboClaw command catalog. |
 | `POST` | `/api/roboclaw/commands/{command_id}` | Active controller | Execute an operator-safe low-level command. |
 | `POST` | `/api/roboclaw/stop` | Active controller | Stop both motors. |
 | `POST` | `/api/telescope/jog` | Active controller | Start or refresh a jog command. |
 | `POST` | `/api/telescope/jog/stop` | Active controller | Stop a jog sequence. |
-| `GET` | `/api/telescope/config` | Active controller | Observer location, beam width, goto defaults, and safety limits. |
+| `GET` | `/api/telescope/config` | Active queue session | Observer location, beam width, goto defaults, and safety limits. |
 | `POST` | `/api/telescope/goto` | Active controller | Slew to altitude/azimuth. |
 | `POST` | `/api/telescope/goto_radec` | Active controller | Convert RA/Dec to alt/az and slew. |
 | `POST` | `/api/telescope/home/elevation` | LAN admin | Drive elevation downward until counts stall, then zero M2. |
-| `WS` | `/ws/roboclaw` | Active controller | Live mount telemetry stream. |
+| `WS` | `/ws/roboclaw` | Active queue session | Live mount telemetry stream. |
 
 Motion request bodies:
 
@@ -128,45 +128,22 @@ the `CommandResult` shape:
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| `GET` | `/api/spectrum/status` | Active controller | SDR/LNA/pipeline status. Returns a structured disconnected fallback if the hardware gateway is unavailable. |
+| `GET` | `/api/spectrum/status` | Active queue session | SDR/LNA/pipeline status. Returns a structured disconnected fallback if the hardware gateway is unavailable. |
 | `POST` | `/api/spectrum/baseline` | Active controller | Capture and apply a spectrum baseline. |
 | `POST` | `/api/spectrum/reset` | Active controller | Flush the rolling integration by restarting processing. |
 | `POST` | `/api/spectrum/reconnect` | Active controller | Kill and respawn the SDR pipeline. |
-| `WS` | `/ws/spectrum` | Active controller | Live spectrum frames. |
-
-Admin-only processing controls:
-
-| Method | Path | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/admin/spectrum/processing` | LAN admin | Current runtime SDR processing settings. |
-| `POST` | `/api/admin/spectrum/processing` | LAN admin | Apply processing updates; changing these usually restarts the SDR subprocess. |
-
-Processing update body, all fields optional:
-
-```json
-{
-  "integration_seconds": 2.0,
-  "baseline_scale": 1.0,
-  "baseline_offset_db": 0.0,
-  "gain_db": 12.0,
-  "agc": false,
-  "center_freq_mhz": 1420.40575,
-  "sample_rate_msps": 2.4,
-  "fft_size": 4096,
-  "publish_rate_hz": 5
-}
-```
+| `WS` | `/ws/spectrum` | Active queue session | Live spectrum frames. |
 
 ### GOES observation mode
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| `GET` | `/api/observation` | Active controller | Current hardware observation mode and GOES satellite look angles. Falls back to degraded hydrogen-line mode if hardware is unreachable. |
-| `GET` | `/api/goes/status` | Active controller | GOES demod/decode status. |
+| `GET` | `/api/observation` | Active queue session | Current hardware observation mode and GOES satellite look angles. Falls back to degraded hydrogen-line mode if hardware is unreachable. |
+| `GET` | `/api/goes/status` | Active queue session | GOES demod/decode status. |
 | `POST` | `/api/goes/reconnect` | Active controller | Restart the GOES receive chain. |
-| `GET` | `/api/goes/products?limit=60` | Active controller | List decoded product metadata. `limit` is clamped by hardware to 1..500. |
-| `GET` | `/api/goes/products/{product_id}/file` | Active controller | Binary product file passthrough. |
-| `WS` | `/ws/goes` | Active controller | Live GOES acquisition/status frames. |
+| `GET` | `/api/goes/products?limit=60` | Active queue session | List decoded product metadata. `limit` is clamped by hardware to 1..500. |
+| `GET` | `/api/goes/products/{product_id}/file` | Active queue session | Binary product file passthrough. |
+| `WS` | `/ws/goes` | Active queue session | Live GOES acquisition/status frames. |
 
 GOES product list shape:
 
@@ -194,51 +171,6 @@ GOES product list shape:
 |---|---|---|---|
 | `GET` | `/api/camera/status` | Public | Camera availability and label. Returns a disabled fallback if hardware is unavailable. |
 | `GET` | `/api/camera/frame` | Public | Single no-store JPEG frame. |
-
-### Admin
-
-All routes in this section are LAN admin only.
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/admin/status` | Read operator telescope status. |
-| `POST` | `/api/admin/status` | Set operator telescope status. |
-| `GET` | `/api/admin/queue` | Inspect active and waiting queue sessions. |
-| `POST` | `/api/admin/queue/kick` | Force-drop a queue session. |
-| `GET` | `/api/admin/pid` | Read RoboClaw velocity and position PID settings. |
-| `POST` | `/api/admin/pid` | Write one or more PID groups. |
-| `POST` | `/api/admin/pid/save` | Persist controller settings to EEPROM/NVM. |
-
-`POST /api/admin/status` body:
-
-```json
-{
-  "state": "maintenance",
-  "message": "Short operator message, or null"
-}
-```
-
-`POST /api/admin/queue/kick` body:
-
-```json
-{
-  "token": "queue session token"
-}
-```
-
-PID body shape:
-
-```json
-{
-  "vel_m1": { "p": 0, "i": 0, "d": 0, "qpps": 0 },
-  "vel_m2": { "p": 0, "i": 0, "d": 0, "qpps": 0 },
-  "pos_m1": { "p": 0, "i": 0, "d": 0, "i_max": 0, "deadzone": 0, "min": 0, "max": 0 },
-  "pos_m2": { "p": 0, "i": 0, "d": 0, "i_max": 0, "deadzone": 0, "min": 0, "max": 0 }
-}
-```
-
-For writes, each top-level PID group is optional, but at least one must be
-present.
 
 ### Feedback and analytics
 
@@ -287,7 +219,7 @@ Base URL in Docker is internal to the compose network. In local development it
 is typically the `hardware_url` configured by the platform.
 
 The hardware routes mirror the proxied platform routes but do not enforce
-queue/auth/admin policy. They are useful for local hardware diagnostics and for
+queue/auth policy. They are useful for local hardware diagnostics and for
 understanding platform proxy responses.
 
 | Method | Path | Description |
@@ -304,17 +236,12 @@ understanding platform proxy responses.
 | `POST` | `/api/telescope/goto_radec` | Convert RA/Dec to alt/az and slew. |
 | `GET` | `/api/telescope/config` | Mount/observer/safety config exposed to clients. |
 | `POST` | `/api/telescope/home/elevation` | Home and zero elevation. |
-| `GET` | `/api/admin/pid` | Read PID bundle. |
-| `POST` | `/api/admin/pid` | Write PID bundle fields. |
-| `POST` | `/api/admin/pid/save` | Persist controller settings. |
 | `WS` | `/ws/roboclaw` | Live mount telemetry. |
 | `GET` | `/api/spectrum/status` | SDR/LNA/pipeline status. |
 | `POST` | `/api/spectrum/baseline` | Capture baseline. |
 | `DELETE` | `/api/spectrum/baseline` | Clear baseline. |
 | `POST` | `/api/spectrum/reset` | Reset spectrum integration. |
 | `POST` | `/api/spectrum/reconnect` | Restart SDR pipeline. |
-| `GET` | `/api/admin/spectrum/processing` | Runtime SDR processing settings. |
-| `POST` | `/api/admin/spectrum/processing` | Apply SDR processing updates. |
 | `WS` | `/ws/spectrum` | Live spectrum frames. |
 | `GET` | `/api/observation` | Current observation mode and GOES satellite look angles. |
 | `GET` | `/api/goes/status` | GOES receive-chain status. |
@@ -329,9 +256,8 @@ understanding platform proxy responses.
 ## Schemas and source files
 
 Most shared telemetry and command schemas live in
-`hardware/src/rt_hardware/models/state.py`. Platform-only queue/admin schemas
-live in `platform/src/rt_platform/services/queue.py` and
-`platform/src/rt_platform/api/routes_admin.py`.
+`hardware/src/rt_hardware/models/state.py`. Platform-only queue schemas live
+in `platform/src/rt_platform/services/queue.py`.
 
 The frontend consumes TypeScript copies in `platform/frontend/src/types.ts`.
 When API model shapes change, keep those frontend types in sync with the
@@ -341,7 +267,7 @@ Relevant route files:
 
 | Surface | Platform | Hardware |
 |---|---|---|
-| Queue/admin/auth | `platform/src/rt_platform/api/routes_queue.py`, `routes_admin.py`, `auth.py` | n/a |
+| Queue/auth | `platform/src/rt_platform/api/routes_queue.py`, `auth.py` | n/a |
 | Telescope/motor | `platform/src/rt_platform/api/routes_motor.py` | `hardware/src/rt_hardware/api/routes_roboclaw.py` |
 | Spectrum | `platform/src/rt_platform/api/routes_spectrum.py` | `hardware/src/rt_hardware/api/routes_spectrum.py` |
 | GOES | `platform/src/rt_platform/api/routes_goes.py` | `hardware/src/rt_hardware/api/routes_goes.py` |

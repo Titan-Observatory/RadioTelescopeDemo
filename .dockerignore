@@ -6,12 +6,25 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest-tmp/
 
 # Local config and secrets (never bake these into the image)
 config.toml
 passwords.txt
 *.env
 infra/secrets*.env
+
+# Local assistant/tooling files
+CLAUDE.md
+AGENTS.md
+.agents/
+.claude/
+.codex/
+.cursor/
+.continue/
+.aider*
+.windsurf/
+.roo/
 
 # Frontend build output and dependencies
 # (node_modules is rebuilt inside the image; dist is produced there too)

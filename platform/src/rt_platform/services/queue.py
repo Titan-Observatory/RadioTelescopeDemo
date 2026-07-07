@@ -42,22 +42,6 @@ class QueueStatus(BaseModel):
     has_active_user: bool
 
 
-class QueueSessionSnapshot(BaseModel):
-    token: str
-    ip_hash: str
-    joined_at: float  # monotonic seconds since service start
-    age_s: float
-    ws_connected: bool
-    is_active: bool
-    queue_position: int  # 0 == active, 1.. == waiting
-
-
-class QueueSnapshot(BaseModel):
-    sessions: list[QueueSessionSnapshot]
-    active_lease_remaining_s: float | None
-    active_idle_remaining_s: float | None
-
-
 class QueueService:
     def __init__(
         self,
@@ -214,54 +198,6 @@ class QueueService:
             idle_remaining_s=idle_remaining,
             has_active_user=self._active is not None,
         )
-
-    # ─── admin operations ────────────────────────────────────────────────────
-
-    def snapshot(self, ip_hasher: Callable[[str], str] | None = None) -> QueueSnapshot:
-        """Return a full view of who is in the queue, for the admin panel."""
-        now = time.monotonic()
-        order: dict[str, int] = {}
-        for idx, token in enumerate(self._queue, start=1):
-            order[token] = idx
-        sessions: list[QueueSessionSnapshot] = []
-        for token, session in self._sessions.items():
-            is_active = self._active == token
-            position = 0 if is_active else order.get(token, -1)
-            sessions.append(
-                QueueSessionSnapshot(
-                    token=token,
-                    ip_hash=ip_hasher(session.ip) if ip_hasher else session.ip,
-                    joined_at=session.joined_at,
-                    age_s=max(0.0, now - session.joined_at),
-                    ws_connected=session.ws_connected,
-                    is_active=is_active,
-                    queue_position=position,
-                )
-            )
-        sessions.sort(key=lambda s: (not s.is_active, s.queue_position if s.queue_position >= 0 else 999, s.joined_at))
-        lease_remaining: float | None = None
-        idle_remaining: float | None = None
-        if self._active is not None and self._active_lease_started_at is not None:
-            lease_remaining = max(0.0, self.max_session_seconds - (now - self._active_lease_started_at))
-            if self._active_last_command_at is not None:
-                idle_remaining = max(0.0, self.idle_timeout_seconds - (now - self._active_last_command_at))
-        return QueueSnapshot(
-            sessions=sessions,
-            active_lease_remaining_s=lease_remaining,
-            active_idle_remaining_s=idle_remaining,
-        )
-
-    async def kick(self, token: str) -> bool:
-        """Force-drop a session. Returns True if the token was known."""
-        async with self._lock:
-            known = token in self._sessions
-            if known:
-                self._drop_locked(token)
-                self._promote_if_idle()
-        if known:
-            await self._fire_control_handover()
-            await self._broadcast()
-        return known
 
     # ─── pub/sub for /ws/queue ───────────────────────────────────────────────
 

@@ -30,10 +30,6 @@ _EXEMPT_PATHS = frozenset({
 })
 _EXEMPT_PREFIXES = (
     "/assets/",
-    # Admin endpoints enforce LAN-only access at the route level
-    # (require_lan_admin → 404 for non-LAN clients). The beta-password
-    # gate would block operators on the LAN who don't have a user cookie.
-    "/api/admin/",
 )
 _EXEMPT_STATIC_SUFFIXES = (
     ".css",

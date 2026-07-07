@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-tmp/
 *.egg-info/
 *.log
 *.jsonl
@@ -11,3 +12,15 @@ config.toml
 spectrum_baseline.json
 events.json
 passwords.txt
+
+# Local assistant/tooling files. Keep these out of the public repository.
+CLAUDE.md
+AGENTS.md
+.agents/
+.claude/
+.codex/
+.cursor/
+.continue/
+.aider*
+.windsurf/
+.roo/

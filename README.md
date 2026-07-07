@@ -12,14 +12,14 @@ trusted telescope network.
 - Provides a browser dashboard for observing and telescope control
 - Supports queue-based access so multiple visitors can watch while one user has control
 - Streams live mount telemetry, finder camera video, and SDR spectrum data
-- Exposes operator tools for telescope status, queue management, and maintenance
+- Exposes maintenance-safe platform and hardware APIs
 - Keeps the hardware service isolated from the public internet
 
 ## Architecture
 
 The repo is split into two main services:
 
-- `platform/` - web app, API, queue, auth, admin tools, and proxy layer
+- `platform/` - web app, API, queue, auth, and proxy layer
 - `hardware/` - mount, SDR, and camera control service
 
 The browser talks to the platform. The platform talks to the hardware service
@@ -31,11 +31,11 @@ Browser -> Platform -> Hardware -> Telescope
 
 ## Quick Start
 
-Copy the example configs and start the stack with Docker:
+For a local or single-host demo, copy the example configs and start the
+all-in-one Docker stack:
 
 ```bash
 cp hardware/config.example.toml hardware/config.toml
-cp platform/config.example.toml platform/config.toml
 docker compose up
 ```
 
@@ -50,6 +50,10 @@ For development without connected telescope hardware:
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
+
+The development override mounts `hardware/config.dev.toml` and
+`platform/config.dev.toml`, disables USB pass-through, and lets the hardware
+service fall back to simulated/disconnected devices.
 
 ## Hardware Service Setup
 
@@ -123,24 +127,60 @@ npm install
 npm run dev
 ```
 
+The frontend dev server runs on Vite's default port and proxies API calls to
+the platform service.
+
 ## Configuration
 
 Start from the example config files:
 
 - `hardware/config.example.toml`
 - `platform/config.example.toml`
+- `platform/config.docker.toml` for container deployments driven by
+  environment variables
 
 The platform config points at the hardware service. The hardware config defines
 the connected mount, receiver, observer location, and camera settings.
 
-For public deployments, configure real secrets, CORS origins, authentication or
-turnstile protection, and keep the hardware service private.
+For public deployments:
+
+- Keep the hardware service private to the telescope LAN.
+- Generate real queue/auth secrets; never use `change-me-*` placeholders.
+- Set explicit CORS origins and trusted proxies.
+- Enable Cloudflare Turnstile for public queue joins.
+- If beta-password auth is enabled, copy `passwords.example.txt` to
+  `passwords.txt`, replace the examples, and keep the real file untracked.
+
+The platform refuses to start in public-exposure mode when required production
+secrets or Turnstile keys are still placeholders.
+
+## Deployment Options
+
+- `docker-compose.yml` is the all-in-one convenience stack for a single host.
+- `platform/docker-compose.yml` runs only the public platform service, suitable
+  for a LAN host or Coolify-style deployment that points at a separate Pi.
+- `hardware/docker-compose.yml` runs only the Pi-side hardware service.
+- `infra/systemd/` contains bare-metal units for separate platform and hardware
+  hosts.
+
+The typical public topology is:
+
+```text
+Internet -> TLS/reverse proxy -> rt-platform -> private LAN -> rt-hardware
+```
+
+Do not publish `rt-hardware` directly to the internet.
 
 ## API Reference
 
 The browser-facing platform API and private hardware API are mapped in
 [`docs/api.md`](docs/api.md). The platform is the public edge and applies queue,
 control, auth, and LAN-admin gates before proxying trusted hardware routes.
+
+## Security
+
+Public deployment safety notes and vulnerability reporting guidance are in
+[`SECURITY.md`](SECURITY.md).
 
 ## Testing
 
@@ -160,11 +200,12 @@ pytest
 ```text
 hardware/                Telescope-side service
 platform/                Web platform and frontend
-docs/                    Project notes
-infra/                   Deployment support
+docs/                    API and mode-specific documentation
+infra/                   Bare-metal deployment support
 docker-compose.yml       Main Docker Compose stack
 docker-compose.dev.yml   Development override
 deploy.sh                Deployment helper
+passwords.example.txt    Template for optional beta-password auth
 ```
 
 ## Status

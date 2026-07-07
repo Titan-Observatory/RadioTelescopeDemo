@@ -168,7 +168,7 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         # Whether the live flowgraph was spawned with a baseline file present,
         # i.e. whether the frames it emits are baseline-corrected.
         self._baseline_active: bool = False
-        # In-memory baseline. Not persisted to disk — lives only for the
+        # In-memory baseline. Not persisted to disk - lives only for the
         # lifetime of this process so each service restart starts uncorrected.
         self._baseline_power: np.ndarray | None = None
         self._baseline_cfg_key: tuple[float, float, int] | None = None
@@ -186,8 +186,6 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
         self._fault_detail: str | None = None
         self._shutting_down: bool = False
 
-    # ── Read-only properties ─────────────────────────────────────────────
-
     @property
     def latest(self) -> SpectrumFrame | None:
         return self._latest
@@ -198,13 +196,14 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
 
     @property
     def mode(self) -> str:
-        """External mode string. Preserves the legacy `"airspy"` value when
-        the pipeline is up so the frontend's auto-reconnect heuristic keeps
-        recognising the SDR as healthy. Internal lifecycle states
-        (`"starting"`, `"running"`) are folded into `"airspy"` once a
-        subprocess exists; only true failure modes leak through. While a
-        baseline capture is running we also report `"airspy"` so the frontend
-        doesn't try to reconnect into the capture.
+        """External mode string.
+
+        Preserves the legacy `"airspy"` value when the pipeline is up so the
+        frontend's auto-reconnect heuristic keeps recognising the SDR as
+        healthy. Internal lifecycle states (`"starting"`, `"running"`) are
+        folded into `"airspy"` once a subprocess exists; only true failure
+        modes leak through. While a baseline capture is running we also report
+        `"airspy"` so the frontend does not try to reconnect into the capture.
         """
         if self._shutting_down:
             return "idle"
@@ -224,118 +223,6 @@ class SpectrumService(Broadcaster[SpectrumFrame]):
     def pipeline_pid(self) -> int | None:
         proc = self._proc
         return proc.pid if proc is not None and proc.poll() is None else None
-
-    # ── Live processing tuning ───────────────────────────────────────────
-
-    def processing_snapshot(self) -> dict[str, Any]:
-        """Current values of every knob the admin panel can drive.
-
-        Every knob is now consumed at flowgraph build time, so applying any of
-        them bounces the GNU Radio subprocess.
-        """
-        cfg = self._cfg
-        return {
-            "integration_seconds": float(cfg.integration_seconds),
-            "baseline_scale": float(cfg.baseline_scale),
-            "baseline_offset_db": float(cfg.baseline_offset_db),
-            "gain_db": cfg.gain_db,
-            "agc": cfg.gain_db is None,
-            "center_freq_mhz": float(cfg.center_freq_hz) / 1e6,
-            "sample_rate_msps": float(cfg.sample_rate_hz) / 1e6,
-            "fft_size": int(cfg.fft_size),
-            "publish_rate_hz": float(cfg.publish_rate_hz),
-            # Derived (echoed so the UI can show effective values).
-            "integration_frames": int(cfg.integration_frames),
-            "freq_resolution_hz": float(cfg.sample_rate_hz) / float(cfg.fft_size),
-            "effective_publish_rate_hz": float(cfg.effective_publish_rate_hz),
-        }
-
-    async def apply_processing(
-        self,
-        *,
-        integration_seconds: float | None = None,
-        baseline_scale: float | None = None,
-        baseline_offset_db: float | None = None,
-        gain_db: float | None = None,
-        agc: bool | None = None,
-        center_freq_mhz: float | None = None,
-        sample_rate_msps: float | None = None,
-        fft_size: int | None = None,
-        publish_rate_hz: float | None = None,
-    ) -> dict[str, Any]:
-        """Mutate in-memory ``SDRConfig`` and bounce the flowgraph to apply it.
-
-        Every knob is a flowgraph-build parameter now (integration window, gain,
-        tuning, baseline scale/offset), so any change restarts the GNU Radio
-        subprocess via ``reconnect()``. Changes that alter the FFT layout
-        (centre / sample rate / fft size) invalidate the captured baseline, so
-        we drop it. Changes are NOT persisted to disk — restart the service to
-        fall back to ``config.toml``.
-        """
-        cfg = self._cfg
-        changed = False
-        axis_changed = False
-
-        if integration_seconds is not None:
-            if integration_seconds <= 0:
-                raise ValueError("integration_seconds must be > 0")
-            cfg.integration_seconds = float(integration_seconds)
-            changed = True
-        if baseline_scale is not None:
-            if baseline_scale <= 0:
-                raise ValueError("baseline_scale must be > 0")
-            cfg.baseline_scale = float(baseline_scale)
-            changed = True
-        if baseline_offset_db is not None:
-            cfg.baseline_offset_db = float(baseline_offset_db)
-            changed = True
-        if agc is True:
-            cfg.gain_db = None
-            changed = True
-        elif gain_db is not None:
-            cfg.gain_db = float(gain_db)
-            changed = True
-        if center_freq_mhz is not None:
-            if center_freq_mhz <= 0:
-                raise ValueError("center_freq_mhz must be > 0")
-            cfg.center_freq_hz = float(center_freq_mhz) * 1e6
-            changed = True
-            axis_changed = True
-        if sample_rate_msps is not None:
-            if sample_rate_msps <= 0:
-                raise ValueError("sample_rate_msps must be > 0")
-            cfg.sample_rate_hz = float(sample_rate_msps) * 1e6
-            changed = True
-            axis_changed = True
-        if fft_size is not None:
-            if fft_size < 64:
-                raise ValueError("fft_size must be ≥ 64")
-            cfg.fft_size = int(fft_size)
-            changed = True
-            axis_changed = True
-        if publish_rate_hz is not None:
-            if publish_rate_hz <= 0:
-                raise ValueError("publish_rate_hz must be > 0")
-            cfg.publish_rate_hz = float(publish_rate_hz)
-            self._publish_period_s = 1.0 / max(cfg.effective_publish_rate_hz, 1e-3)
-            changed = True
-
-        if axis_changed:
-            self._rebuild_freq_axis()
-            self._publish_period_s = 1.0 / max(cfg.effective_publish_rate_hz, 1e-3)
-            self._baseline_power = None
-            self._baseline_cfg_key = None
-            self._delete_baseline_files()
-
-        restarted = False
-        if changed:
-            await self.reconnect()
-            restarted = True
-
-        result = self.processing_snapshot()
-        result["restarted"] = restarted
-        result["live_applied"] = False
-        return result
 
     @property
     def lna_status(self) -> LnaStatus:

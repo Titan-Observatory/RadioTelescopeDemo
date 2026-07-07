@@ -16,13 +16,9 @@ from rt_hardware.models.state import (
     JogRequest,
     JogStopRequest,
     HardSafetyLimits,
-    PidBundle,
-    PidWriteRequest,
-    PositionPid,
     RaDecRequest,
     RoboClawTelemetry,
     TelescopeConfig,
-    VelocityPid,
 )
 from rt_hardware.pointing import radec_to_altaz
 from rt_hardware.safety import (
@@ -443,70 +439,6 @@ async def home_elevation(request: Request, body: ElevationHomeRequest | None = N
     except ElevationHomingError as exc:
         raise HTTPException(exc.status_code, detail=str(exc)) from exc
     return {"status": "ok", "message": message}
-
-
-async def _read_velocity_pid(service, motor: int) -> VelocityPid:
-    command_id = "read_m1_velocity_pid" if motor == 1 else "read_m2_velocity_pid"
-    result = await service.execute(command_id, {})
-    if not result.ok:
-        raise HTTPException(502, detail=f"Failed to read velocity PID for M{motor}: {result.error}")
-    return VelocityPid(**result.response)
-
-
-async def _read_position_pid(service, motor: int) -> PositionPid:
-    command_id = "read_m1_position_pid" if motor == 1 else "read_m2_position_pid"
-    result = await service.execute(command_id, {})
-    if not result.ok:
-        raise HTTPException(502, detail=f"Failed to read position PID for M{motor}: {result.error}")
-    return PositionPid(**result.response)
-
-
-@router.get("/api/admin/pid", response_model=PidBundle)
-async def read_pid(request: Request):
-    service = _service(request)
-    return PidBundle(
-        vel_m1=await _read_velocity_pid(service, 1),
-        vel_m2=await _read_velocity_pid(service, 2),
-        pos_m1=await _read_position_pid(service, 1),
-        pos_m2=await _read_position_pid(service, 2),
-    )
-
-
-@router.post("/api/admin/pid", response_model=PidBundle)
-async def write_pid(body: PidWriteRequest, request: Request):
-    service = _service(request)
-    writes: list[tuple[str, dict[str, int]]] = []
-    if body.vel_m1 is not None:
-        writes.append(("set_m1_velocity_pid", body.vel_m1.model_dump()))
-    if body.vel_m2 is not None:
-        writes.append(("set_m2_velocity_pid", body.vel_m2.model_dump()))
-    if body.pos_m1 is not None:
-        writes.append(("set_m1_position_pid", body.pos_m1.model_dump()))
-    if body.pos_m2 is not None:
-        writes.append(("set_m2_position_pid", body.pos_m2.model_dump()))
-    if not writes:
-        raise HTTPException(400, detail="No PID parameters supplied")
-    for command_id, args in writes:
-        result = await service.execute(command_id, args)
-        if not result.ok:
-            raise HTTPException(502, detail=f"{command_id} failed: {result.error}")
-    # Re-read after writes so stored QPPS in the service stays in sync.
-    await service.refresh_stored_qpps()
-    return PidBundle(
-        vel_m1=await _read_velocity_pid(service, 1),
-        vel_m2=await _read_velocity_pid(service, 2),
-        pos_m1=await _read_position_pid(service, 1),
-        pos_m2=await _read_position_pid(service, 2),
-    )
-
-
-@router.post("/api/admin/pid/save")
-async def save_pid_to_nvm(request: Request):
-    """Persist controller settings (including PID) to EEPROM via WRITENVM (cmd 94)."""
-    result = await _service(request).execute("write_settings", {})
-    if not result.ok:
-        raise HTTPException(502, detail=f"write_settings failed: {result.error}")
-    return {"status": "ok", "message": "Controller settings written to EEPROM"}
 
 
 @router.websocket("/ws/roboclaw")

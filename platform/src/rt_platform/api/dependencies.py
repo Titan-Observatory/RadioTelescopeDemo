@@ -119,9 +119,8 @@ async def require_control(request: Request) -> None:
 async def require_active_queue_session(request: Request) -> None:
     """Gate live hardware reads to the active queue session.
 
-    LAN admins are granted a shortcut so the operator admin panel can open
-    telemetry/SDR streams without joining the queue — the explicit act of
-    opening that page is enough intent.
+    LAN admins are granted a shortcut for local diagnostics without joining
+    the public queue.
     """
     if not request.app.state.config.queue.enabled:
         return

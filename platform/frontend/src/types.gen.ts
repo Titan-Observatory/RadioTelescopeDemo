@@ -136,30 +136,6 @@ export interface CommandResult {
   error: string | null;
 }
 
-export interface VelocityPid {
-  p: number;
-  i: number;
-  d: number;
-  qpps: number;
-}
-
-export interface PositionPid {
-  p: number;
-  i: number;
-  d: number;
-  i_max: number;
-  deadzone: number;
-  min: number;
-  max: number;
-}
-
-export interface PidBundle {
-  vel_m1: VelocityPid;
-  vel_m2: VelocityPid;
-  pos_m1: PositionPid;
-  pos_m2: PositionPid;
-}
-
 export interface GoesSatelliteInfo {
   id: string;
   name: string;

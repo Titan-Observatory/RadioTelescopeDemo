@@ -19,7 +19,6 @@ from rt_platform.api import _proxy
 from rt_platform.api.dependencies import (
     require_active_queue_session,
     require_control,
-    require_lan_admin,
 )
 
 logger = logging.getLogger("radiotelescope.spectrum_proxy")
@@ -61,21 +60,7 @@ _proxy.register_proxy_routes(router, [
     # hardware DELETE endpoint directly via HardwareClient.)
     _proxy.ProxyRoute("POST", "/api/spectrum/reset", require_control, timeout_s=15.0, label="Spectrum"),
     _proxy.ProxyRoute("POST", "/api/spectrum/reconnect", require_control, label="Spectrum"),
-    _proxy.ProxyRoute("GET", "/api/admin/spectrum/processing", require_lan_admin, timeout_s=3.0, label="Spectrum"),
 ])
-
-
-@router.post("/api/admin/spectrum/processing", dependencies=[Depends(require_lan_admin)])
-async def set_spectrum_processing(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-    # Subprocess restarts can take a few seconds; bump the timeout so the
-    # client doesn't see a 502 while the GNU Radio flowgraph is bouncing.
-    return await _proxy.proxy_json(
-        "POST", request, "/api/admin/spectrum/processing", json_body=body, timeout_s=15.0, label="Spectrum",
-    )
 
 
 @router.websocket("/ws/spectrum")

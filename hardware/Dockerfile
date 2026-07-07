@@ -20,8 +20,8 @@ FROM python:3.11-slim
 # SoapySDR + Airspy driver and GNU Radio (with gr-soapy) come from apt; their
 # Python bindings aren't on PyPI. GNU Radio is required for the spectrum
 # pipeline subprocess (rt_hardware.sdr_pipeline) which does the FFT in C++
-# rather than Python — see CLAUDE.md. The OpenCV/airspy/rtlsdr runtime libs
-# also serve the goestools binaries copied in below.
+# rather than Python. The OpenCV/airspy/rtlsdr runtime libs also serve the
+# goestools binaries copied in below.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         airspy \

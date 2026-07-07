@@ -17,8 +17,8 @@ dependencies = [
     "opencv-python-headless>=4.8",
     "pyzmq>=25.0",
     # GNU Radio + gr-soapy provide the DSP subprocess (FFT, integrate, ZMQ sink).
-    # Both, along with SoapySDR + the Airspy driver, are installed via apt —
-    # their Python bindings aren't on PyPI. See the Dockerfile / CLAUDE.md.
+    # Both, along with SoapySDR + the Airspy driver, are installed via apt;
+    # their Python bindings aren't on PyPI.
 ]
 
 [project.optional-dependencies]

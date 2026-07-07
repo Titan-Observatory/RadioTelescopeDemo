@@ -16,7 +16,6 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from rt_platform.api import (
-    routes_admin,
     routes_camera,
     routes_events,
     routes_feedback,
@@ -155,7 +154,6 @@ def create_app(config_path: str | Path = "config.toml") -> FastAPI:
     )
     app.add_middleware(PasswordAuthMiddleware, auth=auth)
 
-    app.include_router(routes_admin.router)
     app.include_router(routes_motor.router)
     app.include_router(routes_queue.router)
     app.include_router(routes_camera.router)
