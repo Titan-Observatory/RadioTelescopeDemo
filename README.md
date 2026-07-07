@@ -4,8 +4,8 @@ A web-based control stack for a remotely operated radio telescope.
 
 This project pairs a browser UI with telescope-side services for mount control,
 live telemetry, spectrum viewing, and camera streaming. It is designed around a
-public-facing platform service and a separate hardware service that stays on the
-trusted telescope network.
+platform service and a separate hardware service that stays on the trusted
+telescope network.
 
 ## What It Does
 
@@ -13,7 +13,7 @@ trusted telescope network.
 - Supports queue-based access so multiple visitors can watch while one user has control
 - Streams live mount telemetry, finder camera video, and SDR spectrum data
 - Exposes maintenance-safe platform and hardware APIs
-- Keeps the hardware service isolated from the public internet
+- Keeps the hardware service isolated from the platform's network boundary
 
 ## Architecture
 
@@ -163,13 +163,11 @@ secrets or Turnstile keys are still placeholders.
 - `infra/systemd/` contains bare-metal units for separate platform and hardware
   hosts.
 
-The typical public topology is:
+The typical topology is:
 
 ```text
-Internet -> TLS/reverse proxy -> rt-platform -> private LAN -> rt-hardware
+TLS/reverse proxy -> rt-platform -> private LAN -> rt-hardware
 ```
-
-Do not publish `rt-hardware` directly to the internet.
 
 ## API Reference
 
@@ -212,5 +210,3 @@ passwords.example.txt    Template for optional beta-password auth
 
 This is active observatory-control software. It is intended for real hardware,
 but the development stack can run without attached devices.
-
-Do not expose the hardware service directly to the internet.
